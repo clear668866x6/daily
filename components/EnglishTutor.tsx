@@ -29,6 +29,7 @@ export const EnglishTutor: React.FC<Props> = ({ onCheckIn }) => {
   const handleQuickCheckIn = () => {
     if (!content) return;
     const checkInText = `## 每日AI英语阅读打卡\n\n学习了关于 "${content.article.substring(0, 20)}..." 的文章。\n\n**核心词汇：**\n${content.vocabList.slice(0, 5).map(v => `- ${v.word}: ${v.definition}`).join('\n')}\n\n感悟：文章生词较多，但逻辑清晰，已背诵！`;
+    // Simply call the prop, the parent handles the async logic
     onCheckIn(SubjectCategory.ENGLISH, checkInText);
   };
 

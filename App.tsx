@@ -3,6 +3,7 @@ import { Navigation } from './components/Navigation';
 import { Dashboard } from './components/Dashboard';
 import { Feed } from './components/Feed';
 import { EnglishTutor } from './components/EnglishTutor';
+import { Login } from './components/Login';
 import { CheckIn, SubjectCategory, User } from './types';
 import * as storage from './services/storageService';
 
@@ -10,55 +11,136 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [user, setUser] = useState<User | null>(null);
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
+  const [isInitializing, setIsInitializing] = useState(true);
+
+  // Function to load data from Supabase
+  const refreshData = async () => {
+    try {
+      // Need to map DB snake_case back to TS camelCase
+      const data = await storage.getCheckIns();
+      const mappedData: CheckIn[] = data.map((item: any) => ({
+        id: item.id,
+        userId: item.user_id,
+        userName: item.user_name,
+        userAvatar: item.user_avatar,
+        subject: item.subject,
+        content: item.content,
+        imageUrl: item.image_url,
+        timestamp: item.timestamp,
+        likedBy: item.liked_by || []
+      }));
+      setCheckIns(mappedData);
+    } catch (e) {
+      console.error("Failed to load checkins", e);
+    }
+  };
 
   useEffect(() => {
-    // Load initial data
-    setUser(storage.getCurrentUser());
-    setCheckIns(storage.getCheckIns());
+    const init = async () => {
+      const currentUser = storage.getCurrentUser();
+      if (currentUser) {
+        setUser(currentUser);
+      }
+      await refreshData();
+      setIsInitializing(false);
+    };
+    init();
+
+    // Set up a simple polling to sync data every 10 seconds
+    const interval = setInterval(refreshData, 10000);
+    return () => clearInterval(interval);
   }, []);
 
-  const handleAddCheckIn = (newCheckIn: CheckIn) => {
-    const updated = storage.addCheckIn(newCheckIn);
-    setCheckIns(updated);
-    // If check-in happens in English Tutor, optionally switch to feed to see it
+  const handleLogin = async (loggedInUser: User) => {
+    setUser(loggedInUser);
+    await refreshData();
+  };
+
+  const handleLogout = () => {
+    storage.logoutUser();
+    setUser(null);
+    setActiveTab('dashboard');
+  };
+
+  const handleAddCheckIn = async (newCheckIn: CheckIn) => {
+    // Optimistic update (show it immediately)
+    setCheckIns(prev => [newCheckIn, ...prev]);
+    
+    try {
+      await storage.addCheckIn(newCheckIn);
+      // Background refresh to ensure consistency
+      await refreshData();
+    } catch (e) {
+      alert("打卡上传失败，请检查网络");
+    }
+
     if (activeTab === 'english') {
       setActiveTab('feed');
     }
   };
 
-  const handleLike = (id: string) => {
-    const updated = storage.toggleLike(id);
-    setCheckIns(updated);
+  const handleLike = async (checkInId: string) => {
+    if (!user) return;
+    
+    // Optimistic UI update
+    setCheckIns(prev => prev.map(c => {
+      if (c.id === checkInId) {
+        const isLiked = c.likedBy.includes(user.id);
+        const newLikedBy = isLiked 
+          ? c.likedBy.filter(id => id !== user.id)
+          : [...c.likedBy, user.id];
+        return { ...c, likedBy: newLikedBy };
+      }
+      return c;
+    }));
+
+    await storage.toggleLike(checkInId, user.id);
+    // Don't refresh immediately to avoid UI jump, depend on polling or next interaction
   };
 
   const handleEnglishCheckIn = (subject: SubjectCategory, content: string) => {
     if (!user) return;
     const newCheckIn: CheckIn = {
-      id: Date.now().toString(),
+      id: Date.now().toString(), // Will be string in DB
       userId: user.id,
       userName: user.name,
       userAvatar: user.avatar,
       subject,
       content,
       timestamp: Date.now(),
-      likes: 0
+      likedBy: []
     };
     handleAddCheckIn(newCheckIn);
   };
 
-  if (!user) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  if (isInitializing) {
+    return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-400">正在连接数据库...</div>;
+  }
+
+  if (!user) {
+    return <Login onLogin={handleLogin} />;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row font-sans">
-      <Navigation activeTab={activeTab} onTabChange={setActiveTab} />
+      <Navigation 
+        activeTab={activeTab} 
+        onTabChange={setActiveTab} 
+        onLogout={handleLogout}
+      />
       
       <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen">
         <div className="max-w-5xl mx-auto">
           {activeTab === 'dashboard' && (
             <div className="animate-fade-in">
-              <div className="mb-6">
-                <h1 className="text-2xl font-bold text-gray-900">欢迎回来，{user.name} 👋</h1>
-                <p className="text-gray-500">距离考研还有一段时间，今天也要加油！</p>
+              <div className="mb-6 flex justify-between items-end">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">欢迎回来，{user.name} 👋</h1>
+                  <p className="text-gray-500">距离考研还有一段时间，今天也要加油！</p>
+                </div>
+                <button onClick={refreshData} className="text-sm text-brand-600 hover:underline">
+                  刷新数据
+                </button>
               </div>
               <Dashboard checkIns={checkIns} currentUserId={user.id} />
             </div>
@@ -66,9 +148,12 @@ const App: React.FC = () => {
 
           {activeTab === 'feed' && (
             <div className="animate-fade-in">
-              <div className="mb-6 text-center md:text-left">
-                <h1 className="text-2xl font-bold text-gray-900">研友圈</h1>
-                <p className="text-gray-500">看看大家都在卷什么</p>
+              <div className="mb-6 text-center md:text-left flex justify-between items-center">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">研友圈</h1>
+                  <p className="text-gray-500">看看大家都在卷什么</p>
+                </div>
+                <div className="text-xs text-gray-400">自动同步中...</div>
               </div>
               <Feed 
                 checkIns={checkIns} 
@@ -86,8 +171,6 @@ const App: React.FC = () => {
           )}
         </div>
       </main>
-
-      {/* Mobile styles adjustment helper */}
       <style>{`
         @keyframes fade-in {
           from { opacity: 0; transform: translateY(10px); }
@@ -96,13 +179,8 @@ const App: React.FC = () => {
         .animate-fade-in {
           animation: fade-in 0.3s ease-out forwards;
         }
-        .scrollbar-hide::-webkit-scrollbar {
-            display: none;
-        }
-        .scrollbar-hide {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
-        }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
       `}</style>
     </div>
   );

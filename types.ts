@@ -24,7 +24,7 @@ export interface CheckIn {
   content: string; // Markdown supported
   imageUrl?: string;
   timestamp: number;
-  likes: number;
+  likedBy: string[]; // Changed from 'likes: number' to track WHO liked it
 }
 
 export interface EnglishDailyContent {

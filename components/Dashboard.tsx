@@ -34,6 +34,9 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUserId }) => {
 
   const streak = 3; // Mock streak logic for visual appeal
   const totalDays = new Set(myCheckIns.map(c => new Date(c.timestamp).toDateString())).size;
+  
+  // Calculate total likes received by user
+  const totalLikesReceived = myCheckIns.reduce((acc, curr) => acc + curr.likedBy.length, 0);
 
   return (
     <div className="space-y-6">
@@ -47,7 +50,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUserId }) => {
             <span className="text-sm font-medium bg-white/20 px-2 py-1 rounded-full">总打卡</span>
           </div>
           <h3 className="text-3xl font-bold">{myCheckIns.length}</h3>
-          <p className="text-brand-100 text-sm mt-1">坚持就是胜利</p>
+          <p className="text-brand-100 text-sm mt-1">获赞 {totalLikesReceived} 次</p>
         </div>
 
         <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">

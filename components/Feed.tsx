@@ -40,13 +40,12 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
       content,
       imageUrl: image || undefined,
       timestamp: Date.now(),
-      likes: 0
+      likedBy: [] // Initial empty likes
     };
 
     onAddCheckIn(newCheckIn);
     setContent('');
     setImage(null);
-    // Reset file input
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -148,41 +147,47 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
 
       {/* List */}
       <div className="space-y-6">
-        {filteredCheckIns.map(checkIn => (
-          <div key={checkIn.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 transition-all hover:shadow-md">
-            <div className="flex justify-between items-start mb-4">
-              <div className="flex items-center space-x-3">
-                <img src={checkIn.userAvatar} alt={checkIn.userName} className="w-10 h-10 rounded-full bg-gray-200" />
-                <div>
-                  <h3 className="font-bold text-gray-900">{checkIn.userName}</h3>
-                  <p className="text-xs text-gray-500">
-                    {new Date(checkIn.timestamp).toLocaleString('zh-CN')} · <span className="text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded">{checkIn.subject}</span>
-                  </p>
+        {filteredCheckIns.map(checkIn => {
+          const isLiked = checkIn.likedBy.includes(user.id);
+          const likeCount = checkIn.likedBy.length;
+          
+          return (
+            <div key={checkIn.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 transition-all hover:shadow-md">
+              <div className="flex justify-between items-start mb-4">
+                <div className="flex items-center space-x-3">
+                  <img src={checkIn.userAvatar} alt={checkIn.userName} className="w-10 h-10 rounded-full bg-gray-200" />
+                  <div>
+                    <h3 className="font-bold text-gray-900">{checkIn.userName}</h3>
+                    <p className="text-xs text-gray-500">
+                      {new Date(checkIn.timestamp).toLocaleString('zh-CN')} · <span className="text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded">{checkIn.subject}</span>
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="mb-4">
-              <MarkdownText content={checkIn.content} />
-            </div>
-
-            {checkIn.imageUrl && (
               <div className="mb-4">
-                <img src={checkIn.imageUrl} alt="Check-in" className="rounded-xl max-h-96 object-cover w-full border border-gray-100" />
+                <MarkdownText content={checkIn.content} />
               </div>
-            )}
 
-            <div className="flex items-center space-x-6 border-t border-gray-50 pt-4">
-              <button 
-                onClick={() => onLike(checkIn.id)}
-                className="flex items-center space-x-2 text-gray-500 hover:text-red-500 transition-colors group"
-              >
-                <ThumbsUp className={`w-5 h-5 ${checkIn.likes > 0 ? 'fill-current text-red-500' : 'group-hover:scale-110'}`} />
-                <span>{checkIn.likes > 0 ? checkIn.likes : '赞'}</span>
-              </button>
+              {checkIn.imageUrl && (
+                <div className="mb-4">
+                  <img src={checkIn.imageUrl} alt="Check-in" className="rounded-xl max-h-96 object-cover w-full border border-gray-100" />
+                </div>
+              )}
+
+              <div className="flex items-center space-x-6 border-t border-gray-50 pt-4">
+                <button 
+                  onClick={() => onLike(checkIn.id)}
+                  className={`flex items-center space-x-2 transition-colors group ${isLiked ? 'text-red-500' : 'text-gray-500 hover:text-red-500'}`}
+                  title={isLiked ? "取消点赞" : "点赞"}
+                >
+                  <ThumbsUp className={`w-5 h-5 ${isLiked ? 'fill-current' : 'group-hover:scale-110'}`} />
+                  <span>{likeCount > 0 ? likeCount : '赞'}</span>
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {filteredCheckIns.length === 0 && (
           <div className="text-center py-12 text-gray-400">
             暂无该科目的打卡记录，快来抢沙发！

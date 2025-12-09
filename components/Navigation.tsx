@@ -4,9 +4,10 @@ import { LayoutDashboard, BookOpen, Users, LogOut, GraduationCap } from 'lucide-
 interface Props {
   activeTab: string;
   onTabChange: (tab: string) => void;
+  onLogout: () => void;
 }
 
-export const Navigation: React.FC<Props> = ({ activeTab, onTabChange }) => {
+export const Navigation: React.FC<Props> = ({ activeTab, onTabChange, onLogout }) => {
   const navItems = [
     { id: 'dashboard', label: '复习看板', icon: LayoutDashboard },
     { id: 'feed', label: '研友圈', icon: Users },
@@ -43,7 +44,10 @@ export const Navigation: React.FC<Props> = ({ activeTab, onTabChange }) => {
       </nav>
 
       <div className="p-4 border-t border-gray-100">
-        <button className="flex items-center space-x-3 px-4 py-2 text-gray-400 hover:text-gray-600 w-full">
+        <button 
+          onClick={onLogout}
+          className="flex items-center space-x-3 px-4 py-2 text-gray-400 hover:text-red-500 w-full transition-colors"
+        >
           <LogOut className="w-5 h-5" />
           <span className="text-sm">退出登录</span>
         </button>
