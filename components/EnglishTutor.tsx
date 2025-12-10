@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { EnglishDailyContent, SubjectCategory, User } from '../types';
 import { generateEnglishDaily } from '../services/geminiService';
-import { BookOpen, RefreshCw, Send, Loader2, Languages, Lock, Sparkles, Coffee, Clock } from 'lucide-react';
+import { BookOpen, RefreshCw, Send, Loader2, Languages, Lock, Sparkles, Coffee, Clock, BrainCircuit } from 'lucide-react';
 
 interface Props {
   user: User;
@@ -37,7 +37,7 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
     setLoading(true);
     setCooldown(true); // 开启冷却，防止重复点击
     
-    // 调用 Gemini API
+    // 调用 AI API (现在是 DeepSeek)
     const data = await generateEnglishDaily();
     
     if (data) {
@@ -48,7 +48,7 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
     setLoading(false);
     setShowTranslation(false);
 
-    // 10秒后才允许再次点击，防止触发 API 429 速率限制
+    // 10秒后才允许再次点击，防止触发 API 速率限制
     setTimeout(() => {
         setCooldown(false);
     }, 10000);
@@ -59,7 +59,7 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
     if (!content) return;
     // 打卡内容包含当前时间，区分多次打卡
     const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-    const checkInText = `## 每日AI英语阅读打卡 (${timeStr})\n\n学习了关于 "${content.article.substring(0, 20)}..." 的文章。\n\n**核心词汇：**\n${content.vocabList.slice(0, 5).map(v => `- ${v.word}: ${v.definition}`).join('\n')}\n\n感悟：文章生词较多，但逻辑清晰，已背诵！`;
+    const checkInText = `## 每日AI英语阅读打卡 (${timeStr})\n\n学习了关于 "${content.article.substring(0, 20)}..." 的文章。\n\n**核心词汇：**\n${content.vocabList.slice(0, 5).map(v => `- ${v.word}: ${v.definition}`).join('\n')}\n\n感悟：DeepSeek 出题很有深度，已背诵！`;
     onCheckIn(SubjectCategory.ENGLISH, checkInText);
   };
 
@@ -68,10 +68,10 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-brand-500" />
-            Gemini 每日英语
+            <BrainCircuit className="w-6 h-6 text-blue-600" />
+            DeepSeek 每日英语
           </h2>
-          <p className="text-gray-500 text-sm">AI 精选考研高频词生成的阅读理解</p>
+          <p className="text-gray-500 text-sm">DeepSeek V3 模型精选考研高频词生成的阅读理解</p>
         </div>
         
         {/* 右上角按钮：只要有内容就显示，允许用户多次生成 */}
@@ -110,8 +110,8 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
       {loading ? (
         <div className="h-96 flex flex-col items-center justify-center bg-white rounded-2xl border border-gray-100 shadow-sm animate-pulse">
           <Loader2 className="w-12 h-12 text-brand-600 animate-spin mb-6" />
-          <h3 className="text-lg font-bold text-gray-800">Gemini 正在思考中...</h3>
-          <p className="text-gray-500 mt-2">正在从考研大纲中抽取词汇编写文章</p>
+          <h3 className="text-lg font-bold text-gray-800">DeepSeek 正在深度思考...</h3>
+          <p className="text-gray-500 mt-2">正在构建逻辑严密的考研真题模拟</p>
         </div>
       ) : content ? (
         // --- 已有文章内容的视图 ---
@@ -119,7 +119,7 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
               <div className="flex justify-between items-start mb-4">
-                <span className="bg-brand-50 text-brand-700 text-xs font-bold px-2 py-1 rounded-full">Reading Comprehension</span>
+                <span className="bg-blue-50 text-blue-700 text-xs font-bold px-2 py-1 rounded-full">DeepSeek Generated</span>
                 <span className="text-gray-400 text-sm">{content.date}</span>
               </div>
               <article className="prose prose-slate max-w-none mb-6">
@@ -144,15 +144,15 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
               </div>
             </div>
             
-            <div className="bg-gradient-to-r from-brand-600 to-brand-700 rounded-2xl p-6 text-white flex items-center justify-between shadow-lg shadow-brand-200">
+            <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-6 text-white flex items-center justify-between shadow-lg shadow-blue-200">
               <div>
                 <h3 className="font-bold text-lg">完成阅读了？</h3>
-                <p className="text-brand-100 text-sm">{isGuest ? '注册账号以记录你的进步' : '一键打卡到动态圈，记录你的进步'}</p>
+                <p className="text-blue-100 text-sm">{isGuest ? '注册账号以记录你的进步' : '一键打卡到动态圈，记录你的进步'}</p>
               </div>
               <button 
                 onClick={handleQuickCheckIn}
                 disabled={isGuest}
-                className="bg-white text-brand-600 px-6 py-2 rounded-lg font-bold shadow-lg hover:bg-brand-50 transition-colors flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bg-white text-blue-600 px-6 py-2 rounded-lg font-bold shadow-lg hover:bg-blue-50 transition-colors flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isGuest ? <Lock className="w-4 h-4" /> : <Send className="w-4 h-4" />}
                 <span>{isGuest ? '访客不可打卡' : '一键打卡'}</span>
@@ -163,13 +163,13 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
           <div className="lg:col-span-1">
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 sticky top-6">
               <div className="flex items-center space-x-2 mb-4">
-                <BookOpen className="w-5 h-5 text-brand-500" />
+                <BookOpen className="w-5 h-5 text-blue-500" />
                 <h3 className="font-bold text-gray-800">核心词汇</h3>
               </div>
               <ul className="space-y-3">
                 {content.vocabList.map((item, idx) => (
                   <li key={idx} className="group p-2 rounded-lg hover:bg-gray-50 transition-colors">
-                    <div className="font-bold text-gray-800 group-hover:text-brand-600 transition-colors">
+                    <div className="font-bold text-gray-800 group-hover:text-blue-600 transition-colors">
                       {item.word}
                     </div>
                     <div className="text-sm text-gray-500">{item.definition}</div>
@@ -183,20 +183,20 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
         // --- 还没有生成文章时的空状态视图 (默认显示这个) ---
         !isGuest && (
             <div className="bg-white rounded-3xl border border-gray-200 p-12 text-center shadow-sm flex flex-col items-center">
-                <div className="bg-brand-50 p-4 rounded-full mb-6">
-                    <Coffee className="w-12 h-12 text-brand-500" />
+                <div className="bg-blue-50 p-4 rounded-full mb-6">
+                    <Coffee className="w-12 h-12 text-blue-500" />
                 </div>
                 <h3 className="text-2xl font-bold text-gray-800 mb-2">准备好开始今天的阅读了吗？</h3>
                 <p className="text-gray-500 max-w-md mb-8 leading-relaxed">
-                    点击下方按钮，Gemini 将为你生成一篇包含 30-50 个考研大纲词汇的短文。坚持每天一篇，轻松搞定长难句。
+                    点击下方按钮，DeepSeek 将为你生成一篇包含 30-50 个考研大纲词汇的短文。坚持每天一篇，轻松搞定长难句。
                 </p>
                 <button 
                     onClick={fetchDaily}
                     disabled={loading || cooldown}
-                    className={`text-white text-lg font-bold px-8 py-4 rounded-xl shadow-xl shadow-brand-200 transition-all flex items-center gap-3 ${
+                    className={`text-white text-lg font-bold px-8 py-4 rounded-xl shadow-xl shadow-blue-200 transition-all flex items-center gap-3 ${
                         loading || cooldown 
                         ? 'bg-gray-400 cursor-not-allowed' 
-                        : 'bg-brand-600 hover:bg-brand-700 hover:-translate-y-1'
+                        : 'bg-blue-600 hover:bg-blue-700 hover:-translate-y-1'
                     }`}
                 >
                     <Sparkles className="w-5 h-5" />
