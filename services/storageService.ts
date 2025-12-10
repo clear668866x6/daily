@@ -196,21 +196,41 @@ export const toggleLike = async (checkInId: string, userId: string): Promise<voi
   if (updateError) console.error('Error toggling like:', updateError);
 };
 
-// --- Mock Algorithm Storage (Local Storage Simulation for Demo) ---
-// 算法题目的发布和做题记录暂时存在 LocalStorage，这不影响“打卡动态”存入数据库
-// 如果你想把题目本身也存数据库，需要额外建 algorithm_tasks 表
+// --- Algorithm Storage (Now using Supabase) ---
 
-export const getAlgorithmTasks = (): AlgorithmTask[] => {
-  const stored = localStorage.getItem('kaoyan_algo_tasks');
-  return stored ? JSON.parse(stored) : [];
+// 1. 获取算法题目 (从 Supabase 数据库)
+export const getAlgorithmTasks = async (): Promise<AlgorithmTask[]> => {
+  const { data, error } = await supabase
+    .from('algorithm_tasks')
+    .select('*')
+    .order('date', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching algorithm tasks:', error);
+    // 如果数据库没建好，降级回退到空数组，避免崩坏
+    return [];
+  }
+  return data as AlgorithmTask[];
 };
 
-export const addAlgorithmTask = (task: AlgorithmTask) => {
-  const tasks = getAlgorithmTasks();
-  tasks.push(task);
-  localStorage.setItem('kaoyan_algo_tasks', JSON.stringify(tasks));
+// 2. 发布算法题目 (写入 Supabase 数据库)
+export const addAlgorithmTask = async (task: AlgorithmTask): Promise<void> => {
+  const { error } = await supabase.from('algorithm_tasks').insert({
+    id: task.id,
+    title: task.title,
+    description: task.description,
+    difficulty: task.difficulty,
+    date: task.date
+  });
+
+  if (error) {
+    console.error('Error adding algorithm task:', error);
+    throw error;
+  }
 };
 
+// 3. 提交记录保持本地存储 (每个人的做题状态是私有的，暂不需要同步)
+// 如果未来想做排行榜，可以将此处也改为 Supabase
 export const getAlgorithmSubmissions = (userId: string): AlgorithmSubmission[] => {
   const stored = localStorage.getItem('kaoyan_algo_subs');
   const all: AlgorithmSubmission[] = stored ? JSON.parse(stored) : [];

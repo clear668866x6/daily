@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, AlgorithmTask, AlgorithmSubmission, SubjectCategory } from '../types';
 import * as storage from '../services/storageService';
-import { Code, CheckCircle, Plus, Send, Play, Lock, AlertTriangle, FileCode, EyeOff } from 'lucide-react';
+import { Code, CheckCircle, Plus, Send, Play, Lock, AlertTriangle, FileCode, EyeOff, Loader2 } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 
 interface Props {
@@ -16,10 +16,12 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
   const [activeTask, setActiveTask] = useState<string | null>(null);
   const [code, setCode] = useState('');
   const [isRunning, setIsRunning] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // 数据加载状态
   
   // Admin State
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDesc, setNewTaskDesc] = useState('');
+  const [isPublishing, setIsPublishing] = useState(false);
 
   const today = new Date().toISOString().split('T')[0];
   const isGuest = user.role === 'guest';
@@ -28,34 +30,56 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
     refreshData();
   }, [user]);
 
-  const refreshData = () => {
-    const allTasks = storage.getAlgorithmTasks();
-    const todaysTasks = allTasks.filter(t => t.date === today);
-    setTasks(todaysTasks);
-    
-    // 如果今天有题且未选中，默认选第一个
-    if (todaysTasks.length > 0 && !activeTask) {
-      setActiveTask(todaysTasks[0].id);
-    }
+  const refreshData = async () => {
+    setIsLoading(true);
+    try {
+      // 1. 从数据库异步获取题目
+      const allTasks = await storage.getAlgorithmTasks();
+      // 过滤出今天的题目 (或者显示所有题目，按需求)
+      // 这里为了让用户能看到以前的题目进行练习，我们展示所有题目，或者你可以只展示今天的
+      // 为了符合“每日打卡”逻辑，暂时只展示今天的，或者你可以改为展示最近的
+      const todaysTasks = allTasks.filter(t => t.date === today);
+      
+      // 如果需要显示历史题目，可以去掉 filter。这里我们保留今日逻辑，但如果没有今日题目，显示最新的
+      const displayTasks = todaysTasks.length > 0 ? todaysTasks : allTasks.slice(0, 5); // 没有任何今日题目时显示最近5个
 
-    const subs = storage.getAlgorithmSubmissions(user.id);
-    setSubmissions(subs);
+      setTasks(displayTasks);
+      
+      if (displayTasks.length > 0 && !activeTask) {
+        setActiveTask(displayTasks[0].id);
+      }
+
+      // 2. 从本地获取做题记录 (同步)
+      const subs = storage.getAlgorithmSubmissions(user.id);
+      setSubmissions(subs);
+    } catch (e) {
+      console.error("Failed to load tasks", e);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleAddTask = () => {
+  const handleAddTask = async () => {
     if (!newTaskTitle || !newTaskDesc) return;
-    const newTask: AlgorithmTask = {
-      id: Date.now().toString(),
-      title: newTaskTitle,
-      description: newTaskDesc,
-      difficulty: 'Medium',
-      date: today
-    };
-    storage.addAlgorithmTask(newTask);
-    setNewTaskTitle('');
-    setNewTaskDesc('');
-    alert("✅ 题目发布成功！学生现在可以看到这道题了。");
-    refreshData();
+    setIsPublishing(true);
+    try {
+      const newTask: AlgorithmTask = {
+        id: Date.now().toString(),
+        title: newTaskTitle,
+        description: newTaskDesc,
+        difficulty: 'Medium',
+        date: today
+      };
+      await storage.addAlgorithmTask(newTask);
+      setNewTaskTitle('');
+      setNewTaskDesc('');
+      alert("✅ 题目发布成功！所有学生刷新后即可看到。");
+      await refreshData();
+    } catch (e) {
+      alert("发布失败，请检查网络或数据库权限");
+    } finally {
+      setIsPublishing(false);
+    }
   };
 
   const handleSubmitCode = async () => {
@@ -135,11 +159,11 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
             <div className="flex justify-end">
               <button
                 onClick={handleAddTask}
-                disabled={!newTaskTitle || !newTaskDesc}
+                disabled={!newTaskTitle || !newTaskDesc || isPublishing}
                 className="bg-brand-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-brand-700 transition-colors disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-brand-200"
               >
-                <Send className="w-4 h-4" /> 
-                立即发布
+                {isPublishing ? <Loader2 className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4" />}
+                {isPublishing ? '发布中...' : '立即发布'}
               </button>
             </div>
           </div>
@@ -185,7 +209,11 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
         </div>
         
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          {tasks.length === 0 ? (
+          {isLoading ? (
+             <div className="flex items-center justify-center h-40">
+                <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
+             </div>
+          ) : tasks.length === 0 ? (
             <div className="text-center p-8 text-gray-400 flex flex-col items-center justify-center h-full">
               <div className="bg-gray-100 rounded-full w-16 h-16 flex items-center justify-center mb-4 text-gray-300">
                 <AlertTriangle className="w-8 h-8" />
