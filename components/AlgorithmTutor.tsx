@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, AlgorithmTask, AlgorithmSubmission, SubjectCategory } from '../types';
 import * as storage from '../services/storageService';
-import { Code, CheckCircle, Plus, Send, Play, Lock, AlertTriangle, FileCode } from 'lucide-react';
+import { Code, CheckCircle, Plus, Send, Play, Lock, AlertTriangle, FileCode, EyeOff } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 
 interface Props {
@@ -59,10 +59,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
   };
 
   const handleSubmitCode = async () => {
-    if (isGuest) {
-        alert("👀 访客模式可以编写代码，但无法提交保存。");
-        return;
-    }
+    if (isGuest) return; // 访客无法触发
     if (!activeTask) return;
     setIsRunning(true);
     
@@ -95,8 +92,6 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
   const handleDailyCheckIn = () => {
     if (isGuest) return;
     if (!allCompleted) return;
-    // 这里的 content 会被写入 Supabase 的 checkins 表
-    // 所以算法打卡记录是会存入数据库的，并在研友圈显示的
     const content = `## 每日算法打卡 💻\n\n**今日成就：**\n我完成了今天的 ${tasks.length} 道算法挑战！\n\n**题目列表：**\n${tasks.map(t => `- [AC] ${t.title}`).join('\n')}\n\n代码已提交通过，坚持就是胜利！🚀`;
     onCheckIn(SubjectCategory.ALGORITHM, content);
   };
@@ -256,15 +251,27 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
             
             <div className="flex-1 bg-[#1e1e1e] p-4 font-mono text-sm relative group">
               <div className="absolute top-0 left-0 right-0 h-6 bg-[#1e1e1e] border-b border-gray-700 flex items-center px-4 text-xs text-gray-500 select-none">
-                solution.js
+                solution.js {isGuest && '(只读)'}
               </div>
+              
               <textarea
                 value={code}
-                onChange={e => setCode(e.target.value)}
-                className="w-full h-full bg-transparent text-gray-200 resize-none focus:outline-none pt-6 leading-relaxed"
-                placeholder="// 在此输入你的解题代码..."
+                onChange={e => !isGuest && setCode(e.target.value)}
+                readOnly={isGuest}
+                className={`w-full h-full bg-transparent text-gray-200 resize-none focus:outline-none pt-6 leading-relaxed ${isGuest ? 'cursor-not-allowed opacity-70' : ''}`}
+                placeholder={isGuest ? "// 访客模式下无法编辑代码，请注册后开始刷题..." : "// 在此输入你的解题代码..."}
                 spellCheck={false}
               />
+
+              {isGuest && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/10 pointer-events-none">
+                  <div className="bg-white/10 backdrop-blur-md px-6 py-4 rounded-xl border border-white/20 flex flex-col items-center text-white shadow-2xl transform translate-y-8">
+                     <Lock className="w-8 h-8 mb-2" />
+                     <p className="font-bold">访客模式 · 仅供预览</p>
+                     <p className="text-xs text-gray-300 mt-1">登录后即可编写代码并运行</p>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center">
@@ -278,7 +285,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
                 title={isGuest ? "访客模式无法提交" : "提交代码"}
               >
                 {isGuest ? (
-                  <><Lock className="w-4 h-4"/> 仅预览</>
+                  <><EyeOff className="w-4 h-4"/> 禁止提交</>
                 ) : isRunning ? (
                   <>运行测试中...</>
                 ) : (

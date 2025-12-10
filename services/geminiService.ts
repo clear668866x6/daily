@@ -3,14 +3,24 @@ import { EnglishDailyContent } from "../types";
 
 // Helper to safely get environment variables (compatible with Vite and Node)
 const getApiKey = () => {
+  // 1. 尝试读取 VITE_ 开头的变量 (Vite 标准)
   // @ts-ignore
-  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.API_KEY) {
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
     // @ts-ignore
-    return import.meta.env.API_KEY;
+    if (import.meta.env.VITE_API_KEY) return import.meta.env.VITE_API_KEY;
+    // @ts-ignore
+    if (import.meta.env.VITE_DEEPSEEK_API_KEY) return import.meta.env.VITE_DEEPSEEK_API_KEY;
+    // @ts-ignore
+    if (import.meta.env.API_KEY) return import.meta.env.API_KEY;
   }
-  if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
-    return process.env.API_KEY;
+
+  // 2. 尝试读取 process.env (Node/System 环境)
+  if (typeof process !== 'undefined' && process.env) {
+    if (process.env.VITE_API_KEY) return process.env.VITE_API_KEY;
+    if (process.env.VITE_DEEPSEEK_API_KEY) return process.env.VITE_DEEPSEEK_API_KEY;
+    if (process.env.API_KEY) return process.env.API_KEY;
   }
+  
   return '';
 };
 
@@ -19,7 +29,7 @@ const API_URL = "https://api.deepseek.com/chat/completions";
 
 export const generateEnglishDaily = async (): Promise<EnglishDailyContent> => {
   if (!API_KEY) {
-    return getFallbackData("未配置 DeepSeek API Key，请在环境变量中设置 API_KEY。");
+    return getFallbackData("未检测到 API Key。请确保环境变量名为 VITE_API_KEY，并已正确配置。");
   }
 
   const prompt = `
@@ -60,24 +70,32 @@ export const generateEnglishDaily = async (): Promise<EnglishDailyContent> => {
     });
 
     if (!response.ok) {
-      throw new Error(`DeepSeek API Error: ${response.statusText}`);
+      // 增加详细的错误日志
+      const errText = await response.text();
+      console.error("DeepSeek API Error Detail:", errText);
+      throw new Error(`DeepSeek API Error: ${response.status} ${response.statusText}`);
     }
 
     const data = await response.json();
     const contentStr = data.choices?.[0]?.message?.content;
 
     if (contentStr) {
-      const parsedData = JSON.parse(contentStr);
-      return {
-        ...parsedData,
-        date: new Date().toISOString().split('T')[0]
-      };
+      try {
+        const parsedData = JSON.parse(contentStr);
+        return {
+          ...parsedData,
+          date: new Date().toISOString().split('T')[0]
+        };
+      } catch (jsonError) {
+        console.error("JSON Parse Error:", contentStr);
+        throw new Error("DeepSeek 返回的格式不是有效的 JSON");
+      }
     }
     throw new Error("No content returned from DeepSeek");
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("AI Service Error:", error);
-    return getFallbackData("API 调用失败，请检查网络或 Key 余额。");
+    return getFallbackData(`API 调用失败: ${error.message}`);
   }
 };
 
