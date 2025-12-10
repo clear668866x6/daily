@@ -22,6 +22,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
   const [newTaskDesc, setNewTaskDesc] = useState('');
 
   const today = new Date().toISOString().split('T')[0];
+  const isGuest = user.role === 'guest';
 
   useEffect(() => {
     refreshData();
@@ -58,6 +59,10 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
   };
 
   const handleSubmitCode = async () => {
+    if (isGuest) {
+        alert("👀 访客模式可以编写代码，但无法提交保存。");
+        return;
+    }
     if (!activeTask) return;
     setIsRunning(true);
     
@@ -88,6 +93,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
   const allCompleted = tasks.length > 0 && completedCount === tasks.length;
 
   const handleDailyCheckIn = () => {
+    if (isGuest) return;
     if (!allCompleted) return;
     // 这里的 content 会被写入 Supabase 的 checkins 表
     // 所以算法打卡记录是会存入数据库的，并在研友圈显示的
@@ -221,16 +227,16 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
 
         <div className="p-4 border-t border-gray-100 bg-gray-50">
           <button
-            disabled={!allCompleted || tasks.length === 0}
+            disabled={!allCompleted || tasks.length === 0 || isGuest}
             onClick={handleDailyCheckIn}
             className={`w-full py-3.5 rounded-xl font-bold flex justify-center items-center gap-2 transition-all shadow-lg ${
-               allCompleted && tasks.length > 0
+               allCompleted && tasks.length > 0 && !isGuest
                ? 'bg-green-600 text-white hover:bg-green-700 shadow-green-200 transform hover:-translate-y-0.5' 
                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
             }`}
           >
-            <Send className="w-4 h-4" />
-            {allCompleted && tasks.length > 0 ? '一键算法打卡 (同步到研友圈)' : '完成所有题目以打卡'}
+            {isGuest ? <Lock className="w-4 h-4"/> : <Send className="w-4 h-4" />}
+            {isGuest ? '访客不可打卡' : (allCompleted && tasks.length > 0 ? '一键算法打卡 (同步到研友圈)' : '完成所有题目以打卡')}
           </button>
         </div>
       </div>
@@ -267,10 +273,13 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
                </div>
               <button
                 onClick={handleSubmitCode}
-                disabled={isRunning || !code.trim()}
-                className="bg-brand-600 text-white px-6 py-2.5 rounded-lg font-bold hover:bg-brand-700 transition-colors flex items-center gap-2 disabled:opacity-50 shadow-md shadow-brand-200"
+                disabled={isRunning || !code.trim() || isGuest}
+                className="bg-brand-600 text-white px-6 py-2.5 rounded-lg font-bold hover:bg-brand-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-brand-200"
+                title={isGuest ? "访客模式无法提交" : "提交代码"}
               >
-                {isRunning ? (
+                {isGuest ? (
+                  <><Lock className="w-4 h-4"/> 仅预览</>
+                ) : isRunning ? (
                   <>运行测试中...</>
                 ) : (
                   <><Play className="w-4 h-4 fill-current" /> 提交代码</>

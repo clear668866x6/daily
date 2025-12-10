@@ -1,18 +1,23 @@
+
 import React, { useState, useEffect } from 'react';
-import { EnglishDailyContent, SubjectCategory } from '../types';
+import { EnglishDailyContent, SubjectCategory, User } from '../types';
 import { generateEnglishDaily } from '../services/geminiService';
-import { BookOpen, RefreshCw, Send, Loader2, Languages } from 'lucide-react';
+import { BookOpen, RefreshCw, Send, Loader2, Languages, Lock } from 'lucide-react';
 
 interface Props {
+  user: User;
   onCheckIn: (subject: SubjectCategory, content: string) => void;
 }
 
-export const EnglishTutor: React.FC<Props> = ({ onCheckIn }) => {
+export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
   const [content, setContent] = useState<EnglishDailyContent | null>(null);
   const [loading, setLoading] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
 
+  const isGuest = user.role === 'guest';
+
   const fetchDaily = async () => {
+    if (isGuest) return;
     setLoading(true);
     const data = await generateEnglishDaily();
     setContent(data);
@@ -22,14 +27,14 @@ export const EnglishTutor: React.FC<Props> = ({ onCheckIn }) => {
 
   useEffect(() => {
     // Load on mount if not exists
-    if (!content) fetchDaily();
+    if (!content && !isGuest) fetchDaily();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleQuickCheckIn = () => {
+    if (isGuest) return;
     if (!content) return;
     const checkInText = `## 每日AI英语阅读打卡\n\n学习了关于 "${content.article.substring(0, 20)}..." 的文章。\n\n**核心词汇：**\n${content.vocabList.slice(0, 5).map(v => `- ${v.word}: ${v.definition}`).join('\n')}\n\n感悟：文章生词较多，但逻辑清晰，已背诵！`;
-    // Simply call the prop, the parent handles the async logic
     onCheckIn(SubjectCategory.ENGLISH, checkInText);
   };
 
@@ -37,23 +42,31 @@ export const EnglishTutor: React.FC<Props> = ({ onCheckIn }) => {
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">AI 每日英语</h2>
-          <p className="text-gray-500 text-sm">Gemini 为你精选 30-50 个考研高频词生成的阅读理解</p>
+          <h2 className="text-2xl font-bold text-gray-800">DeepSeek 每日英语</h2>
+          <p className="text-gray-500 text-sm">AI 为你精选 30-50 个考研高频词生成的阅读理解</p>
         </div>
         <button 
           onClick={fetchDaily} 
-          disabled={loading}
-          className="flex items-center space-x-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          disabled={loading || isGuest}
+          className="flex items-center space-x-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          title={isGuest ? "访客无法生成" : "生成新文章"}
         >
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          <span>生成新文章</span>
+          <span>{isGuest ? '访客无法生成' : '生成新文章'}</span>
         </button>
       </div>
+
+      {isGuest && !content && (
+        <div className="bg-gray-50 p-8 rounded-2xl border border-gray-100 flex flex-col items-center justify-center text-gray-400">
+           <Lock className="w-10 h-10 mb-2 opacity-50"/>
+           <p>访客模式下无法调用 AI 生成新文章</p>
+        </div>
+      )}
 
       {loading ? (
         <div className="h-96 flex flex-col items-center justify-center bg-white rounded-2xl border border-gray-100">
           <Loader2 className="w-10 h-10 text-brand-600 animate-spin mb-4" />
-          <p className="text-gray-500">正在生成今日考研阅读文章...</p>
+          <p className="text-gray-500">DeepSeek 正在思考并生成今日考研阅读文章...</p>
         </div>
       ) : content ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -88,14 +101,15 @@ export const EnglishTutor: React.FC<Props> = ({ onCheckIn }) => {
             <div className="bg-gradient-to-r from-brand-600 to-brand-700 rounded-2xl p-6 text-white flex items-center justify-between">
               <div>
                 <h3 className="font-bold text-lg">完成今日阅读了？</h3>
-                <p className="text-brand-100 text-sm">一键打卡到动态圈，记录你的进步</p>
+                <p className="text-brand-100 text-sm">{isGuest ? '注册账号以记录你的进步' : '一键打卡到动态圈，记录你的进步'}</p>
               </div>
               <button 
                 onClick={handleQuickCheckIn}
-                className="bg-white text-brand-600 px-6 py-2 rounded-lg font-bold shadow-lg hover:bg-brand-50 transition-colors flex items-center space-x-2"
+                disabled={isGuest}
+                className="bg-white text-brand-600 px-6 py-2 rounded-lg font-bold shadow-lg hover:bg-brand-50 transition-colors flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Send className="w-4 h-4" />
-                <span>一键打卡</span>
+                {isGuest ? <Lock className="w-4 h-4" /> : <Send className="w-4 h-4" />}
+                <span>{isGuest ? '访客不可打卡' : '一键打卡'}</span>
               </button>
             </div>
           </div>

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Navigation } from './components/Navigation';
 import { Dashboard } from './components/Dashboard';
@@ -61,6 +62,12 @@ const App: React.FC = () => {
   };
 
   const handleAddCheckIn = async (newCheckIn: CheckIn) => {
+    // 双重校验：防止子组件逻辑漏洞
+    if (user?.role === 'guest') {
+      alert("访客模式无法发布打卡。");
+      return;
+    }
+
     setCheckIns(prev => [newCheckIn, ...prev]);
     
     try {
@@ -77,6 +84,7 @@ const App: React.FC = () => {
 
   const handleLike = async (checkInId: string) => {
     if (!user) return;
+    if (user.role === 'guest') return; // 访客不触发点赞逻辑
     
     setCheckIns(prev => prev.map(c => {
       if (c.id === checkInId) {
@@ -94,6 +102,10 @@ const App: React.FC = () => {
 
   const handleAutoCheckIn = (subject: SubjectCategory, content: string) => {
     if (!user) return;
+    if (user.role === 'guest') {
+      alert("访客模式无法自动打卡。");
+      return;
+    }
     const newCheckIn: CheckIn = {
       id: Date.now().toString(),
       userId: user.id,
@@ -162,7 +174,7 @@ const App: React.FC = () => {
 
           {activeTab === 'english' && (
             <div className="animate-fade-in">
-              <EnglishTutor onCheckIn={handleAutoCheckIn} />
+              <EnglishTutor user={user} onCheckIn={handleAutoCheckIn} />
             </div>
           )}
 
