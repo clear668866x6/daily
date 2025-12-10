@@ -42,7 +42,7 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">DeepSeek 每日英语</h2>
+          <h2 className="text-2xl font-bold text-gray-800">Gemini 每日英语</h2>
           <p className="text-gray-500 text-sm">AI 为你精选 30-50 个考研高频词生成的阅读理解</p>
         </div>
         <button 
@@ -66,7 +66,7 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
       {loading ? (
         <div className="h-96 flex flex-col items-center justify-center bg-white rounded-2xl border border-gray-100">
           <Loader2 className="w-10 h-10 text-brand-600 animate-spin mb-4" />
-          <p className="text-gray-500">DeepSeek 正在思考并生成今日考研阅读文章...</p>
+          <p className="text-gray-500">Gemini 正在思考并生成今日考研阅读文章...</p>
         </div>
       ) : content ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
