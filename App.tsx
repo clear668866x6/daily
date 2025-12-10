@@ -3,6 +3,7 @@ import { Navigation } from './components/Navigation';
 import { Dashboard } from './components/Dashboard';
 import { Feed } from './components/Feed';
 import { EnglishTutor } from './components/EnglishTutor';
+import { AlgorithmTutor } from './components/AlgorithmTutor';
 import { Login } from './components/Login';
 import { CheckIn, SubjectCategory, User } from './types';
 import * as storage from './services/storageService';
@@ -13,10 +14,8 @@ const App: React.FC = () => {
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
   const [isInitializing, setIsInitializing] = useState(true);
 
-  // Function to load data from Supabase
   const refreshData = async () => {
     try {
-      // Need to map DB snake_case back to TS camelCase
       const data = await storage.getCheckIns();
       const mappedData: CheckIn[] = data.map((item: any) => ({
         id: item.id,
@@ -46,7 +45,6 @@ const App: React.FC = () => {
     };
     init();
 
-    // Set up a simple polling to sync data every 10 seconds
     const interval = setInterval(refreshData, 10000);
     return () => clearInterval(interval);
   }, []);
@@ -63,18 +61,16 @@ const App: React.FC = () => {
   };
 
   const handleAddCheckIn = async (newCheckIn: CheckIn) => {
-    // Optimistic update (show it immediately)
     setCheckIns(prev => [newCheckIn, ...prev]);
     
     try {
       await storage.addCheckIn(newCheckIn);
-      // Background refresh to ensure consistency
       await refreshData();
     } catch (e) {
       alert("打卡上传失败，请检查网络");
     }
 
-    if (activeTab === 'english') {
+    if (activeTab === 'english' || activeTab === 'algorithm') {
       setActiveTab('feed');
     }
   };
@@ -82,7 +78,6 @@ const App: React.FC = () => {
   const handleLike = async (checkInId: string) => {
     if (!user) return;
     
-    // Optimistic UI update
     setCheckIns(prev => prev.map(c => {
       if (c.id === checkInId) {
         const isLiked = c.likedBy.includes(user.id);
@@ -95,13 +90,12 @@ const App: React.FC = () => {
     }));
 
     await storage.toggleLike(checkInId, user.id);
-    // Don't refresh immediately to avoid UI jump, depend on polling or next interaction
   };
 
-  const handleEnglishCheckIn = (subject: SubjectCategory, content: string) => {
+  const handleAutoCheckIn = (subject: SubjectCategory, content: string) => {
     if (!user) return;
     const newCheckIn: CheckIn = {
-      id: Date.now().toString(), // Will be string in DB
+      id: Date.now().toString(),
       userId: user.id,
       userName: user.name,
       userAvatar: user.avatar,
@@ -130,12 +124,14 @@ const App: React.FC = () => {
       />
       
       <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen">
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-6xl mx-auto">
           {activeTab === 'dashboard' && (
             <div className="animate-fade-in">
               <div className="mb-6 flex justify-between items-end">
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-900">欢迎回来，{user.name} 👋</h1>
+                  <h1 className="text-2xl font-bold text-gray-900">
+                    欢迎回来，{user.name} {user.role === 'guest' && '(访客)'} 👋
+                  </h1>
                   <p className="text-gray-500">距离考研还有一段时间，今天也要加油！</p>
                 </div>
                 <button onClick={refreshData} className="text-sm text-brand-600 hover:underline">
@@ -166,7 +162,17 @@ const App: React.FC = () => {
 
           {activeTab === 'english' && (
             <div className="animate-fade-in">
-              <EnglishTutor onCheckIn={handleEnglishCheckIn} />
+              <EnglishTutor onCheckIn={handleAutoCheckIn} />
+            </div>
+          )}
+
+          {activeTab === 'algorithm' && (
+            <div className="animate-fade-in">
+               <div className="mb-6">
+                <h1 className="text-2xl font-bold text-gray-900">算法训练营</h1>
+                <p className="text-gray-500">每日精选算法题，AC 才是硬道理</p>
+              </div>
+              <AlgorithmTutor user={user} onCheckIn={handleAutoCheckIn} />
             </div>
           )}
         </div>

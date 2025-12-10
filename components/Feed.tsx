@@ -1,7 +1,8 @@
+
 import React, { useState, useRef } from 'react';
 import { CheckIn, SubjectCategory, User } from '../types';
 import { MarkdownText } from './MarkdownText';
-import { Image as ImageIcon, Send, ThumbsUp, X, Filter } from 'lucide-react';
+import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2 } from 'lucide-react';
 
 interface Props {
   checkIns: CheckIn[];
@@ -14,6 +15,7 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
   const [content, setContent] = useState('');
   const [subject, setSubject] = useState<SubjectCategory>(SubjectCategory.MATH);
   const [image, setImage] = useState<string | null>(null);
+  const [isPreview, setIsPreview] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [filterSubject, setFilterSubject] = useState<string>('ALL');
 
@@ -40,12 +42,13 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
       content,
       imageUrl: image || undefined,
       timestamp: Date.now(),
-      likedBy: [] // Initial empty likes
+      likedBy: []
     };
 
     onAddCheckIn(newCheckIn);
     setContent('');
     setImage(null);
+    setIsPreview(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -57,7 +60,16 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
     <div className="max-w-2xl mx-auto space-y-8">
       {/* Input Area */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-        <h2 className="text-lg font-bold text-gray-800 mb-4">今天学了什么？</h2>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-bold text-gray-800">今天学了什么？</h2>
+          <button 
+            onClick={() => setIsPreview(!isPreview)}
+            className="text-xs flex items-center space-x-1 text-gray-600 hover:text-brand-600 transition-colors bg-gray-100 px-3 py-1.5 rounded-full"
+          >
+            {isPreview ? <><Edit2 className="w-3 h-3"/><span>切换编辑</span></> : <><Eye className="w-3 h-3"/><span>预览效果</span></>}
+          </button>
+        </div>
+        
         <div className="space-y-4">
           <select 
             value={subject} 
@@ -68,6 +80,7 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
               <option value={SubjectCategory.MATH}>{SubjectCategory.MATH}</option>
               <option value={SubjectCategory.ENGLISH}>{SubjectCategory.ENGLISH}</option>
               <option value={SubjectCategory.POLITICS}>{SubjectCategory.POLITICS}</option>
+              <option value={SubjectCategory.ALGORITHM}>{SubjectCategory.ALGORITHM}</option>
             </optgroup>
             <optgroup label="408 计算机综合">
               <option value={SubjectCategory.CS_DS}>{SubjectCategory.CS_DS}</option>
@@ -77,12 +90,18 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
             </optgroup>
           </select>
           
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="支持 Markdown 格式。记录你的学习心得、公式或背诵内容..."
-            className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl text-gray-800 min-h-[120px] focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
-          />
+          {isPreview ? (
+            <div className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl min-h-[120px] prose prose-sm max-w-none">
+              {content ? <MarkdownText content={content} /> : <span className="text-gray-400 italic">暂无内容，请切换到编辑模式输入...</span>}
+            </div>
+          ) : (
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="支持 Markdown 语法：&#10;# 一级标题  ## 二级标题&#10;**加粗文字**&#10;- 列表项&#10;```代码块```"
+              className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl text-gray-800 min-h-[120px] focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none font-mono text-sm leading-relaxed"
+            />
+          )}
 
           {image && (
             <div className="relative inline-block">
@@ -116,10 +135,10 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
             <button 
               onClick={handleSubmit}
               disabled={!content.trim()}
-              className="bg-brand-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              className="bg-brand-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 shadow-md hover:shadow-lg transition-all"
             >
               <Send className="w-4 h-4" />
-              <span>打卡</span>
+              <span>发布动态</span>
             </button>
           </div>
         </div>
@@ -130,7 +149,7 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
         <Filter className="w-4 h-4 text-gray-400 shrink-0" />
         <button 
           onClick={() => setFilterSubject('ALL')}
-          className={`px-3 py-1 rounded-full text-sm whitespace-nowrap ${filterSubject === 'ALL' ? 'bg-brand-600 text-white' : 'bg-white text-gray-600 border border-gray-200'}`}
+          className={`px-3 py-1 rounded-full text-sm whitespace-nowrap transition-colors ${filterSubject === 'ALL' ? 'bg-brand-600 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
         >
           全部
         </button>
@@ -138,7 +157,7 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
           <button
             key={cat}
             onClick={() => setFilterSubject(cat)}
-            className={`px-3 py-1 rounded-full text-sm whitespace-nowrap ${filterSubject === cat ? 'bg-brand-600 text-white' : 'bg-white text-gray-600 border border-gray-200'}`}
+            className={`px-3 py-1 rounded-full text-sm whitespace-nowrap transition-colors ${filterSubject === cat ? 'bg-brand-600 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
           >
             {cat}
           </button>

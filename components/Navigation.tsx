@@ -1,5 +1,6 @@
+
 import React from 'react';
-import { LayoutDashboard, BookOpen, Users, LogOut, GraduationCap } from 'lucide-react';
+import { LayoutDashboard, BookOpen, Users, LogOut, GraduationCap, Cpu } from 'lucide-react';
 
 interface Props {
   activeTab: string;
@@ -11,6 +12,7 @@ export const Navigation: React.FC<Props> = ({ activeTab, onTabChange, onLogout }
   const navItems = [
     { id: 'dashboard', label: '复习看板', icon: LayoutDashboard },
     { id: 'feed', label: '研友圈', icon: Users },
+    { id: 'algorithm', label: '算法训练', icon: Cpu },
     { id: 'english', label: 'AI英语', icon: BookOpen },
   ];
 
