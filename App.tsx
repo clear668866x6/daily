@@ -23,9 +23,13 @@ const App: React.FC = () => {
         userId: item.user_id,
         userName: item.user_name,
         userAvatar: item.user_avatar,
+        userRating: item.user_rating, 
+        userRole: item.user_role, 
         subject: item.subject,
         content: item.content,
         imageUrl: item.image_url,
+        duration: item.duration,
+        isPenalty: item.is_penalty, // 映射数据库字段
         timestamp: item.timestamp,
         likedBy: item.liked_by || []
       }));
@@ -61,8 +65,11 @@ const App: React.FC = () => {
     setActiveTab('dashboard');
   };
 
+  const handleUpdateUser = (updatedUser: User) => {
+      setUser(updatedUser);
+  };
+
   const handleAddCheckIn = async (newCheckIn: CheckIn) => {
-    // 双重校验：防止子组件逻辑漏洞
     if (user?.role === 'guest') {
       alert("访客模式无法发布打卡。");
       return;
@@ -84,7 +91,7 @@ const App: React.FC = () => {
 
   const handleLike = async (checkInId: string) => {
     if (!user) return;
-    if (user.role === 'guest') return; // 访客不触发点赞逻辑
+    if (user.role === 'guest') return; 
     
     setCheckIns(prev => prev.map(c => {
       if (c.id === checkInId) {
@@ -111,6 +118,8 @@ const App: React.FC = () => {
       userId: user.id,
       userName: user.name,
       userAvatar: user.avatar,
+      userRating: user.rating,
+      userRole: user.role,
       subject,
       content,
       timestamp: Date.now(),
@@ -136,7 +145,7 @@ const App: React.FC = () => {
       />
       
       <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen">
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-7xl mx-auto">
           {activeTab === 'dashboard' && (
             <div className="animate-fade-in">
               <div className="mb-6 flex justify-between items-end">
@@ -150,7 +159,7 @@ const App: React.FC = () => {
                   刷新数据
                 </button>
               </div>
-              <Dashboard checkIns={checkIns} currentUserId={user.id} />
+              <Dashboard checkIns={checkIns} currentUser={user} onUpdateUser={handleUpdateUser} />
             </div>
           )}
 

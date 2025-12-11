@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { GraduationCap, ArrowRight, AlertCircle, User as UserIcon, Lock, Coffee, KeyRound } from 'lucide-react';
-import { User } from '../types';
+import { User, getUserStyle } from '../types';
 import * as storage from '../services/storageService';
 
 interface Props {
@@ -20,10 +20,8 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
     const loadUsers = async () => {
       try {
         const users = await storage.getAllUsers();
-        // 仅在快速登录中显示普通用户，隐藏管理员
         setRecentUsers(users.filter(u => u.role !== 'admin').slice(0, 3));
       } catch (e) {
-        // Silent fail
       }
     };
     loadUsers();
@@ -36,7 +34,6 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
     setIsLoading(true);
     setErrorMsg(null);
     try {
-      // 传递邀请码
       const user = await storage.loginUser(username.trim(), password, inviteCode.trim());
       onLogin(user);
     } catch (error: any) {
@@ -180,7 +177,7 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
                     className="flex flex-col items-center p-2 rounded-xl hover:bg-gray-50 transition-colors group"
                   >
                     <img src={u.avatar} alt={u.name} className="w-10 h-10 rounded-full bg-gray-100 mb-2 group-hover:ring-2 ring-brand-200 transition-all" />
-                    <span className="text-xs text-gray-600 truncate w-full text-center">{u.name}</span>
+                    <span className={`text-xs truncate w-full text-center ${getUserStyle('user', u.rating)}`}>{u.name}</span>
                   </button>
                 ))}
               </div>

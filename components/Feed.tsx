@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { CheckIn, SubjectCategory, User } from '../types';
+import { CheckIn, SubjectCategory, User, getUserStyle } from '../types'; // 导入样式工具
 import { MarkdownText } from './MarkdownText';
 import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock } from 'lucide-react';
 
@@ -33,7 +33,7 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
   };
 
   const handleSubmit = () => {
-    if (isGuest) return; // 安全拦截
+    if (isGuest) return; 
     if (!content.trim()) return;
 
     const newCheckIn: CheckIn = {
@@ -41,6 +41,8 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
       userId: user.id,
       userName: user.name,
       userAvatar: user.avatar,
+      userRating: user.rating, // 保存发帖时的 rating
+      userRole: user.role,
       subject,
       content,
       imageUrl: image || undefined,
@@ -55,21 +57,13 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleLikeClick = (id: string) => {
-    if (isGuest) {
-      alert("👀 访客模式仅供预览，请注册账号后参与互动。");
-      return;
-    }
-    onLike(id);
-  };
-
   const filteredCheckIns = filterSubject === 'ALL' 
     ? checkIns 
     : checkIns.filter(c => c.subject === filterSubject);
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
-      {/* Input Area / Guest Banner */}
+      {/* Input Area */}
       {isGuest ? (
         <div className="bg-gray-100 p-6 rounded-2xl border border-gray-200 flex flex-col items-center justify-center text-center space-y-2">
           <Lock className="w-8 h-8 text-gray-400" />
@@ -116,7 +110,7 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
               <textarea
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                placeholder="支持 Markdown 语法：&#10;# 一级标题  ## 二级标题&#10;**加粗文字**&#10;- 列表项&#10;```代码块```"
+                placeholder="支持 Markdown 语法"
                 className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl text-gray-800 min-h-[120px] focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none font-mono text-sm leading-relaxed"
               />
             )}
@@ -135,25 +129,15 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
 
             <div className="flex justify-between items-center pt-2">
               <div className="flex space-x-2">
-                <button 
-                  onClick={() => fileInputRef.current?.click()}
-                  className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
-                  title="上传图片"
-                >
+                <button onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg">
                   <ImageIcon className="w-5 h-5" />
                 </button>
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  className="hidden" 
-                  accept="image/*" 
-                  onChange={handleImageUpload} 
-                />
+                <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
               </div>
               <button 
                 onClick={handleSubmit}
                 disabled={!content.trim()}
-                className="bg-brand-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 shadow-md hover:shadow-lg transition-all"
+                className="bg-brand-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 shadow-md"
               >
                 <Send className="w-4 h-4" />
                 <span>发布动态</span>
@@ -183,11 +167,13 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
         ))}
       </div>
 
-      {/* List */}
+      {/* Feed List */}
       <div className="space-y-6">
         {filteredCheckIns.map(checkIn => {
           const isLiked = checkIn.likedBy.includes(user.id);
           const likeCount = checkIn.likedBy.length;
+          // 应用 Rating 颜色
+          const nameStyle = getUserStyle(checkIn.userRole || 'user', checkIn.userRating);
           
           return (
             <div key={checkIn.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 transition-all hover:shadow-md">
@@ -195,7 +181,10 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
                 <div className="flex items-center space-x-3">
                   <img src={checkIn.userAvatar} alt={checkIn.userName} className="w-10 h-10 rounded-full bg-gray-200" />
                   <div>
-                    <h3 className="font-bold text-gray-900">{checkIn.userName}</h3>
+                    {/* 使用工具函数渲染带颜色的名字 */}
+                    <h3 className={`text-base ${nameStyle}`}>
+                        {checkIn.userName}
+                    </h3>
                     <p className="text-xs text-gray-500">
                       {new Date(checkIn.timestamp).toLocaleString('zh-CN')} · <span className="text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded">{checkIn.subject}</span>
                     </p>
@@ -215,9 +204,9 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
 
               <div className="flex items-center space-x-6 border-t border-gray-50 pt-4">
                 <button 
-                  onClick={() => handleLikeClick(checkIn.id)}
+                  onClick={() => onLike(checkIn.id)}
+                  disabled={isGuest}
                   className={`flex items-center space-x-2 transition-colors group ${isLiked ? 'text-red-500' : 'text-gray-500 hover:text-red-500'} ${isGuest ? 'cursor-not-allowed opacity-60' : ''}`}
-                  title={isGuest ? "访客无法点赞" : (isLiked ? "取消点赞" : "点赞")}
                 >
                   <ThumbsUp className={`w-5 h-5 ${isLiked ? 'fill-current' : 'group-hover:scale-110'}`} />
                   <span>{likeCount > 0 ? likeCount : '赞'}</span>

@@ -18,7 +18,8 @@ export interface User {
   name: string;
   avatar: string;
   role: UserRole;
-  password?: string; // 新增密码字段
+  password?: string;
+  rating?: number; 
 }
 
 export interface CheckIn {
@@ -26,11 +27,35 @@ export interface CheckIn {
   userId: string;
   userName: string;
   userAvatar: string;
+  userRating?: number;
+  userRole?: UserRole;
   subject: SubjectCategory;
-  content: string; // Markdown supported
+  content: string; 
   imageUrl?: string;
+  duration?: number; // 学习时长(分钟)
+  isPenalty?: boolean; // 新增：是否为惩罚/摸鱼记录
   timestamp: number;
   likedBy: string[]; 
+}
+
+export interface Goal {
+  id: number;
+  user_id: string;
+  // 新增用户信息字段
+  user_name?: string;
+  user_avatar?: string;
+  user_rating?: number;
+  title: string;
+  is_completed: boolean;
+  created_at?: string;
+}
+
+export interface RatingHistory {
+  id: number;
+  user_id: string;
+  rating: number;
+  change_reason?: string;
+  recorded_at: string;
 }
 
 export interface EnglishDailyContent {
@@ -43,7 +68,7 @@ export interface EnglishDailyContent {
 export interface AlgorithmTask {
   id: string;
   title: string;
-  description: string; // Markdown supported
+  description: string;
   difficulty: 'Easy' | 'Medium' | 'Hard';
   date: string;
 }
@@ -52,6 +77,7 @@ export interface AlgorithmSubmission {
   taskId: string;
   userId: string;
   code: string;
+  language: string; 
   status: 'Passed' | 'Failed';
 }
 
@@ -60,7 +86,28 @@ export interface DailyStats {
   count: number;
 }
 
-export interface SubjectStats {
-  subject: string;
-  count: number;
+// --- Helper for Codeforces Style Rating Colors ---
+export const getUserStyle = (role: UserRole, rating: number = 0) => {
+  if (role === 'admin') {
+    return "font-black text-black"; 
+  }
+  
+  if (rating < 1200) return "text-gray-500 font-medium"; // Newbie (Gray)
+  if (rating < 1400) return "text-green-600 font-medium"; // Pupil (Green)
+  if (rating < 1600) return "text-cyan-600 font-medium"; // Specialist (Cyan)
+  if (rating < 1900) return "text-blue-600 font-medium"; // Expert (Blue)
+  if (rating < 2100) return "text-violet-600 font-bold"; // Candidate Master (Violet)
+  if (rating < 2400) return "text-orange-500 font-bold"; // Master (Orange)
+  return "text-red-600 font-bold"; // Grandmaster (Red)
+};
+
+export const getTitleName = (role: UserRole, rating: number = 0) => {
+  if (role === 'admin') return "Admin";
+  if (rating < 1200) return "Newbie";
+  if (rating < 1400) return "Pupil";
+  if (rating < 1600) return "Specialist";
+  if (rating < 1900) return "Expert";
+  if (rating < 2100) return "Candidate Master";
+  if (rating < 2400) return "Master";
+  return "Grandmaster";
 }

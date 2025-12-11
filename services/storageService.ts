@@ -1,30 +1,24 @@
 
 import { supabase } from './supabase';
-import { CheckIn, User, AlgorithmTask, AlgorithmSubmission } from "../types";
+import { CheckIn, User, AlgorithmTask, AlgorithmSubmission, Goal, RatingHistory } from "../types";
 
-// --- Helper to get Env Vars safe for Vite/Netlify ---
 const getEnv = (key: string, fallback: string) => {
-  // 1. Try Vite import.meta.env
   // @ts-ignore
   if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
     // @ts-ignore
     return import.meta.env[key];
   }
-  // 2. Try Node process.env
   if (typeof process !== 'undefined' && process.env && process.env[key]) {
     return process.env[key];
   }
   return fallback;
 };
 
-// --- Admin & Security Configuration ---
-// 优先读取 VITE_ 前缀的环境变量（适配 Netlify/Vite）
 const ADMIN_USERNAME = getEnv('VITE_ADMIN_USER', getEnv('ADMIN_USER', 'admin'));
 const ADMIN_PASSWORD = getEnv('VITE_ADMIN_PASSWORD', getEnv('ADMIN_PASSWORD', 'admin123'));
 const INVITE_CODE = getEnv('VITE_INVITE_CODE', getEnv('INVITE_CODE', 'ky2025')); 
 
 // --- User Management ---
-
 export const getAllUsers = async (): Promise<User[]> => {
   const { data, error } = await supabase.from('users').select('*');
   if (error) {
@@ -45,21 +39,22 @@ export const loginGuest = (): User => {
     id: 'guest-' + Date.now(),
     name: '访客',
     avatar: 'https://api.dicebear.com/7.x/notionists/svg?seed=Guest',
-    role: 'guest'
+    role: 'guest',
+    rating: 1200 
   };
   localStorage.setItem('kaoyan_current_user', JSON.stringify(guestUser));
   return guestUser;
 };
 
 export const loginUser = async (username: string, password?: string, inviteCode?: string): Promise<User> => {
-  // 1. 管理员登录判定 (基于环境变量，不查数据库)
   if (username === ADMIN_USERNAME) {
     if (password === ADMIN_PASSWORD) {
       const adminUser: User = {
         id: 'admin-001',
         name: '管理员',
         avatar: 'https://api.dicebear.com/7.x/notionists/svg?seed=Admin',
-        role: 'admin'
+        role: 'admin',
+        rating: 3000
       };
       localStorage.setItem('kaoyan_current_user', JSON.stringify(adminUser));
       return adminUser;
@@ -68,55 +63,37 @@ export const loginUser = async (username: string, password?: string, inviteCode?
     }
   }
 
-  // 2. 普通用户查询
-  const { data: existingUsers } = await supabase
-    .from('users')
-    .select('*')
-    .eq('name', username)
-    .single();
-
+  const { data: existingUsers } = await supabase.from('users').select('*').eq('name', username).single();
   let user: User;
 
   if (existingUsers) {
-    // --- 登录逻辑 ---
     user = existingUsers as User;
-    
-    // 兼容旧数据：如果数据库里有密码字段，必须验证；如果没有，允许免密进入（或者你可以强制要求重置）
     if (user.password && password) {
-      if (user.password !== password) {
-        throw new Error("密码错误");
-      }
+      if (user.password !== password) throw new Error("密码错误");
     } else if (user.password && !password) {
         throw new Error("该账号已设置密码，请输入密码");
     }
-    // 登录成功
   } else {
-    // --- 注册逻辑 ---
-    
-    // 核心修改：校验邀请码
-    if (inviteCode !== INVITE_CODE) {
-      throw new Error(`邀请码错误，请联系管理员获取。`);
-    }
+    if (inviteCode !== INVITE_CODE) throw new Error(`邀请码错误，请联系管理员获取。`);
+    if (!password) throw new Error("注册新账号请设置密码");
 
-    if (!password) {
-      throw new Error("注册新账号请设置密码");
-    }
-
+    const initialRating = Math.floor(Math.random() * 200) + 1100;
     const newUser: User = {
       id: crypto.randomUUID(),
       name: username,
       avatar: `https://api.dicebear.com/7.x/notionists/svg?seed=${username}`,
       role: 'user',
-      password: password 
+      password: password,
+      rating: initialRating
     };
     
-    // 写入 Supabase
     const { error } = await supabase.from('users').insert({
       id: newUser.id,
       name: newUser.name,
       avatar: newUser.avatar,
       role: newUser.role,
-      password: newUser.password
+      password: newUser.password,
+      rating: newUser.rating 
     });
     
     if (error) {
@@ -125,6 +102,9 @@ export const loginUser = async (username: string, password?: string, inviteCode?
     }
     user = newUser;
   }
+  
+  // Login 成功时，记录一次初始 Rating 历史（如果还没有的话）
+  await recordRatingHistory(user.id, user.rating || 1200, "Initial Login");
 
   localStorage.setItem('kaoyan_current_user', JSON.stringify(user));
   return user;
@@ -134,18 +114,45 @@ export const logoutUser = () => {
   localStorage.removeItem('kaoyan_current_user');
 };
 
-// --- Check-in Data Management ---
+export const updateUserLocal = (user: User) => {
+    localStorage.setItem('kaoyan_current_user', JSON.stringify(user));
+}
+
+// --- Rating Logic ---
+export const updateRating = async (userId: string, newRating: number, reason: string) => {
+    // 1. Update User Table
+    await supabase.from('users').update({ rating: newRating }).eq('id', userId);
+    // 2. Add History Record
+    await recordRatingHistory(userId, newRating, reason);
+}
+
+export const recordRatingHistory = async (userId: string, rating: number, reason: string) => {
+    // 简单的去重逻辑：如果最后一天的记录和现在一样且时间很近，可以不记，但为了曲线平滑，先都记录
+    await supabase.from('rating_history').insert({
+        user_id: userId,
+        rating: rating,
+        change_reason: reason
+    });
+}
+
+export const getRatingHistory = async (userId: string): Promise<RatingHistory[]> => {
+    const { data } = await supabase
+        .from('rating_history')
+        .select('*')
+        .eq('user_id', userId)
+        .order('recorded_at', { ascending: true });
+    return (data as RatingHistory[]) || [];
+}
+
+// --- Check-in & Goals ---
 
 export const getCheckIns = async (): Promise<CheckIn[]> => {
   const { data, error } = await supabase
     .from('checkins')
     .select('*')
-    .order('timestamp', { ascending: false }); // Newest first
+    .order('timestamp', { ascending: false }); 
     
-  if (error) {
-    console.error('Error fetching checkins:', error);
-    return [];
-  }
+  if (error) return [];
   return data as CheckIn[];
 };
 
@@ -155,65 +162,89 @@ export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
     user_id: checkIn.userId,
     user_name: checkIn.userName,
     user_avatar: checkIn.userAvatar,
+    user_rating: checkIn.userRating, 
+    user_role: checkIn.userRole, 
     subject: checkIn.subject,
     content: checkIn.content,
     image_url: checkIn.imageUrl,
+    duration: checkIn.duration || 0, 
+    is_penalty: checkIn.isPenalty || false, // 映射 is_penalty
     timestamp: checkIn.timestamp,
     liked_by: checkIn.likedBy
   };
 
   const { error } = await supabase.from('checkins').insert(dbPayload);
-  if (error) {
-    console.error('Error adding checkin:', error);
-    throw error;
-  }
+  if (error) throw error;
 };
 
 export const toggleLike = async (checkInId: string, userId: string): Promise<void> => {
-  const { data: currentCheckIn, error: fetchError } = await supabase
-    .from('checkins')
-    .select('liked_by')
-    .eq('id', checkInId)
-    .single();
-
+  const { data: currentCheckIn, error: fetchError } = await supabase.from('checkins').select('liked_by').eq('id', checkInId).single();
   if (fetchError || !currentCheckIn) return;
 
   const likedBy = (currentCheckIn.liked_by as string[]) || [];
   const isLiked = likedBy.includes(userId);
-  
-  let newLikedBy;
-  if (isLiked) {
-    newLikedBy = likedBy.filter(id => id !== userId);
-  } else {
-    newLikedBy = [...likedBy, userId];
-  }
+  const newLikedBy = isLiked ? likedBy.filter(id => id !== userId) : [...likedBy, userId];
 
-  const { error: updateError } = await supabase
-    .from('checkins')
-    .update({ liked_by: newLikedBy })
-    .eq('id', checkInId);
-    
-  if (updateError) console.error('Error toggling like:', updateError);
+  await supabase.from('checkins').update({ liked_by: newLikedBy }).eq('id', checkInId);
 };
 
-// --- Algorithm Storage (Now using Supabase) ---
+// --- Goals Management ---
 
-// 1. 获取算法题目 (从 Supabase 数据库)
-export const getAlgorithmTasks = async (): Promise<AlgorithmTask[]> => {
+// 获取所有公开的目标（用于"研友今日计划"）
+export const getAllPublicGoals = async (): Promise<Goal[]> => {
+    const { data, error } = await supabase
+        .from('goals')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50); // 只显示最近的50条
+    
+    if (error) return [];
+    return data as Goal[];
+}
+
+export const getUserGoals = async (userId: string): Promise<Goal[]> => {
   const { data, error } = await supabase
-    .from('algorithm_tasks')
+    .from('goals')
     .select('*')
-    .order('date', { ascending: false });
+    .eq('user_id', userId)
+    .order('id', { ascending: true });
 
-  if (error) {
-    console.error('Error fetching algorithm tasks:', error);
-    // 如果数据库没建好，降级回退到空数组，避免崩坏
-    return [];
-  }
+  if (error) return [];
+  return data as Goal[];
+};
+
+export const addGoal = async (user: User, title: string): Promise<Goal | null> => {
+  const { data, error } = await supabase
+    .from('goals')
+    .insert({ 
+        user_id: user.id, 
+        title: title,
+        user_name: user.name, // 存储快照
+        user_avatar: user.avatar,
+        user_rating: user.rating
+    })
+    .select()
+    .single();
+    
+  if (error) return null;
+  return data as Goal;
+};
+
+export const toggleGoal = async (goalId: number, isCompleted: boolean): Promise<void> => {
+  await supabase.from('goals').update({ is_completed: isCompleted }).eq('id', goalId);
+};
+
+export const deleteGoal = async (goalId: number): Promise<void> => {
+  await supabase.from('goals').delete().eq('id', goalId);
+};
+
+// --- Algorithm ---
+export const getAlgorithmTasks = async (): Promise<AlgorithmTask[]> => {
+  const { data, error } = await supabase.from('algorithm_tasks').select('*').order('date', { ascending: false });
+  if (error) return [];
   return data as AlgorithmTask[];
 };
 
-// 2. 发布算法题目 (写入 Supabase 数据库)
 export const addAlgorithmTask = async (task: AlgorithmTask): Promise<void> => {
   const { error } = await supabase.from('algorithm_tasks').insert({
     id: task.id,
@@ -222,15 +253,9 @@ export const addAlgorithmTask = async (task: AlgorithmTask): Promise<void> => {
     difficulty: task.difficulty,
     date: task.date
   });
-
-  if (error) {
-    console.error('Error adding algorithm task:', error);
-    throw error;
-  }
+  if (error) throw error;
 };
 
-// 3. 提交记录保持本地存储 (每个人的做题状态是私有的，暂不需要同步)
-// 如果未来想做排行榜，可以将此处也改为 Supabase
 export const getAlgorithmSubmissions = (userId: string): AlgorithmSubmission[] => {
   const stored = localStorage.getItem('kaoyan_algo_subs');
   const all: AlgorithmSubmission[] = stored ? JSON.parse(stored) : [];
@@ -240,7 +265,6 @@ export const getAlgorithmSubmissions = (userId: string): AlgorithmSubmission[] =
 export const submitAlgorithmCode = (submission: AlgorithmSubmission) => {
   const stored = localStorage.getItem('kaoyan_algo_subs');
   const all: AlgorithmSubmission[] = stored ? JSON.parse(stored) : [];
-  // Remove old submission for same task/user
   const filtered = all.filter(s => !(s.userId === submission.userId && s.taskId === submission.taskId));
   filtered.push(submission);
   localStorage.setItem('kaoyan_algo_subs', JSON.stringify(filtered));
