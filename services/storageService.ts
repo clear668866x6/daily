@@ -157,7 +157,8 @@ export const getCheckIns = async (): Promise<CheckIn[]> => {
 };
 
 export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
-  const dbPayload = {
+  // 1. 尝试包含所有新字段的完整 Payload (V1.2+ 协议)
+  const fullPayload = {
     id: checkIn.id,
     user_id: checkIn.userId,
     user_name: checkIn.userName,
@@ -166,15 +167,42 @@ export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
     user_role: checkIn.userRole, 
     subject: checkIn.subject,
     content: checkIn.content,
-    image_url: checkIn.imageUrl,
+    image_url: checkIn.imageUrl || null,
     duration: checkIn.duration || 0, 
-    is_penalty: checkIn.isPenalty || false, // 映射 is_penalty
+    is_penalty: checkIn.isPenalty || false, 
     timestamp: checkIn.timestamp,
-    liked_by: checkIn.likedBy
+    liked_by: checkIn.likedBy || []
   };
 
-  const { error } = await supabase.from('checkins').insert(dbPayload);
-  if (error) throw error;
+  const { error } = await supabase.from('checkins').insert(fullPayload);
+  
+  if (error) {
+    console.warn("初次提交失败，尝试兼容模式...", error);
+    
+    // 2. 降级 Payload：仅包含最基础的 V1.0 字段 (绝对安全的字段)
+    // 移除 user_rating, user_role, duration, is_penalty 等所有后期新增字段
+    // 这确保了即使数据库 SQL 未更新，用户也能正常打卡，只是会丢失一些元数据
+    const legacyPayload = {
+        id: checkIn.id,
+        user_id: checkIn.userId,
+        user_name: checkIn.userName,
+        user_avatar: checkIn.userAvatar,
+        subject: checkIn.subject,
+        content: checkIn.content,
+        image_url: checkIn.imageUrl || null,
+        timestamp: checkIn.timestamp,
+        liked_by: checkIn.likedBy || []
+    };
+
+    const { error: fallbackError } = await supabase.from('checkins').insert(legacyPayload);
+    
+    if (fallbackError) {
+        console.error("降级提交也失败了:", fallbackError);
+        throw fallbackError; // 如果连基础字段都存不进去，那就真的报错
+    }
+    
+    console.info("⚠️ 数据库结构较旧，已通过兼容模式打卡。请在 Supabase 执行最新的 SQL 脚本以支持新功能 (Rating/Duration/Penalty)。");
+  }
 };
 
 export const toggleLike = async (checkInId: string, userId: string): Promise<void> => {
@@ -214,19 +242,35 @@ export const getUserGoals = async (userId: string): Promise<Goal[]> => {
 };
 
 export const addGoal = async (user: User, title: string): Promise<Goal | null> => {
+  // 目标表也可能有新旧兼容问题，我们这里简化处理，只发最基础的，
+  // 或者让数据库设置默认值
+  const payload: any = { 
+    user_id: user.id, 
+    title: title,
+    user_name: user.name, 
+    user_avatar: user.avatar,
+    // user_rating 可能不存在于旧表，如果报错，建议用户更新 SQL
+    user_rating: user.rating
+  };
+
   const { data, error } = await supabase
     .from('goals')
-    .insert({ 
-        user_id: user.id, 
-        title: title,
-        user_name: user.name, // 存储快照
-        user_avatar: user.avatar,
-        user_rating: user.rating
-    })
+    .insert(payload)
     .select()
     .single();
     
-  if (error) return null;
+  if (error) {
+      // 简单的重试：去掉可能导致报错的 extra 字段
+      const safePayload = {
+          user_id: user.id,
+          title: title
+      };
+      const { data: safeData, error: safeError } = await supabase.from('goals').insert(safePayload).select().single();
+      if (!safeError) return safeData as Goal;
+      
+      console.error("Add Goal Error", error);
+      return null;
+  }
   return data as Goal;
 };
 
