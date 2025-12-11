@@ -1,8 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { User, AlgorithmTask, AlgorithmSubmission, SubjectCategory } from '../types';
 import * as storage from '../services/storageService';
-import { Code, CheckCircle, Plus, Send, Play, Lock, AlertTriangle, FileCode, EyeOff, Loader2, ChevronDown } from 'lucide-react';
+import { Code, CheckCircle, Plus, Send, Play, Lock, AlertTriangle, FileCode, EyeOff, Loader2, ChevronDown, History, Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 
 interface Props {
@@ -22,6 +22,11 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
   const [submissions, setSubmissions] = useState<AlgorithmSubmission[]>([]);
   const [activeTask, setActiveTask] = useState<string | null>(null);
   
+  // Calendar State
+  const todayStr = new Date().toISOString().split('T')[0];
+  const [selectedDate, setSelectedDate] = useState<string>(todayStr);
+  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
+  
   // Language & Code State
   const [language, setLanguage] = useState<keyof typeof LANGUAGES>('cpp');
   const [code, setCode] = useState(LANGUAGES['cpp'].template);
@@ -34,14 +39,25 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
   const [newTaskDesc, setNewTaskDesc] = useState('');
   const [isPublishing, setIsPublishing] = useState(false);
 
-  const today = new Date().toISOString().split('T')[0];
   const isGuest = user.role === 'guest';
 
   useEffect(() => {
     refreshData();
   }, [user]);
 
-  // 当切换语言时，重置代码为该语言模板 (仅当代码为空或为其他默认模板时，为了简单起见，这里直接重置)
+  // 当选择的日期改变时，自动选中当天的第一题（如果有）
+  useEffect(() => {
+      const tasksForDay = tasks.filter(t => t.date === selectedDate);
+      if (tasksForDay.length > 0) {
+          // 如果当前选中的任务不在今天的列表里，切换到今天的第一个
+          if (!activeTask || !tasksForDay.find(t => t.id === activeTask)) {
+              setActiveTask(tasksForDay[0].id);
+          }
+      } else {
+          setActiveTask(null);
+      }
+  }, [selectedDate, tasks]);
+
   const handleLanguageChange = (lang: keyof typeof LANGUAGES) => {
       setLanguage(lang);
       setCode(LANGUAGES[lang].template);
@@ -51,12 +67,12 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
     setIsLoading(true);
     try {
       const allTasks = await storage.getAlgorithmTasks();
-      const todaysTasks = allTasks.filter(t => t.date === today);
-      const displayTasks = todaysTasks.length > 0 ? todaysTasks : allTasks.slice(0, 5);
-      setTasks(displayTasks);
+      setTasks(allTasks);
       
-      if (displayTasks.length > 0 && !activeTask) {
-        setActiveTask(displayTasks[0].id);
+      // 初始选中
+      if (allTasks.length > 0 && !activeTask) {
+        const todayTask = allTasks.find(t => t.date === todayStr);
+        setActiveTask(todayTask ? todayTask.id : allTasks[0].id);
       }
       const subs = storage.getAlgorithmSubmissions(user.id);
       setSubmissions(subs);
@@ -76,7 +92,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
         title: newTaskTitle,
         description: newTaskDesc,
         difficulty: 'Medium',
-        date: today
+        date: todayStr
       };
       await storage.addAlgorithmTask(newTask);
       setNewTaskTitle('');
@@ -113,22 +129,131 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
     }, 1500);
   };
 
-  const completedCount = tasks.filter(t => 
+  // --- Calendar Logic ---
+  const getDaysInMonth = (date: Date) => {
+      const year = date.getFullYear();
+      const month = date.getMonth();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const firstDayOfWeek = new Date(year, month, 1).getDay(); // 0 is Sunday
+      return { daysInMonth, firstDayOfWeek, year, month };
+  };
+
+  const prevMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
+  const nextMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
+
+  // 计算每一天的状态 (全部完成、部分完成、未完成)
+  const dateStatusMap = useMemo(() => {
+      const map: Record<string, 'all' | 'partial' | 'none'> = {};
+      const uniqueDates = Array.from(new Set(tasks.map(t => t.date)));
+      
+      uniqueDates.forEach(date => {
+          const dateTasks = tasks.filter(t => t.date === date);
+          if (dateTasks.length === 0) return;
+          
+          const passedCount = dateTasks.filter(t => 
+              submissions.some(s => s.taskId === t.id && s.status === 'Passed')
+          ).length;
+          
+          if (passedCount === dateTasks.length) map[date] = 'all';
+          else if (passedCount > 0) map[date] = 'partial';
+          else map[date] = 'none';
+      });
+      return map;
+  }, [tasks, submissions]);
+
+  // 当前选中日期的任务
+  const selectedDateTasks = useMemo(() => {
+      return tasks.filter(t => t.date === selectedDate);
+  }, [tasks, selectedDate]);
+
+  // Check-in logic (Only for today)
+  const isSelectedDateToday = selectedDate === todayStr;
+  const passedCountForSelectedDate = selectedDateTasks.filter(t => 
     submissions.find(s => s.taskId === t.id && s.status === 'Passed')
   ).length;
-  const allCompleted = tasks.length > 0 && completedCount === tasks.length;
+  const isSelectedDateAllDone = selectedDateTasks.length > 0 && passedCountForSelectedDate === selectedDateTasks.length;
 
   const handleDailyCheckIn = () => {
     if (isGuest) return;
-    if (!allCompleted) return;
-    const content = `## 每日算法打卡 💻\n\n**今日成就：**\n我完成了今天的 ${tasks.length} 道算法挑战！使用语言：${LANGUAGES[language].name}\n\n**题目列表：**\n${tasks.map(t => `- [AC] ${t.title}`).join('\n')}\n\n代码已提交通过，坚持就是胜利！🚀`;
+    if (!isSelectedDateToday) return;
+    if (!isSelectedDateAllDone) return;
+    
+    const content = `## 每日算法打卡 💻\n\n**今日成就：**\n我完成了 ${selectedDate} 的 ${selectedDateTasks.length} 道算法挑战！使用语言：${LANGUAGES[language].name}\n\n**题目列表：**\n${selectedDateTasks.map(t => `- [AC] ${t.title}`).join('\n')}\n\n代码已提交通过，坚持就是胜利！🚀`;
     onCheckIn(SubjectCategory.ALGORITHM, content);
+  };
+
+  const renderCalendar = () => {
+      const { daysInMonth, firstDayOfWeek, year, month } = getDaysInMonth(currentMonth);
+      const cells = [];
+      const monthStr = String(month + 1).padStart(2, '0');
+
+      // Empty slots for start of month
+      for (let i = 0; i < firstDayOfWeek; i++) {
+          cells.push(<div key={`empty-${i}`} className="h-8 w-8"></div>);
+      }
+
+      // Days
+      for (let d = 1; d <= daysInMonth; d++) {
+          const dayStr = String(d).padStart(2, '0');
+          const dateStr = `${year}-${monthStr}-${dayStr}`;
+          const status = dateStatusMap[dateStr];
+          const isSelected = selectedDate === dateStr;
+          const isToday = dateStr === todayStr;
+
+          cells.push(
+              <button
+                  key={dateStr}
+                  onClick={() => setSelectedDate(dateStr)}
+                  className={`h-8 w-8 rounded-full flex flex-col items-center justify-center text-xs relative transition-all
+                      ${isSelected ? 'bg-brand-600 text-white shadow-md z-10' : 'text-gray-700 hover:bg-gray-100'}
+                      ${isToday && !isSelected ? 'text-brand-600 font-bold border border-brand-200' : ''}
+                  `}
+              >
+                  {d}
+                  {/* Status Dot */}
+                  {status && (
+                      <div className={`w-1 h-1 rounded-full mt-0.5
+                          ${status === 'all' ? 'bg-green-500' : status === 'partial' ? 'bg-yellow-400' : 'bg-gray-300'}
+                          ${isSelected ? 'bg-white' : ''}
+                      `}></div>
+                  )}
+              </button>
+          );
+      }
+      return cells;
+  };
+
+  // 渲染题目列表项辅助函数
+  const renderTaskItem = (task: AlgorithmTask) => {
+    const isDone = submissions.some(s => s.taskId === task.id && s.status === 'Passed');
+    const isActive = activeTask === task.id;
+    return (
+        <button
+            key={task.id}
+            onClick={() => { setActiveTask(task.id); }}
+            className={`w-full text-left p-3 rounded-xl transition-all border relative overflow-hidden group mb-2 ${isActive ? 'border-brand-500 bg-brand-50 shadow-sm' : 'border-transparent hover:bg-gray-50'}`}
+        >
+            <div className="flex justify-between items-center relative z-10">
+                <span className={`font-bold text-sm ${isActive ? 'text-brand-700' : 'text-gray-700'}`}>{task.title}</span>
+                {isDone && <CheckCircle className="w-4 h-4 text-green-500 fill-green-50" />}
+            </div>
+            <div className="flex justify-between items-center mt-1">
+                <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                    task.difficulty === 'Easy' ? 'bg-green-50 text-green-600 border-green-100' :
+                    task.difficulty === 'Medium' ? 'bg-yellow-50 text-yellow-600 border-yellow-100' :
+                    'bg-red-50 text-red-600 border-red-100'
+                }`}>
+                    {task.difficulty}
+                </span>
+            </div>
+            {isActive && <div className="absolute left-0 top-0 bottom-0 w-1 bg-brand-500"></div>}
+        </button>
+    );
   };
 
   if (user.role === 'admin') {
     return (
       <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
-        {/* Admin UI kept similar for brevity, focus on student UI changes */}
         <div className="bg-gradient-to-r from-gray-800 to-gray-900 text-white p-6 rounded-2xl shadow-lg border border-gray-700">
           <h2 className="text-2xl font-bold flex items-center gap-3">
             <Lock className="w-6 h-6 text-yellow-400" /> 
@@ -137,7 +262,6 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
           <p className="text-gray-400 mt-1 pl-9">发布今日算法任务</p>
         </div>
         <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
-           {/* Inputs for new task */}
            <div className="space-y-4">
               <input className="w-full p-3 border rounded-xl" placeholder="题目名称" value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)} />
               <textarea className="w-full p-3 border rounded-xl h-32" placeholder="题目描述" value={newTaskDesc} onChange={e => setNewTaskDesc(e.target.value)} />
@@ -150,48 +274,67 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
 
   return (
     <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-180px)] min-h-[600px] animate-fade-in">
-      {/* Sidebar */}
+      {/* Sidebar with Calendar */}
       <div className="w-full lg:w-1/3 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden">
-        <div className="p-5 border-b border-gray-100 bg-gray-50">
-          <h2 className="font-bold text-gray-800 flex items-center gap-2 text-lg">
-            <FileCode className="w-5 h-5 text-brand-600" /> 
-            今日任务 ({completedCount}/{tasks.length})
-          </h2>
-          <div className="w-full bg-gray-200 h-1.5 rounded-full mt-3 overflow-hidden">
-             <div className="bg-brand-500 h-full transition-all duration-500 ease-out" style={{ width: `${tasks.length > 0 ? (completedCount / tasks.length) * 100 : 0}%` }}></div>
-          </div>
-        </div>
-        
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          {isLoading ? <div className="flex justify-center p-10"><Loader2 className="animate-spin text-brand-500"/></div> : tasks.map(task => {
-              const isDone = submissions.some(s => s.taskId === task.id && s.status === 'Passed');
-              return (
-                <button
-                  key={task.id}
-                  onClick={() => { setActiveTask(task.id); }}
-                  className={`w-full text-left p-4 rounded-xl transition-all border relative overflow-hidden group ${activeTask === task.id ? 'border-brand-500 bg-brand-50 shadow-sm' : 'border-transparent hover:bg-gray-50'}`}
-                >
-                  <div className="flex justify-between items-center relative z-10">
-                    <span className={`font-bold ${activeTask === task.id ? 'text-brand-700' : 'text-gray-700'}`}>{task.title}</span>
-                    {isDone && <CheckCircle className="w-5 h-5 text-green-500 fill-green-50" />}
-                  </div>
-                  <div className="text-xs text-gray-400 mt-2 line-clamp-1 relative z-10">{task.description}</div>
-                  {activeTask === task.id && <div className="absolute left-0 top-0 bottom-0 w-1 bg-brand-500"></div>}
-                </button>
-              );
-            })}
+        {/* Calendar Widget */}
+        <div className="p-4 border-b border-gray-100 bg-white z-10">
+            <div className="flex justify-between items-center mb-4 px-1">
+                <button onClick={prevMonth} className="p-1 hover:bg-gray-100 rounded-full text-gray-500"><ChevronLeft className="w-4 h-4" /></button>
+                <div className="text-sm font-bold text-gray-800">
+                    {currentMonth.getFullYear()}年 {currentMonth.getMonth() + 1}月
+                </div>
+                <button onClick={nextMonth} className="p-1 hover:bg-gray-100 rounded-full text-gray-500"><ChevronRight className="w-4 h-4" /></button>
+            </div>
+            <div className="grid grid-cols-7 gap-1 text-center mb-1">
+                {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+                    <div key={d} className="text-[10px] text-gray-400 font-medium h-6 flex items-center justify-center">{d}</div>
+                ))}
+            </div>
+            <div className="grid grid-cols-7 gap-1 place-items-center">
+                {renderCalendar()}
+            </div>
         </div>
 
-        <div className="p-4 border-t border-gray-100 bg-gray-50">
-          <button
-            disabled={!allCompleted || tasks.length === 0 || isGuest}
-            onClick={handleDailyCheckIn}
-            className={`w-full py-3.5 rounded-xl font-bold flex justify-center items-center gap-2 transition-all shadow-lg ${allCompleted && tasks.length > 0 && !isGuest ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
-          >
-            {isGuest ? <Lock className="w-4 h-4"/> : <Send className="w-4 h-4" />}
-            {isGuest ? '访客不可打卡' : (allCompleted && tasks.length > 0 ? '一键算法打卡' : '完成所有题目以打卡')}
-          </button>
+        {/* Task List Header */}
+        <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
+          <h2 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
+            <FileCode className="w-4 h-4 text-brand-600" /> 
+            {isSelectedDateToday ? '今日挑战' : `${selectedDate} 题目`}
+          </h2>
+          <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">{selectedDateTasks.length} 题</span>
         </div>
+        
+        {/* Task List */}
+        <div className="flex-1 overflow-y-auto p-3 custom-scrollbar bg-white">
+          {isLoading ? (
+            <div className="flex justify-center p-10"><Loader2 className="animate-spin text-brand-500"/></div> 
+          ) : (
+            <>
+                {selectedDateTasks.length > 0 ? (
+                    selectedDateTasks.map(renderTaskItem)
+                ) : (
+                    <div className="flex flex-col items-center justify-center py-10 text-gray-400 gap-2">
+                        <CalendarIcon className="w-8 h-8 opacity-20" />
+                        <p className="text-xs">当日暂无训练题目</p>
+                    </div>
+                )}
+            </>
+          )}
+        </div>
+
+        {/* Check-in Button (Only visible if TODAY and has tasks) */}
+        {isSelectedDateToday && selectedDateTasks.length > 0 && (
+            <div className="p-4 border-t border-gray-100 bg-gray-50">
+            <button
+                disabled={!isSelectedDateAllDone || isGuest}
+                onClick={handleDailyCheckIn}
+                className={`w-full py-3.5 rounded-xl font-bold flex justify-center items-center gap-2 transition-all shadow-lg ${isSelectedDateAllDone && !isGuest ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
+            >
+                {isGuest ? <Lock className="w-4 h-4"/> : <Send className="w-4 h-4" />}
+                {isGuest ? '访客不可打卡' : (isSelectedDateAllDone ? '一键算法打卡' : '完成今日题目以打卡')}
+            </button>
+            </div>
+        )}
       </div>
 
       {/* Editor */}
@@ -202,7 +345,6 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn }) => {
               <div className="flex justify-between items-center mb-3">
                  <h3 className="text-xl font-bold text-gray-800">{tasks.find(t => t.id === activeTask)?.title}</h3>
                  
-                 {/* 语言选择器 */}
                  <div className="relative">
                      <select 
                         value={language}

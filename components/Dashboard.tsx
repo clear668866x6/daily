@@ -3,7 +3,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { CheckIn, User, Goal, SubjectCategory, RatingHistory, getUserStyle, getTitleName } from '../types';
 import * as storage from '../services/storageService';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, Users, ListTodo, AlertCircle, Gamepad2, BrainCircuit, Filter, ChevronDown, UserCircle } from 'lucide-react';
+import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, Users, ListTodo, AlertCircle, Gamepad2, BrainCircuit, Filter, ChevronDown, UserCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 
 interface Props {
@@ -34,6 +34,10 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const [isLogging, setIsLogging] = useState(false);
   const [logMode, setLogMode] = useState<'study' | 'penalty'>('study');
 
+  // Calendar State
+  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
   const isViewingSelf = selectedUserId === currentUser.id;
 
   // Load All Users for Selector
@@ -61,7 +65,9 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
         setDisplayGoals(uGoals);
     };
     loadData();
-  }, [selectedUserId, checkIns]); // Reload if checkIns update (might affect goals implicitly if we linked them later, but mostly for user switch)
+    // Reset calendar selection when user changes
+    setSelectedDate(null);
+  }, [selectedUserId, checkIns]); 
 
   const selectedUser = useMemo(() => {
       return allUsers.find(u => u.id === selectedUserId) || currentUser;
@@ -200,6 +206,79 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           rating: r.rating
       }));
   }, [ratingHistory]);
+
+  // --- Calendar Helpers ---
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDayOfWeek = new Date(year, month, 1).getDay();
+    return { daysInMonth, firstDayOfWeek, year, month };
+  };
+
+  const dailyStatusMap = useMemo(() => {
+    const map: Record<string, boolean> = {};
+    selectedUserCheckIns.forEach(c => {
+        const date = new Date(c.timestamp);
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        const key = `${y}-${m}-${d}`;
+        map[key] = true;
+    });
+    return map;
+  }, [selectedUserCheckIns]);
+
+  const displayedCheckIns = useMemo(() => {
+      let list = selectedUserCheckIns;
+      if (selectedDate) {
+          list = list.filter(c => {
+              const date = new Date(c.timestamp);
+              const y = date.getFullYear();
+              const m = String(date.getMonth() + 1).padStart(2, '0');
+              const d = String(date.getDate()).padStart(2, '0');
+              return `${y}-${m}-${d}` === selectedDate;
+          });
+      }
+      return list.sort((a, b) => b.timestamp - a.timestamp).slice(0, 20); // 仅显示前20条
+  }, [selectedUserCheckIns, selectedDate]);
+
+  const renderCalendar = () => {
+    const { daysInMonth, firstDayOfWeek, year, month } = getDaysInMonth(currentMonth);
+    const cells = [];
+    const monthStr = String(month + 1).padStart(2, '0');
+
+    // Empty slots
+    for (let i = 0; i < firstDayOfWeek; i++) {
+        cells.push(<div key={`empty-${i}`} className="h-9 w-9"></div>);
+    }
+
+    // Days
+    for (let d = 1; d <= daysInMonth; d++) {
+        const dayStr = String(d).padStart(2, '0');
+        const dateStr = `${year}-${monthStr}-${dayStr}`;
+        const hasCheckIn = dailyStatusMap[dateStr];
+        const isSelected = selectedDate === dateStr;
+        const isToday = dateStr === new Date().toISOString().split('T')[0];
+
+        cells.push(
+            <button
+                key={dateStr}
+                onClick={() => setSelectedDate(isSelected ? null : dateStr)}
+                className={`h-9 w-9 rounded-full flex flex-col items-center justify-center text-xs relative transition-all
+                    ${isSelected ? 'bg-brand-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}
+                    ${isToday && !isSelected ? 'text-brand-600 font-bold border border-brand-200' : ''}
+                `}
+            >
+                {d}
+                {hasCheckIn && (
+                    <div className={`w-1 h-1 rounded-full mt-0.5 ${isSelected ? 'bg-white' : 'bg-brand-500'}`}></div>
+                )}
+            </button>
+        );
+    }
+    return cells;
+  };
 
   const ratingColorClass = getUserStyle(selectedUser.role, selectedUser.rating);
   const titleName = getTitleName(selectedUser.role, selectedUser.rating);
@@ -401,18 +480,50 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
         {/* Right Column: Statistics & Charts & Content List (8 cols) */}
         <div className="xl:col-span-8 space-y-6">
              
-             {/* 1. Daily Check-in Content List (The requested "Top" Section) */}
+             {/* New: Calendar Widget */}
              <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
-                 <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
-                    <ListTodo className="w-5 h-5 text-brand-600" /> 
-                    {isViewingSelf ? '我的详细打卡记录' : `${selectedUser.name} 的打卡记录`}
-                 </h3>
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                        <CalendarIcon className="w-5 h-5 text-brand-600" /> 
+                        {isViewingSelf ? '我的打卡日历' : `${selectedUser.name} 的打卡日历`}
+                    </h3>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-gray-100 rounded-full text-gray-500"><ChevronLeft className="w-5 h-5" /></button>
+                        <span className="text-sm font-bold text-gray-700 w-24 text-center">
+                            {currentMonth.getFullYear()}年 {currentMonth.getMonth() + 1}月
+                        </span>
+                        <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-gray-100 rounded-full text-gray-500"><ChevronRight className="w-5 h-5" /></button>
+                    </div>
+                </div>
+                
+                <div className="grid grid-cols-7 gap-2">
+                    {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+                        <div key={d} className="text-center text-xs text-gray-400 font-medium py-2">{d}</div>
+                    ))}
+                    {renderCalendar()}
+                </div>
+             </div>
+
+             {/* 1. Daily Check-in Content List */}
+             <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
+                 <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                        <ListTodo className="w-5 h-5 text-brand-600" /> 
+                        {selectedDate ? `${selectedDate} 的记录` : '最近打卡记录'}
+                    </h3>
+                    {selectedDate && (
+                        <button 
+                            onClick={() => setSelectedDate(null)} 
+                            className="text-xs text-brand-600 hover:text-brand-700 font-medium"
+                        >
+                            查看全部
+                        </button>
+                    )}
+                 </div>
+                 
                  <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
-                     {selectedUserCheckIns.length > 0 ? (
-                        selectedUserCheckIns
-                            .sort((a, b) => b.timestamp - a.timestamp)
-                            .slice(0, 20)
-                            .map(checkIn => (
+                     {displayedCheckIns.length > 0 ? (
+                        displayedCheckIns.map(checkIn => (
                                 <div key={checkIn.id} className={`p-4 rounded-xl border flex gap-4 ${checkIn.isPenalty ? 'bg-red-50 border-red-100' : 'bg-gray-50 border-gray-100'}`}>
                                     <div className={`mt-1 font-bold text-xs px-2 py-1 rounded h-fit shrink-0 ${checkIn.isPenalty ? 'bg-red-200 text-red-700' : 'bg-white text-brand-600 border border-brand-100'}`}>
                                         {checkIn.subject}
@@ -441,7 +552,9 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                      ) : (
                          <div className="text-center py-8 text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
                              <UserCircle className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                             <p>该用户暂无打卡记录</p>
+                             <p>
+                                {selectedDate ? '该日无打卡记录' : '该用户暂无打卡记录'}
+                             </p>
                          </div>
                      )}
                  </div>

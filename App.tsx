@@ -5,6 +5,7 @@ import { Dashboard } from './components/Dashboard';
 import { Feed } from './components/Feed';
 import { EnglishTutor } from './components/EnglishTutor';
 import { AlgorithmTutor } from './components/AlgorithmTutor';
+import { About } from './components/About';
 import { Login } from './components/Login';
 import { CheckIn, SubjectCategory, User } from './types';
 import * as storage from './services/storageService';
@@ -196,6 +197,12 @@ const App: React.FC = () => {
               <AlgorithmTutor user={user} onCheckIn={handleAutoCheckIn} />
             </div>
           )}
+
+          {activeTab === 'about' && (
+             <div className="animate-fade-in">
+               <About />
+             </div>
+          )}
         </div>
       </main>
       <style>{`
@@ -208,6 +215,10 @@ const App: React.FC = () => {
         }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #d1d5db; }
       `}</style>
     </div>
   );
