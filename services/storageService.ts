@@ -127,7 +127,6 @@ export const updateRating = async (userId: string, newRating: number, reason: st
 }
 
 export const recordRatingHistory = async (userId: string, rating: number, reason: string) => {
-    // 简单的去重逻辑：如果最后一天的记录和现在一样且时间很近，可以不记，但为了曲线平滑，先都记录
     await supabase.from('rating_history').insert({
         user_id: userId,
         rating: rating,
@@ -152,28 +151,33 @@ export const getCheckIns = async (): Promise<CheckIn[]> => {
     .select('*')
     .order('timestamp', { ascending: false }); 
     
-  if (error) return [];
-  // 映射数据库字段到前端类型，并处理 NULL 值情况
+  if (error) {
+      console.error("Fetch Checkins Error:", error);
+      return [];
+  }
+  
+  // 映射数据库字段到前端类型
   return data.map((item: any) => ({
       id: item.id,
       userId: item.user_id,
-      userName: item.user_name || '未知研友', // 默认值
-      userAvatar: item.user_avatar || 'https://api.dicebear.com/7.x/notionists/svg?seed=Unknown', // 默认值
-      userRating: item.user_rating || 1200, // 默认值
-      userRole: item.user_role || 'user', // 默认值
+      // 关键修复：如果数据库里 user_name 是 null，尝试给一个默认值
+      userName: item.user_name || '未知研友', 
+      userAvatar: item.user_avatar || 'https://api.dicebear.com/7.x/notionists/svg?seed=Unknown',
+      userRating: item.user_rating || 1200, 
+      userRole: item.user_role || 'user', 
       subject: item.subject,
       content: item.content,
       imageUrl: item.image_url,
       duration: item.duration || 0,
       isPenalty: item.is_penalty || false,
-      isAnnouncement: item.is_announcement || false, // 确保读取布尔值
-      timestamp: Number(item.timestamp), // 确保转为数字
+      isAnnouncement: item.is_announcement || false, 
+      timestamp: Number(item.timestamp), 
       likedBy: item.liked_by || []
   })) as CheckIn[];
 };
 
 export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
-  // 1. 优先使用完整 Payload，包含 user_rating 和 is_announcement
+  // 1. 尝试完整写入（包含新字段）
   const fullPayload = {
     id: checkIn.id,
     user_id: checkIn.userId,
@@ -194,10 +198,27 @@ export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
   const { error } = await supabase.from('checkins').insert(fullPayload);
   
   if (error) {
-    console.warn("初次提交失败，可能是数据库字段缺失，请检查 SQL 是否执行。", error);
-    // 如果失败，抛出错误，不要静默降级，否则会导致数据丢失（如公告状态）
-    // 但为了兼容性，我们可以尝试一次不带新字段的插入，但这应该只发生在极旧的 DB 上
-    throw error;
+    console.warn("完整提交失败，尝试降级提交（仅基础字段）...", error.message);
+    
+    // 2. 降级写入：如果数据库确实缺字段，只写入核心字段，保证数据不丢失
+    const safePayload = {
+        id: checkIn.id,
+        user_id: checkIn.userId,
+        user_name: checkIn.userName, // 确保这个字段被写入
+        user_avatar: checkIn.userAvatar,
+        subject: checkIn.subject,
+        content: checkIn.content,
+        timestamp: checkIn.timestamp,
+        image_url: checkIn.imageUrl || null,
+        liked_by: []
+    };
+
+    const { error: retryError } = await supabase.from('checkins').insert(safePayload);
+    
+    if (retryError) {
+        console.error("降级提交也失败了:", retryError);
+        throw retryError;
+    }
   }
 };
 
@@ -214,13 +235,12 @@ export const toggleLike = async (checkInId: string, userId: string): Promise<voi
 
 // --- Goals Management ---
 
-// 获取所有公开的目标（用于"研友今日计划"）
 export const getAllPublicGoals = async (): Promise<Goal[]> => {
     const { data, error } = await supabase
         .from('goals')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(50); // 只显示最近的50条
+        .limit(50); 
     
     if (error) return [];
     return data as Goal[];

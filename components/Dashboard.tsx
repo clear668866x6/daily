@@ -16,8 +16,9 @@ interface Props {
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1'];
 
-// 统一的日期格式化函数，避免时区或补零问题
-const formatDateKey = (date: Date): string => {
+// 严格的日期 Key 生成器 (YYYY-MM-DD)，使用本地时间，解决时区导致的“有打卡但没点”问题
+const formatDateKey = (timestampOrDate: number | Date): string => {
+    const date = typeof timestampOrDate === 'number' ? new Date(timestampOrDate) : timestampOrDate;
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const d = String(date.getDate()).padStart(2, '0');
@@ -85,6 +86,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   }, [allUsers, selectedUserId, currentUser]);
 
   const selectedUserCheckIns = useMemo(() => {
+      // 这里的过滤必须严格，确保 ID 匹配
       return checkIns.filter(c => c.userId === selectedUserId);
   }, [checkIns, selectedUserId]);
 
@@ -100,7 +102,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   }, [targetDateStr]);
 
   const totalCheckInDays = useMemo(() => {
-      const uniqueDays = new Set(selectedUserCheckIns.map(c => formatDateKey(new Date(c.timestamp))));
+      const uniqueDays = new Set(selectedUserCheckIns.map(c => formatDateKey(c.timestamp)));
       return uniqueDays.size;
   }, [selectedUserCheckIns]);
 
@@ -256,21 +258,22 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const dailyStatusMap = useMemo(() => {
     const map: Record<string, boolean> = {};
     selectedUserCheckIns.forEach(c => {
-        const key = formatDateKey(new Date(c.timestamp));
+        // 使用相同的时间格式化工具
+        const key = formatDateKey(c.timestamp);
         map[key] = true;
     });
     return map;
   }, [selectedUserCheckIns]);
 
-  // 修复：使用 formatDateKey 进行日期匹配
   const displayedCheckIns = useMemo(() => {
       let list = selectedUserCheckIns;
       if (selectedDate) {
           list = list.filter(c => {
-              const checkInDate = formatDateKey(new Date(c.timestamp));
+              const checkInDate = formatDateKey(c.timestamp);
               return checkInDate === selectedDate;
           });
       }
+      // 按时间倒序
       return list.sort((a, b) => b.timestamp - a.timestamp).slice(0, 20); 
   }, [selectedUserCheckIns, selectedDate]);
 
@@ -629,7 +632,11 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                      ) : (
                          <div className="text-center py-12 text-gray-400 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200">
                              <UserCircle className="w-10 h-10 mx-auto mb-3 opacity-20" />
-                             <p className="text-sm">暂无打卡记录</p>
+                             <p className="text-sm">
+                                {selectedDate 
+                                    ? `在 ${selectedDate} 这一天，${isViewingSelf ? '你' : 'TA'}似乎在休息` 
+                                    : '暂无打卡记录，快去发布一条吧！'}
+                             </p>
                          </div>
                      )}
                  </div>
