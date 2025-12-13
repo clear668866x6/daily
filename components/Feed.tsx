@@ -2,13 +2,14 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { CheckIn, SubjectCategory, User, getUserStyle } from '../types'; 
 import { MarkdownText } from './MarkdownText';
-import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Calculator, BookOpen, ScrollText, Cpu, Code2, Sparkles, MoreHorizontal, Pin } from 'lucide-react';
+import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Calculator, BookOpen, ScrollText, Cpu, Code2, Sparkles, Trash2, Pin } from 'lucide-react';
 
 interface Props {
   checkIns: CheckIn[];
   user: User;
   onAddCheckIn: (checkIn: CheckIn) => void;
   onLike: (id: string) => void;
+  onDeleteCheckIn: (id: string) => void;
 }
 
 // 1. 智能筛选配置
@@ -22,7 +23,7 @@ const FILTER_GROUPS = [
     { id: 'ALGORITHM', label: '算法训练', icon: Code2, subjects: [SubjectCategory.ALGORITHM], color: 'text-amber-500' },
 ];
 
-export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) => {
+export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, onDeleteCheckIn }) => {
   const [content, setContent] = useState('');
   const [subject, setSubject] = useState<SubjectCategory>(SubjectCategory.MATH);
   const [image, setImage] = useState<string | null>(null);
@@ -111,6 +112,9 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
     const isLiked = checkIn.likedBy.includes(user.id);
     const likeCount = checkIn.likedBy.length;
     const isOfficial = checkIn.userRole === 'admin';
+    const isOwner = user.id === checkIn.userId;
+    const canDelete = isOwner || isAdmin;
+
     const nameStyle = getUserStyle(checkIn.userRole || 'user', checkIn.userRating || 1200);
     const subjectTheme = getSubjectTheme(checkIn.subject);
 
@@ -209,9 +213,15 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
                     <span>{likeCount || '赞'}</span>
                 </button>
 
-                 <button className="text-gray-300 hover:text-gray-500 ml-auto transition-colors">
-                      <MoreHorizontal className="w-4 h-4" />
-                 </button>
+                 {canDelete && (
+                     <button 
+                        onClick={() => onDeleteCheckIn(checkIn.id)}
+                        className="text-gray-300 hover:text-red-500 ml-auto transition-colors p-1.5 rounded-full hover:bg-red-50"
+                        title="删除这条动态"
+                     >
+                          <Trash2 className="w-4 h-4" />
+                     </button>
+                 )}
             </div>
         </div>
     );

@@ -217,6 +217,11 @@ export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
   }
 };
 
+export const deleteCheckIn = async (checkInId: string): Promise<void> => {
+    const { error } = await supabase.from('checkins').delete().eq('id', checkInId);
+    if (error) throw error;
+};
+
 export const toggleLike = async (checkInId: string, userId: string): Promise<void> => {
   const { data: currentCheckIn, error: fetchError } = await supabase.from('checkins').select('liked_by').eq('id', checkInId).single();
   if (fetchError || !currentCheckIn) return;

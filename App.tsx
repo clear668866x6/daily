@@ -7,7 +7,8 @@ import { EnglishTutor } from './components/EnglishTutor';
 import { AlgorithmTutor } from './components/AlgorithmTutor';
 import { About } from './components/About';
 import { Login } from './components/Login';
-import { CheckIn, SubjectCategory, User } from './types';
+import { GlobalAlerts } from './components/GlobalAlerts'; // New Import
+import { CheckIn, SubjectCategory, User, AlgorithmTask } from './types';
 import * as storage from './services/storageService';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 
@@ -15,6 +16,7 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [user, setUser] = useState<User | null>(null);
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
+  const [algoTasks, setAlgoTasks] = useState<AlgorithmTask[]>([]); // New State
   const [isInitializing, setIsInitializing] = useState(true);
   
   // Toast State
@@ -31,12 +33,16 @@ const App: React.FC = () => {
 
   const refreshData = async () => {
     try {
-      const data = await storage.getCheckIns();
-      // FIX: storage.getCheckIns 已经处理了字段映射（下划线转驼峰）
-      // 这里直接使用返回的数据，不要再重复映射，否则会导致字段变成 undefined
-      setCheckIns(data);
+      // 并行请求数据
+      const [fetchedCheckIns, fetchedTasks] = await Promise.all([
+        storage.getCheckIns(),
+        storage.getAlgorithmTasks()
+      ]);
+      
+      setCheckIns(fetchedCheckIns);
+      setAlgoTasks(fetchedTasks);
     } catch (e) {
-      console.error("Failed to load checkins", e);
+      console.error("Failed to load data", e);
     }
   };
 
@@ -85,7 +91,6 @@ const App: React.FC = () => {
       await storage.addCheckIn(newCheckIn);
       showToast("打卡发布成功！", 'success');
       // 这里的 refreshData 很重要，它会从数据库拉取最新的数据
-      // 只要数据库字段正确，这里就不会“变白”
       await refreshData();
     } catch (e) {
       console.error(e);
@@ -95,6 +100,29 @@ const App: React.FC = () => {
     if (activeTab === 'english' || activeTab === 'algorithm') {
       setActiveTab('feed');
     }
+  };
+
+  const handleDeleteCheckIn = async (id: string) => {
+      if (!user) return;
+      if (user.role === 'guest') {
+          showToast("访客模式无法删除", 'error');
+          return;
+      }
+
+      const confirmDelete = window.confirm("确定要删除这条打卡记录吗？此操作无法撤销。");
+      if (!confirmDelete) return;
+
+      // Optimistic update
+      setCheckIns(prev => prev.filter(c => c.id !== id));
+
+      try {
+          await storage.deleteCheckIn(id);
+          showToast("已删除", 'info');
+      } catch(e) {
+          console.error(e);
+          showToast("删除失败，请重试", 'error');
+          refreshData(); // Revert
+      }
   };
 
   const handleLike = async (checkInId: string) => {
@@ -159,6 +187,15 @@ const App: React.FC = () => {
       
       <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen relative">
         <div className="max-w-7xl mx-auto">
+          
+          {/* Global Alerts Section (Inserted Here) */}
+          <GlobalAlerts 
+            user={user} 
+            checkIns={checkIns} 
+            algoTasks={algoTasks} 
+            onNavigate={setActiveTab} 
+          />
+
           {activeTab === 'dashboard' && (
             <div className="animate-fade-in">
               <div className="mb-6 flex justify-between items-end">
@@ -194,6 +231,7 @@ const App: React.FC = () => {
                 checkIns={checkIns} 
                 user={user} 
                 onAddCheckIn={handleAddCheckIn}
+                onDeleteCheckIn={handleDeleteCheckIn}
                 onLike={handleLike}
               />
             </div>
