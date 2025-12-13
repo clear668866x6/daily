@@ -32,25 +32,11 @@ const App: React.FC = () => {
   const refreshData = async () => {
     try {
       const data = await storage.getCheckIns();
-      const mappedData: CheckIn[] = data.map((item: any) => ({
-        id: item.id,
-        userId: item.user_id,
-        userName: item.user_name,
-        userAvatar: item.user_avatar,
-        userRating: item.user_rating, 
-        userRole: item.user_role, 
-        subject: item.subject,
-        content: item.content,
-        imageUrl: item.image_url,
-        duration: item.duration,
-        isPenalty: item.is_penalty, // 映射数据库字段
-        timestamp: item.timestamp,
-        likedBy: item.liked_by || []
-      }));
-      setCheckIns(mappedData);
+      // FIX: storage.getCheckIns 已经处理了字段映射（下划线转驼峰）
+      // 这里直接使用返回的数据，不要再重复映射，否则会导致字段变成 undefined
+      setCheckIns(data);
     } catch (e) {
       console.error("Failed to load checkins", e);
-      // Optional: showToast("数据加载失败", 'error'); 
     }
   };
 
@@ -92,13 +78,17 @@ const App: React.FC = () => {
       return;
     }
 
+    // 乐观更新：先在本地显示
     setCheckIns(prev => [newCheckIn, ...prev]);
     
     try {
       await storage.addCheckIn(newCheckIn);
       showToast("打卡发布成功！", 'success');
+      // 这里的 refreshData 很重要，它会从数据库拉取最新的数据
+      // 只要数据库字段正确，这里就不会“变白”
       await refreshData();
     } catch (e) {
+      console.error(e);
       showToast("打卡上传失败，请检查网络", 'error');
     }
 

@@ -156,28 +156,27 @@ export const getCheckIns = async (): Promise<CheckIn[]> => {
       return [];
   }
   
-  // 映射数据库字段到前端类型
+  // 映射数据库字段到前端类型，并处理 NULL 值情况
   return data.map((item: any) => ({
       id: item.id,
       userId: item.user_id,
-      // 关键修复：如果数据库里 user_name 是 null，尝试给一个默认值
-      userName: item.user_name || '未知研友', 
-      userAvatar: item.user_avatar || 'https://api.dicebear.com/7.x/notionists/svg?seed=Unknown',
-      userRating: item.user_rating || 1200, 
-      userRole: item.user_role || 'user', 
+      userName: item.user_name || '未知研友', // 默认值
+      userAvatar: item.user_avatar || 'https://api.dicebear.com/7.x/notionists/svg?seed=Unknown', // 默认值
+      userRating: item.user_rating || 1200, // 默认值
+      userRole: item.user_role || 'user', // 默认值
       subject: item.subject,
       content: item.content,
       imageUrl: item.image_url,
       duration: item.duration || 0,
       isPenalty: item.is_penalty || false,
-      isAnnouncement: item.is_announcement || false, 
-      timestamp: Number(item.timestamp), 
+      isAnnouncement: item.is_announcement || false, // 确保读取布尔值
+      timestamp: Number(item.timestamp), // 确保转为数字
       likedBy: item.liked_by || []
   })) as CheckIn[];
 };
 
 export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
-  // 1. 尝试完整写入（包含新字段）
+  // 1. 优先使用完整 Payload，包含 user_rating 和 is_announcement
   const fullPayload = {
     id: checkIn.id,
     user_id: checkIn.userId,
@@ -198,27 +197,23 @@ export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
   const { error } = await supabase.from('checkins').insert(fullPayload);
   
   if (error) {
-    console.warn("完整提交失败，尝试降级提交（仅基础字段）...", error.message);
+    console.warn("初次提交失败，尝试降级提交...", error);
     
-    // 2. 降级写入：如果数据库确实缺字段，只写入核心字段，保证数据不丢失
+    // 降级策略：如果某些字段不存在（例如用户未运行最新 SQL），尝试写入基础字段
+    // 这样能保证至少数据能显示出来，不丢失
     const safePayload = {
         id: checkIn.id,
         user_id: checkIn.userId,
-        user_name: checkIn.userName, // 确保这个字段被写入
+        user_name: checkIn.userName,
         user_avatar: checkIn.userAvatar,
         subject: checkIn.subject,
         content: checkIn.content,
         timestamp: checkIn.timestamp,
         image_url: checkIn.imageUrl || null,
         liked_by: []
-    };
-
-    const { error: retryError } = await supabase.from('checkins').insert(safePayload);
-    
-    if (retryError) {
-        console.error("降级提交也失败了:", retryError);
-        throw retryError;
     }
+    const { error: safeError } = await supabase.from('checkins').insert(safePayload);
+    if (safeError) throw safeError; // 如果降级也失败，抛出异常
   }
 };
 
@@ -240,7 +235,7 @@ export const getAllPublicGoals = async (): Promise<Goal[]> => {
         .from('goals')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(50); 
+        .limit(50); // 只显示最近的50条
     
     if (error) return [];
     return data as Goal[];
