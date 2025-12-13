@@ -153,11 +153,27 @@ export const getCheckIns = async (): Promise<CheckIn[]> => {
     .order('timestamp', { ascending: false }); 
     
   if (error) return [];
-  return data as CheckIn[];
+  // 映射数据库字段到前端类型
+  return data.map((item: any) => ({
+      id: item.id,
+      userId: item.user_id,
+      userName: item.user_name,
+      userAvatar: item.user_avatar,
+      userRating: item.user_rating, 
+      userRole: item.user_role, 
+      subject: item.subject,
+      content: item.content,
+      imageUrl: item.image_url,
+      duration: item.duration,
+      isPenalty: item.is_penalty,
+      isAnnouncement: item.is_announcement || false, // 新增
+      timestamp: item.timestamp,
+      likedBy: item.liked_by || []
+  })) as CheckIn[];
 };
 
 export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
-  // 1. 尝试包含所有新字段的完整 Payload (V1.2+ 协议)
+  // 1. 尝试包含所有新字段的完整 Payload (V1.3+ 协议)
   const fullPayload = {
     id: checkIn.id,
     user_id: checkIn.userId,
@@ -170,6 +186,7 @@ export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
     image_url: checkIn.imageUrl || null,
     duration: checkIn.duration || 0, 
     is_penalty: checkIn.isPenalty || false, 
+    is_announcement: checkIn.isAnnouncement || false, // 新增
     timestamp: checkIn.timestamp,
     liked_by: checkIn.likedBy || []
   };
@@ -179,29 +196,29 @@ export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
   if (error) {
     console.warn("初次提交失败，尝试兼容模式...", error);
     
-    // 2. 降级 Payload：仅包含最基础的 V1.0 字段 (绝对安全的字段)
-    // 移除 user_rating, user_role, duration, is_penalty 等所有后期新增字段
-    // 这确保了即使数据库 SQL 未更新，用户也能正常打卡，只是会丢失一些元数据
-    const legacyPayload = {
-        id: checkIn.id,
-        user_id: checkIn.userId,
-        user_name: checkIn.userName,
-        user_avatar: checkIn.userAvatar,
-        subject: checkIn.subject,
-        content: checkIn.content,
-        image_url: checkIn.imageUrl || null,
-        timestamp: checkIn.timestamp,
-        liked_by: checkIn.likedBy || []
-    };
+    // 2. 降级 Payload：尝试 V1.2 (含 penalty)
+    const v12Payload = { ...fullPayload };
+    delete (v12Payload as any).is_announcement;
 
-    const { error: fallbackError } = await supabase.from('checkins').insert(legacyPayload);
+    const { error: v12Error } = await supabase.from('checkins').insert(v12Payload);
     
-    if (fallbackError) {
-        console.error("降级提交也失败了:", fallbackError);
-        throw fallbackError; // 如果连基础字段都存不进去，那就真的报错
+    if (v12Error) {
+        console.warn("V1.2 提交也失败，尝试最基础模式...", v12Error);
+        // 3. 降级 V1.0
+        const legacyPayload = {
+            id: checkIn.id,
+            user_id: checkIn.userId,
+            user_name: checkIn.userName,
+            user_avatar: checkIn.userAvatar,
+            subject: checkIn.subject,
+            content: checkIn.content,
+            image_url: checkIn.imageUrl || null,
+            timestamp: checkIn.timestamp,
+            liked_by: checkIn.likedBy || []
+        };
+        const { error: finalError } = await supabase.from('checkins').insert(legacyPayload);
+        if (finalError) throw finalError;
     }
-    
-    console.info("⚠️ 数据库结构较旧，已通过兼容模式打卡。请在 Supabase 执行最新的 SQL 脚本以支持新功能 (Rating/Duration/Penalty)。");
   }
 };
 

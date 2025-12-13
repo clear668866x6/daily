@@ -30,20 +30,27 @@ const getApiUrl = () => {
     }
 }
 
-// 增加 wordCount 参数
-export const generateEnglishDaily = async (wordCount: number = 30): Promise<EnglishDailyContent> => {
+// 增加 book 参数
+export const generateEnglishDaily = async (wordCount: number = 30, book: string = 'kaoyan'): Promise<EnglishDailyContent> => {
   if (!API_KEY) {
     return getFallbackData("未配置 API Key", "请在 .env 文件中配置 VITE_API_KEY (填入 DeepSeek API Key)。");
   }
 
   const API_URL = getApiUrl();
-  console.log("Calling API URL:", API_URL);
+  
+  const bookNameMap: Record<string, string> = {
+      'kaoyan': '考研英语大纲',
+      'cet4': '大学英语四级(CET-4)',
+      'cet6': '大学英语六级(CET-6)',
+      'ielts': '雅思(IELTS)'
+  };
+  const targetBook = bookNameMap[book] || '考研英语大纲';
 
-  const systemPrompt = `你是一个专业的考研英语辅导老师。请编写一篇考研英语阅读短文。
+  const systemPrompt = `你是一个专业的英语辅导老师。请编写一篇英语阅读短文。
   
   要求：
-  1. 题材：科技、文化、教育或社会热点，风格贴近考研真题。
-  2. 词汇：从考研英语大纲中随机抽取 ${wordCount} 个重点单词。
+  1. 题材：科技、文化、教育或社会热点，风格贴近${targetBook}真题。
+  2. 词汇：从【${targetBook}】中随机抽取 ${wordCount} 个重点单词。
   3. **重要：在文章正文中，必须将这 ${wordCount} 个重点单词用双大括号包裹，例如 {{ambiguous}}，以便前端识别高亮。**
   4. 篇幅：150-200 词。
   5. 输出格式：必须是合法的 JSON 格式。
@@ -68,7 +75,7 @@ export const generateEnglishDaily = async (wordCount: number = 30): Promise<Engl
         model: "deepseek-chat", 
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `请生成今天的考研英语阅读练习内容，包含 ${wordCount} 个新词。` }
+          { role: "user", content: `请生成今天的英语阅读练习内容，基于${targetBook}，包含 ${wordCount} 个新词。` }
         ],
         response_format: { type: "json_object" }, 
         temperature: 1.2,

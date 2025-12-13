@@ -1,8 +1,8 @@
 
-import React, { useState, useRef } from 'react';
-import { CheckIn, SubjectCategory, User, getUserStyle } from '../types'; // 导入样式工具
+import React, { useState, useRef, useMemo } from 'react';
+import { CheckIn, SubjectCategory, User, getUserStyle } from '../types'; 
 import { MarkdownText } from './MarkdownText';
-import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock } from 'lucide-react';
+import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Calculator, BookOpen, ScrollText, Cpu, Code2, Sparkles, MoreHorizontal, Pin } from 'lucide-react';
 
 interface Props {
   checkIns: CheckIn[];
@@ -11,15 +11,40 @@ interface Props {
   onLike: (id: string) => void;
 }
 
+// 1. 智能筛选配置
+const FILTER_GROUPS = [
+    { id: 'ALL', label: '全部动态', icon: Sparkles, color: 'text-brand-500' },
+    { id: 'ANNOUNCEMENT', label: '公告', icon: Megaphone, color: 'text-red-500' },
+    { id: 'MATH', label: '数学', icon: Calculator, subjects: [SubjectCategory.MATH], color: 'text-blue-500' },
+    { id: 'ENGLISH', label: '英语', icon: BookOpen, subjects: [SubjectCategory.ENGLISH], color: 'text-violet-500' },
+    { id: 'POLITICS', label: '政治', icon: ScrollText, subjects: [SubjectCategory.POLITICS], color: 'text-rose-500' },
+    { id: 'CS_408', label: '专业课 408', icon: Cpu, subjects: [SubjectCategory.CS_DS, SubjectCategory.CS_CO, SubjectCategory.CS_OS, SubjectCategory.CS_CN], color: 'text-emerald-500' },
+    { id: 'ALGORITHM', label: '算法训练', icon: Code2, subjects: [SubjectCategory.ALGORITHM], color: 'text-amber-500' },
+];
+
 export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) => {
   const [content, setContent] = useState('');
   const [subject, setSubject] = useState<SubjectCategory>(SubjectCategory.MATH);
   const [image, setImage] = useState<string | null>(null);
   const [isPreview, setIsPreview] = useState(false);
+  const [isAnnouncement, setIsAnnouncement] = useState(false); // 新增：是否为公告
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [filterSubject, setFilterSubject] = useState<string>('ALL');
+  const [activeFilterId, setActiveFilterId] = useState('ALL');
 
   const isGuest = user.role === 'guest';
+  const isAdmin = user.role === 'admin';
+
+  // 2. 辅助函数：根据科目获取主题色样式
+  const getSubjectTheme = (sub: string) => {
+    if (sub === SubjectCategory.MATH) return 'bg-blue-50 text-blue-700 border-blue-200';
+    if (sub === SubjectCategory.ENGLISH) return 'bg-violet-50 text-violet-700 border-violet-200';
+    if (sub === SubjectCategory.POLITICS) return 'bg-rose-50 text-rose-700 border-rose-200';
+    if (sub === SubjectCategory.ALGORITHM) return 'bg-amber-50 text-amber-700 border-amber-200';
+    if ([SubjectCategory.CS_DS, SubjectCategory.CS_CO, SubjectCategory.CS_OS, SubjectCategory.CS_CN].includes(sub as any)) {
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    }
+    return 'bg-gray-50 text-gray-700 border-gray-200';
+  };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -41,11 +66,12 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
       userId: user.id,
       userName: user.name,
       userAvatar: user.avatar,
-      userRating: user.rating, // 保存发帖时的 rating
+      userRating: user.rating, 
       userRole: user.role,
       subject,
       content,
       imageUrl: image || undefined,
+      isAnnouncement: isAdmin && isAnnouncement, // 仅管理员可发公告
       timestamp: Date.now(),
       likedBy: []
     };
@@ -54,172 +80,312 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
     setContent('');
     setImage(null);
     setIsPreview(false);
+    setIsAnnouncement(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const filteredCheckIns = filterSubject === 'ALL' 
-    ? checkIns 
-    : checkIns.filter(c => c.subject === filterSubject);
+  // 3. 筛选逻辑：分离公告和普通动态
+  const { announcements, regularPosts } = useMemo(() => {
+    const pinned = checkIns.filter(c => c.isAnnouncement);
+    const regular = checkIns.filter(c => !c.isAnnouncement);
+    
+    // 如果选择了“公告”筛选，则将所有公告放入列表显示，隐藏置顶区域
+    if (activeFilterId === 'ANNOUNCEMENT') {
+        return { announcements: [], regularPosts: pinned };
+    }
 
-  return (
-    <div className="max-w-2xl mx-auto space-y-8">
-      {/* Input Area */}
-      {isGuest ? (
-        <div className="bg-gray-100 p-6 rounded-2xl border border-gray-200 flex flex-col items-center justify-center text-center space-y-2">
-          <Lock className="w-8 h-8 text-gray-400" />
-          <h3 className="font-bold text-gray-700">访客模式 · 仅浏览</h3>
-          <p className="text-sm text-gray-500">你需要登录或注册账号才能发布打卡动态。</p>
-        </div>
-      ) : (
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold text-gray-800">今天学了什么？</h2>
-            <button 
-              onClick={() => setIsPreview(!isPreview)}
-              className="text-xs flex items-center space-x-1 text-gray-600 hover:text-brand-600 transition-colors bg-gray-100 px-3 py-1.5 rounded-full"
-            >
-              {isPreview ? <><Edit2 className="w-3 h-3"/><span>切换编辑</span></> : <><Eye className="w-3 h-3"/><span>预览效果</span></>}
-            </button>
-          </div>
-          
-          <div className="space-y-4">
-            <select 
-              value={subject} 
-              onChange={(e) => setSubject(e.target.value as SubjectCategory)}
-              className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-            >
-              <optgroup label="基础学科">
-                <option value={SubjectCategory.MATH}>{SubjectCategory.MATH}</option>
-                <option value={SubjectCategory.ENGLISH}>{SubjectCategory.ENGLISH}</option>
-                <option value={SubjectCategory.POLITICS}>{SubjectCategory.POLITICS}</option>
-                <option value={SubjectCategory.ALGORITHM}>{SubjectCategory.ALGORITHM}</option>
-              </optgroup>
-              <optgroup label="408 计算机综合">
-                <option value={SubjectCategory.CS_DS}>{SubjectCategory.CS_DS}</option>
-                <option value={SubjectCategory.CS_CO}>{SubjectCategory.CS_CO}</option>
-                <option value={SubjectCategory.CS_OS}>{SubjectCategory.CS_OS}</option>
-                <option value={SubjectCategory.CS_CN}>{SubjectCategory.CS_CN}</option>
-              </optgroup>
-            </select>
-            
-            {isPreview ? (
-              <div className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl min-h-[120px] prose prose-sm max-w-none">
-                {content ? <MarkdownText content={content} /> : <span className="text-gray-400 italic">暂无内容，请切换到编辑模式输入...</span>}
-              </div>
-            ) : (
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="支持 Markdown 语法"
-                className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl text-gray-800 min-h-[120px] focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none font-mono text-sm leading-relaxed"
-              />
-            )}
+    // 只有普通动态受筛选器影响，公告始终显示
+    let filteredRegular = regular;
+    if (activeFilterId !== 'ALL') {
+        const group = FILTER_GROUPS.find(g => g.id === activeFilterId);
+        if (group && group.subjects) {
+            filteredRegular = regular.filter(c => group.subjects?.includes(c.subject));
+        }
+    }
+    
+    return { announcements: pinned, regularPosts: filteredRegular };
+  }, [activeFilterId, checkIns]);
 
-            {image && (
-              <div className="relative inline-block">
-                <img src={image} alt="Preview" className="h-32 rounded-lg object-cover border border-gray-200" />
-                <button 
-                  onClick={() => setImage(null)}
-                  className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
+  const renderCard = (checkIn: CheckIn, isPinned: boolean = false) => {
+    const isLiked = checkIn.likedBy.includes(user.id);
+    const likeCount = checkIn.likedBy.length;
+    const isOfficial = checkIn.userRole === 'admin';
+    const nameStyle = getUserStyle(checkIn.userRole || 'user', checkIn.userRating);
+    const subjectTheme = getSubjectTheme(checkIn.subject);
 
-            <div className="flex justify-between items-center pt-2">
-              <div className="flex space-x-2">
-                <button onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg">
-                  <ImageIcon className="w-5 h-5" />
-                </button>
-                <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
-              </div>
-              <button 
-                onClick={handleSubmit}
-                disabled={!content.trim()}
-                className="bg-brand-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 shadow-md"
-              >
-                <Send className="w-4 h-4" />
-                <span>发布动态</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Filter */}
-      <div className="flex items-center space-x-2 overflow-x-auto pb-2 scrollbar-hide">
-        <Filter className="w-4 h-4 text-gray-400 shrink-0" />
-        <button 
-          onClick={() => setFilterSubject('ALL')}
-          className={`px-3 py-1 rounded-full text-sm whitespace-nowrap transition-colors ${filterSubject === 'ALL' ? 'bg-brand-600 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
+    return (
+        <div 
+          key={checkIn.id} 
+          className={`bg-white rounded-3xl p-6 shadow-sm border transition-all hover:shadow-md relative overflow-hidden group
+              ${isPinned 
+                  ? 'border-indigo-200 bg-gradient-to-br from-white to-indigo-50/30 ring-1 ring-indigo-100' 
+                  : 'border-gray-100 hover:border-gray-200'
+              }
+          `}
         >
-          全部
-        </button>
-        {Object.values(SubjectCategory).map(cat => (
-          <button
-            key={cat}
-            onClick={() => setFilterSubject(cat)}
-            className={`px-3 py-1 rounded-full text-sm whitespace-nowrap transition-colors ${filterSubject === cat ? 'bg-brand-600 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
-          >
-            {cat}
-          </button>
-        ))}
-      </div>
+            {/* Pinned Icon / Background Decor */}
+            {isPinned && (
+                <>
+                    <div className="absolute top-0 right-0 p-3 z-20">
+                         <div className="bg-indigo-600 text-white p-1.5 rounded-full shadow-lg shadow-indigo-200 transform rotate-12">
+                             <Pin className="w-4 h-4 fill-current" />
+                         </div>
+                    </div>
+                    <div className="absolute -top-6 -right-6 w-24 h-24 bg-indigo-100 rounded-full opacity-50 blur-xl pointer-events-none"></div>
+                </>
+            )}
 
-      {/* Feed List */}
-      <div className="space-y-6">
-        {filteredCheckIns.map(checkIn => {
-          const isLiked = checkIn.likedBy.includes(user.id);
-          const likeCount = checkIn.likedBy.length;
-          // 应用 Rating 颜色
-          const nameStyle = getUserStyle(checkIn.userRole || 'user', checkIn.userRating);
-          
-          return (
-            <div key={checkIn.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 transition-all hover:shadow-md">
-              <div className="flex justify-between items-start mb-4">
-                <div className="flex items-center space-x-3">
-                  <img src={checkIn.userAvatar} alt={checkIn.userName} className="w-10 h-10 rounded-full bg-gray-200" />
-                  <div>
-                    {/* 使用工具函数渲染带颜色的名字 */}
-                    <h3 className={`text-base ${nameStyle}`}>
-                        {checkIn.userName}
-                    </h3>
-                    <p className="text-xs text-gray-500">
-                      {new Date(checkIn.timestamp).toLocaleString('zh-CN')} · <span className="text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded">{checkIn.subject}</span>
-                    </p>
-                  </div>
+            {/* Card Header */}
+            <div className="flex justify-between items-start mb-4 relative z-10">
+                <div className="flex items-center gap-3">
+                    <div className="relative">
+                        <img 
+                          src={checkIn.userAvatar} 
+                          alt={checkIn.userName} 
+                          className={`w-11 h-11 rounded-full bg-gray-50 object-cover border-2 ${isOfficial ? 'border-indigo-200' : 'border-white shadow-sm'}`} 
+                        />
+                        {isOfficial && (
+                          <div className="absolute -bottom-1 -right-1 bg-indigo-600 text-white rounded-full p-0.5 border-2 border-white">
+                              <Megaphone className="w-2.5 h-2.5" />
+                          </div>
+                        )}
+                    </div>
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <h3 className={`text-base ${nameStyle}`}>{checkIn.userName}</h3>
+                            {isOfficial && (
+                                <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-1.5 py-0.5 rounded">官方</span>
+                            )}
+                            {isPinned && (
+                                <span className="bg-red-100 text-red-600 text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1">
+                                    公告
+                                </span>
+                            )}
+                        </div>
+                        <div className="text-xs text-gray-400 mt-0.5 font-mono">
+                            {new Date(checkIn.timestamp).toLocaleString('zh-CN', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'})}
+                        </div>
+                    </div>
                 </div>
-              </div>
+                
+                {/* Subject Badge (Only for regular posts or if relevant) */}
+                {!isPinned && (
+                    <div className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border ${subjectTheme} flex items-center gap-1.5`}>
+                        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50"></span>
+                        {checkIn.subject}
+                    </div>
+                )}
+            </div>
 
-              <div className="mb-4">
+            {/* Content */}
+            <div className={`mb-4 text-sm leading-relaxed relative z-10 pl-1 ${isPinned ? 'text-gray-900 font-medium' : 'text-gray-800'}`}>
                 <MarkdownText content={checkIn.content} />
-              </div>
+            </div>
 
-              {checkIn.imageUrl && (
-                <div className="mb-4">
-                  <img src={checkIn.imageUrl} alt="Check-in" className="rounded-xl max-h-96 object-cover w-full border border-gray-100" />
+            {/* Image */}
+            {checkIn.imageUrl && (
+                <div className="mb-5 relative z-10 rounded-2xl overflow-hidden border border-gray-100 max-w-sm">
+                    <img 
+                      src={checkIn.imageUrl} 
+                      alt="Post" 
+                      className="w-full h-auto object-cover transition-transform duration-500 group-hover:scale-105" 
+                    />
                 </div>
-              )}
+            )}
 
-              <div className="flex items-center space-x-6 border-t border-gray-50 pt-4">
+            {/* Footer Actions */}
+            <div className={`flex items-center gap-6 pt-4 border-t ${isPinned ? 'border-indigo-100' : 'border-gray-50'} relative z-10`}>
                 <button 
                   onClick={() => onLike(checkIn.id)}
                   disabled={isGuest}
-                  className={`flex items-center space-x-2 transition-colors group ${isLiked ? 'text-red-500' : 'text-gray-500 hover:text-red-500'} ${isGuest ? 'cursor-not-allowed opacity-60' : ''}`}
+                  className={`flex items-center gap-2 text-sm font-medium transition-all group/btn ${
+                      isLiked ? 'text-rose-500' : 'text-gray-400 hover:text-gray-600'
+                  } ${isGuest ? 'cursor-not-allowed opacity-50' : ''}`}
                 >
-                  <ThumbsUp className={`w-5 h-5 ${isLiked ? 'fill-current' : 'group-hover:scale-110'}`} />
-                  <span>{likeCount > 0 ? likeCount : '赞'}</span>
+                    <div className={`p-1.5 rounded-full transition-colors ${isLiked ? 'bg-rose-50' : 'group-hover/btn:bg-gray-100'}`}>
+                      <ThumbsUp className={`w-4 h-4 ${isLiked ? 'fill-current' : ''}`} />
+                    </div>
+                    <span>{likeCount || '赞'}</span>
                 </button>
-              </div>
+
+                 <button className="text-gray-300 hover:text-gray-500 ml-auto transition-colors">
+                      <MoreHorizontal className="w-4 h-4" />
+                 </button>
             </div>
-          );
-        })}
-        {filteredCheckIns.length === 0 && (
-          <div className="text-center py-12 text-gray-400">
-            暂无该科目的打卡记录，快来抢沙发！
-          </div>
+        </div>
+    );
+  };
+
+  return (
+    <div className="max-w-3xl mx-auto pb-20">
+      
+      {/* 4. 发布区域 */}
+      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-1 mb-8">
+        {isGuest ? (
+            <div className="py-8 flex flex-col items-center justify-center text-center text-gray-400">
+                <div className="bg-gray-100 p-3 rounded-full mb-3"><Lock className="w-6 h-6"/></div>
+                <p className="font-bold text-gray-600">访客模式 · 仅浏览</p>
+                <p className="text-xs mt-1">登录后即可分享你的学习动态</p>
+            </div>
+        ) : (
+            <div className="p-4 md:p-6">
+                 {/* Header */}
+                 <div className="flex justify-between items-center mb-4">
+                     <div className="flex items-center gap-3">
+                         <img src={user.avatar} className="w-10 h-10 rounded-full bg-gray-100 border border-gray-100" alt="Avatar"/>
+                         <div>
+                             <div className="font-bold text-gray-800 text-sm">分享今日所学</div>
+                             <div className="text-xs text-gray-400">积跬步，至千里</div>
+                         </div>
+                     </div>
+                     <button 
+                        onClick={() => setIsPreview(!isPreview)}
+                        className="text-xs flex items-center space-x-1 text-gray-500 hover:text-brand-600 transition-colors bg-gray-50 hover:bg-brand-50 px-3 py-1.5 rounded-full font-medium"
+                     >
+                        {isPreview ? <><Edit2 className="w-3 h-3"/><span>编辑</span></> : <><Eye className="w-3 h-3"/><span>预览</span></>}
+                     </button>
+                 </div>
+
+                 {/* Subject Select */}
+                 <div className="mb-4">
+                     <select 
+                        value={subject} 
+                        onChange={(e) => setSubject(e.target.value as SubjectCategory)}
+                        className="w-full bg-gray-50 border-0 rounded-xl px-4 py-2.5 text-sm font-medium text-gray-700 focus:ring-2 focus:ring-brand-500 transition-shadow cursor-pointer hover:bg-gray-100"
+                     >
+                        <optgroup label="基础学科">
+                            <option value={SubjectCategory.MATH}>数学 (高等数学/线代/概率论)</option>
+                            <option value={SubjectCategory.ENGLISH}>英语 (阅读/写作/新题型)</option>
+                            <option value={SubjectCategory.POLITICS}>政治 (马原/毛中特/史纲)</option>
+                        </optgroup>
+                        <optgroup label="专业课 (408)">
+                            <option value={SubjectCategory.CS_DS}>数据结构</option>
+                            <option value={SubjectCategory.CS_CO}>计算机组成原理</option>
+                            <option value={SubjectCategory.CS_OS}>操作系统</option>
+                            <option value={SubjectCategory.CS_CN}>计算机网络</option>
+                        </optgroup>
+                        <optgroup label="其他">
+                            <option value={SubjectCategory.ALGORITHM}>算法训练</option>
+                            <option value={SubjectCategory.OTHER}>其他日常</option>
+                        </optgroup>
+                     </select>
+                 </div>
+
+                 {/* Text Area */}
+                 {isPreview ? (
+                     <div className="w-full p-4 bg-gray-50 rounded-xl min-h-[120px] prose prose-sm max-w-none border border-transparent">
+                        {content ? <MarkdownText content={content} /> : <span className="text-gray-400 italic">暂无内容...</span>}
+                     </div>
+                 ) : (
+                     <textarea
+                        value={content}
+                        onChange={(e) => setContent(e.target.value)}
+                        placeholder="支持 Markdown 语法。今天复习了什么？有什么心得？..."
+                        className="w-full p-4 bg-gray-50 border-0 rounded-xl text-gray-800 min-h-[120px] focus:ring-2 focus:ring-brand-500 resize-none placeholder-gray-400 text-sm leading-relaxed"
+                     />
+                 )}
+
+                 {/* Image Preview */}
+                 {image && (
+                    <div className="relative mt-4 group w-fit">
+                        <img src={image} alt="Preview" className="h-40 rounded-xl object-cover border border-gray-100 shadow-sm" />
+                        <button 
+                        onClick={() => setImage(null)}
+                        className="absolute -top-2 -right-2 bg-white text-gray-500 rounded-full p-1 shadow-md hover:text-red-500 border border-gray-100 transition-colors"
+                        >
+                        <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                 )}
+                 
+                 {/* Admin Options */}
+                 {isAdmin && (
+                     <div className="mt-4 flex items-center">
+                         <label className="flex items-center space-x-2 text-sm text-indigo-700 font-bold cursor-pointer bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 hover:bg-indigo-100 transition-colors">
+                             <input 
+                                type="checkbox" 
+                                checked={isAnnouncement} 
+                                onChange={(e) => setIsAnnouncement(e.target.checked)} 
+                                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                             />
+                             <span className="flex items-center gap-1"><Megaphone className="w-4 h-4"/> 发布为置顶公告</span>
+                         </label>
+                     </div>
+                 )}
+
+                 {/* Footer Actions */}
+                 <div className="flex justify-between items-center mt-4 pt-2 border-t border-gray-50">
+                    <div className="flex space-x-2">
+                        <button 
+                            onClick={() => fileInputRef.current?.click()} 
+                            className="p-2 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-xl transition-all"
+                            title="上传图片"
+                        >
+                            <ImageIcon className="w-5 h-5" />
+                        </button>
+                        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
+                    </div>
+                    <button 
+                        onClick={handleSubmit}
+                        disabled={!content.trim()}
+                        className="bg-brand-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 shadow-lg shadow-brand-200 transition-all active:scale-95"
+                    >
+                        <Send className="w-4 h-4" />
+                        <span>发布</span>
+                    </button>
+                 </div>
+            </div>
         )}
+      </div>
+
+      {/* 5. 筛选栏 (Sticky & Glassmorphism) */}
+      <div className="sticky top-0 z-20 mb-6 -mx-4 px-4 md:mx-0 md:px-0">
+          <div className="bg-white/80 backdrop-blur-md border border-white/40 shadow-sm rounded-2xl p-2 flex items-center gap-1 overflow-x-auto scrollbar-hide">
+              {FILTER_GROUPS.map(group => {
+                  const isActive = activeFilterId === group.id;
+                  const Icon = group.icon;
+                  return (
+                      <button
+                        key={group.id}
+                        onClick={() => setActiveFilterId(group.id)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all select-none
+                            ${isActive 
+                                ? 'bg-gray-900 text-white shadow-md transform scale-105' 
+                                : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700 bg-transparent'
+                            }
+                        `}
+                      >
+                          <Icon className={`w-4 h-4 ${isActive ? 'text-white' : group.color}`} />
+                          <span>{group.label}</span>
+                      </button>
+                  );
+              })}
+          </div>
+      </div>
+
+      {/* 6. Feed List */}
+      <div className="space-y-6">
+          {/* Section: Announcements */}
+          {announcements.length > 0 && (
+              <div className="space-y-4 mb-8">
+                  {announcements.map(checkIn => renderCard(checkIn, true))}
+                  <div className="flex items-center gap-2 text-gray-300 text-xs px-2">
+                      <div className="h-px bg-gray-200 flex-1"></div>
+                      <span>最新动态</span>
+                      <div className="h-px bg-gray-200 flex-1"></div>
+                  </div>
+              </div>
+          )}
+
+          {/* Section: Regular Posts */}
+          {regularPosts.length > 0 ? (
+              regularPosts.map(checkIn => renderCard(checkIn, checkIn.isAnnouncement))
+          ) : (
+              <div className="py-20 flex flex-col items-center justify-center text-gray-300 bg-white rounded-3xl border border-dashed border-gray-200">
+                  <Filter className="w-12 h-12 mb-4 opacity-20" />
+                  <p className="text-sm font-medium">暂无该科目的动态</p>
+              </div>
+          )}
       </div>
     </div>
   );

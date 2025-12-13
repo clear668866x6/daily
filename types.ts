@@ -33,7 +33,8 @@ export interface CheckIn {
   content: string; 
   imageUrl?: string;
   duration?: number; // 学习时长(分钟)
-  isPenalty?: boolean; // 新增：是否为惩罚/摸鱼记录
+  isPenalty?: boolean; // 是否为惩罚/摸鱼记录
+  isAnnouncement?: boolean; // 新增：是否为置顶公告
   timestamp: number;
   likedBy: string[]; 
 }

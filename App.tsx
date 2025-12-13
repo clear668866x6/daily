@@ -9,12 +9,25 @@ import { About } from './components/About';
 import { Login } from './components/Login';
 import { CheckIn, SubjectCategory, User } from './types';
 import * as storage from './services/storageService';
+import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [user, setUser] = useState<User | null>(null);
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
   const [isInitializing, setIsInitializing] = useState(true);
+  
+  // Toast State
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const showToast = (message: string, type: ToastType = 'success') => {
+    const id = Date.now().toString() + Math.random();
+    setToasts(prev => [...prev, { id, message, type }]);
+  };
+
+  const dismissToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
 
   const refreshData = async () => {
     try {
@@ -37,6 +50,7 @@ const App: React.FC = () => {
       setCheckIns(mappedData);
     } catch (e) {
       console.error("Failed to load checkins", e);
+      // Optional: showToast("数据加载失败", 'error'); 
     }
   };
 
@@ -57,6 +71,7 @@ const App: React.FC = () => {
 
   const handleLogin = async (loggedInUser: User) => {
     setUser(loggedInUser);
+    showToast(`欢迎回来，${loggedInUser.name}！`, 'success');
     await refreshData();
   };
 
@@ -64,6 +79,7 @@ const App: React.FC = () => {
     storage.logoutUser();
     setUser(null);
     setActiveTab('dashboard');
+    showToast("已退出登录", 'info');
   };
 
   const handleUpdateUser = (updatedUser: User) => {
@@ -72,7 +88,7 @@ const App: React.FC = () => {
 
   const handleAddCheckIn = async (newCheckIn: CheckIn) => {
     if (user?.role === 'guest') {
-      alert("访客模式无法发布打卡。");
+      showToast("访客模式无法发布打卡", 'error');
       return;
     }
 
@@ -80,9 +96,10 @@ const App: React.FC = () => {
     
     try {
       await storage.addCheckIn(newCheckIn);
+      showToast("打卡发布成功！", 'success');
       await refreshData();
     } catch (e) {
-      alert("打卡上传失败，请检查网络");
+      showToast("打卡上传失败，请检查网络", 'error');
     }
 
     if (activeTab === 'english' || activeTab === 'algorithm') {
@@ -111,7 +128,7 @@ const App: React.FC = () => {
   const handleAutoCheckIn = (subject: SubjectCategory, content: string) => {
     if (!user) return;
     if (user.role === 'guest') {
-      alert("访客模式无法自动打卡。");
+      showToast("访客模式无法自动打卡", 'error');
       return;
     }
     const newCheckIn: CheckIn = {
@@ -134,7 +151,12 @@ const App: React.FC = () => {
   }
 
   if (!user) {
-    return <Login onLogin={handleLogin} />;
+    return (
+        <>
+            <Login onLogin={handleLogin} />
+            <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+        </>
+    );
   }
 
   return (
@@ -145,7 +167,7 @@ const App: React.FC = () => {
         onLogout={handleLogout}
       />
       
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen">
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen relative">
         <div className="max-w-7xl mx-auto">
           {activeTab === 'dashboard' && (
             <div className="animate-fade-in">
@@ -160,7 +182,12 @@ const App: React.FC = () => {
                   刷新数据
                 </button>
               </div>
-              <Dashboard checkIns={checkIns} currentUser={user} onUpdateUser={handleUpdateUser} />
+              <Dashboard 
+                checkIns={checkIns} 
+                currentUser={user} 
+                onUpdateUser={handleUpdateUser} 
+                onShowToast={showToast}
+              />
             </div>
           )}
 
@@ -194,7 +221,11 @@ const App: React.FC = () => {
                 <h1 className="text-2xl font-bold text-gray-900">算法训练营</h1>
                 <p className="text-gray-500">每日精选算法题，AC 才是硬道理</p>
               </div>
-              <AlgorithmTutor user={user} onCheckIn={handleAutoCheckIn} />
+              <AlgorithmTutor 
+                user={user} 
+                onCheckIn={handleAutoCheckIn} 
+                onShowToast={showToast}
+              />
             </div>
           )}
 
@@ -205,13 +236,23 @@ const App: React.FC = () => {
           )}
         </div>
       </main>
+      
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+
       <style>{`
         @keyframes fade-in {
           from { opacity: 0; transform: translateY(10px); }
           to { opacity: 1; transform: translateY(0); }
         }
+        @keyframes slide-in {
+          from { opacity: 0; transform: translateX(20px); }
+          to { opacity: 1; transform: translateX(0); }
+        }
         .animate-fade-in {
           animation: fade-in 0.3s ease-out forwards;
+        }
+        .animate-slide-in {
+            animation: slide-in 0.3s cubic-bezier(0.2, 0, 0.2, 1) forwards;
         }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }

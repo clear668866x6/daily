@@ -1,8 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { EnglishDailyContent, SubjectCategory, User } from '../types';
 import { generateEnglishDaily } from '../services/geminiService';
-import { BookOpen, RefreshCw, Send, Loader2, Languages, Lock, Sparkles, Coffee, Clock, BrainCircuit, Settings, ChevronDown, ChevronUp } from 'lucide-react';
+import { BookOpen, RefreshCw, Send, Loader2, Languages, Lock, Sparkles, Coffee, ChevronDown, Library } from 'lucide-react';
 
 interface Props {
   user: User;
@@ -13,20 +13,21 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
   const [content, setContent] = useState<EnglishDailyContent | null>(null);
   const [loading, setLoading] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
-  const [wordCount, setWordCount] = useState(5); // 默认单词数
-  const [selectedWord, setSelectedWord] = useState<string | null>(null); // 当前点击的单词
+  
+  // Settings
+  const [wordCount, setWordCount] = useState(5); 
+  const [selectedBook, setSelectedBook] = useState('kaoyan');
+  const [selectedWord, setSelectedWord] = useState<string | null>(null); 
 
   const isGuest = user.role === 'guest';
-  // 移除 storageKey 的日期限制，允许一天多次练习，不再强制读取缓存覆盖
-  // 如果想保存进度，可以用更复杂的 key，这里简化为只在会话期间保持
 
   const fetchDaily = async () => {
     if (isGuest) return;
     setLoading(true);
-    setSelectedWord(null); // 重置选中
+    setSelectedWord(null); 
     
-    // 调用 API, 传入自定义单词数
-    const data = await generateEnglishDaily(wordCount);
+    // 调用 API, 传入自定义单词数和词书
+    const data = await generateEnglishDaily(wordCount, selectedBook);
     
     if (data) {
         setContent(data);
@@ -70,10 +71,8 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
     });
   };
 
-  // 获取当前选中单词的释义
   const getCurrentDefinition = () => {
       if (!selectedWord || !content) return null;
-      // 模糊匹配，因为文章里的单词可能有变形 (patents vs patent)
       const found = content.vocabList.find(v => 
           selectedWord.toLowerCase().includes(v.word.toLowerCase()) || 
           v.word.toLowerCase().includes(selectedWord.toLowerCase())
@@ -86,16 +85,30 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-            <BrainCircuit className="w-6 h-6 text-blue-600" />
-            DeepSeek 每日英语
+            <Sparkles className="w-6 h-6 text-brand-500" />
+            AI 英语阅读教练
           </h2>
-          <p className="text-gray-500 text-sm">点击文中下划线单词查看释义</p>
+          <p className="text-gray-500 text-sm">选择词书，定制你的专属阅读材料</p>
         </div>
         
-        <div className="flex items-center gap-3 bg-white p-2 rounded-xl border border-gray-200 shadow-sm">
+        {/* Settings Bar */}
+        <div className="flex flex-wrap items-center gap-3 bg-white p-2 rounded-xl border border-gray-200 shadow-sm">
+             <div className="flex items-center gap-2 px-2 border-r border-gray-100">
+                <Library className="w-4 h-4 text-gray-400" />
+                <select 
+                    value={selectedBook}
+                    onChange={(e) => setSelectedBook(e.target.value)}
+                    className="text-sm text-gray-700 bg-transparent focus:outline-none cursor-pointer font-medium"
+                >
+                    <option value="kaoyan">考研英语</option>
+                    <option value="cet4">四级 (CET-4)</option>
+                    <option value="cet6">六级 (CET-6)</option>
+                    <option value="ielts">雅思 (IELTS)</option>
+                </select>
+            </div>
+
             <div className="flex items-center gap-2 px-2">
-                <Settings className="w-4 h-4 text-gray-400" />
-                <span className="text-sm text-gray-600">新词数:</span>
+                <span className="text-sm text-gray-600">词数:</span>
                 <input 
                     type="number" 
                     min="3" 
@@ -105,14 +118,15 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
                     className="w-12 border border-gray-300 rounded px-1 text-center text-sm focus:ring-2 focus:ring-brand-500 outline-none"
                 />
             </div>
+
             {content && (
                 <button 
                 onClick={fetchDaily} 
                 disabled={loading || isGuest}
-                className="flex items-center space-x-2 px-3 py-1.5 bg-brand-50 text-brand-600 rounded-lg hover:bg-brand-100 transition-colors text-sm font-medium"
+                className="flex items-center space-x-2 px-3 py-1.5 bg-brand-50 text-brand-600 rounded-lg hover:bg-brand-100 transition-colors text-sm font-medium ml-1"
                 >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                <span>再来一篇</span>
+                <span>换一篇</span>
                 </button>
             )}
         </div>
@@ -128,26 +142,32 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
       {loading ? (
         <div className="h-96 flex flex-col items-center justify-center bg-white rounded-2xl border border-gray-100 shadow-sm animate-pulse">
           <Loader2 className="w-12 h-12 text-brand-600 animate-spin mb-6" />
-          <h3 className="text-lg font-bold text-gray-800">DeepSeek 正在为您定制文章...</h3>
-          <p className="text-gray-500 mt-2">正在抽取考研大纲词汇并构建语境</p>
+          <h3 className="text-lg font-bold text-gray-800">AI 正在为您编写文章...</h3>
+          <p className="text-gray-500 mt-2">基于 {selectedBook === 'kaoyan' ? '考研大纲' : selectedBook.toUpperCase()} 词汇库构建语境</p>
         </div>
       ) : content ? (
         <div className="space-y-6 animate-fade-in">
             {/* 文章卡片 */}
-            <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-gray-100">
-              <div className="flex justify-between items-start mb-6">
-                <span className="bg-blue-50 text-blue-700 text-xs font-bold px-2 py-1 rounded-full">DeepSeek V3</span>
+            <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+                  <BookOpen className="w-40 h-40" />
+              </div>
+
+              <div className="flex justify-between items-start mb-6 relative z-10">
+                <span className="bg-brand-50 text-brand-700 text-xs font-bold px-2 py-1 rounded-full border border-brand-100 uppercase">
+                    {selectedBook === 'kaoyan' ? 'Postgraduate' : selectedBook}
+                </span>
                 <span className="text-gray-400 text-sm font-mono">{content.date}</span>
               </div>
               
-              <article className="prose prose-slate max-w-none mb-8">
+              <article className="prose prose-slate max-w-none mb-8 relative z-10">
                 <p className="text-lg leading-loose text-gray-800 font-serif whitespace-pre-line">
                   {renderArticle(content.article)}
                 </p>
               </article>
 
               {/* 动态单词释义条 */}
-              <div className={`transition-all duration-300 overflow-hidden ${selectedWord ? 'max-h-24 opacity-100 mb-6' : 'max-h-0 opacity-0'}`}>
+              <div className={`transition-all duration-300 overflow-hidden relative z-10 ${selectedWord ? 'max-h-24 opacity-100 mb-6' : 'max-h-0 opacity-0'}`}>
                   <div className="bg-brand-50 border border-brand-200 p-4 rounded-xl flex items-center gap-3">
                       <div className="bg-brand-500 text-white font-bold px-3 py-1 rounded-lg">
                           {selectedWord}
@@ -158,7 +178,7 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
                   </div>
               </div>
               
-              <div className="border-t border-gray-100 pt-4 flex justify-between items-center">
+              <div className="border-t border-gray-100 pt-4 flex justify-between items-center relative z-10">
                 <button 
                   onClick={() => setShowTranslation(!showTranslation)}
                   className="flex items-center space-x-2 text-gray-500 hover:text-brand-600 text-sm font-medium transition-colors"
@@ -176,13 +196,13 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
               </div>
 
               {showTranslation && (
-                  <div className="mt-4 p-4 bg-gray-50 rounded-xl text-gray-600 text-sm leading-relaxed whitespace-pre-line animate-fade-in">
+                  <div className="mt-4 p-4 bg-gray-50 rounded-xl text-gray-600 text-sm leading-relaxed whitespace-pre-line animate-fade-in relative z-10">
                     {content.translation}
                   </div>
               )}
             </div>
 
-            {/* 底部单词表 (默认隐藏) */}
+            {/* 底部单词表 */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                 <details className="group">
                     <summary className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 transition-colors list-none select-none">
@@ -215,7 +235,7 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
             </div>
             <h3 className="text-2xl font-bold text-gray-800 mb-2">准备好开始今天的阅读了吗？</h3>
             <p className="text-gray-500 max-w-md mb-8 leading-relaxed">
-                输入想要学习的新词数量，AI 将为你生成一篇包含这些高频词的短文。坚持每天一篇，轻松搞定长难句。
+                坚持每天一篇，轻松搞定长难句。选择你的目标词汇，AI 即刻为你出题。
             </p>
             <button 
                 onClick={fetchDaily}
@@ -227,7 +247,7 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
                 }`}
             >
                 <Sparkles className="w-5 h-5" />
-                {loading ? '生成中...' : `生成今日文章 (${wordCount}词)`}
+                {loading ? '生成中...' : `开始生成`}
             </button>
         </div>
       )}

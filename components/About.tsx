@@ -3,8 +3,20 @@ import React from 'react';
 import { Rocket, Zap, Bug, GitBranch, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export const About: React.FC = () => {
-  const version = "1.2.0";
+  const version = "1.3.0";
   const changelogs = [
+    {
+        version: "1.3.0",
+        date: "2025-12",
+        title: "考研冲刺与 UI 重构",
+        features: [
+            "🎨 Dashboard 全新改版：采用 Bento Grid 风格，视觉更清爽，数据更直观。",
+            "⏳ 考研倒计时：主页新增倒计时组件，时刻提醒自己珍惜时间。",
+            "📅 累计打卡统计：记录你的坚持天数，见证每一份努力。",
+            "📚 AI 英语升级：新增词书选择（考研/四级/六级/雅思），更精准的阅读训练。",
+            "📢 管理员优化：发布算法题后立即在列表可见，管理更高效。"
+        ]
+    },
     {
         version: "1.2.0",
         date: "2024-03-20",
