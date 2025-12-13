@@ -16,6 +16,14 @@ interface Props {
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1'];
 
+// 统一的日期格式化函数，避免时区或补零问题
+const formatDateKey = (date: Date): string => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+};
+
 export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser, onShowToast }) => {
   const [motto, setMotto] = useState(() => localStorage.getItem('user_motto') || "考研是一场孤独的旅行，但终点是星辰大海。");
   const [isEditingMotto, setIsEditingMotto] = useState(false);
@@ -68,6 +76,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
         setDisplayGoals(uGoals);
     };
     loadData();
+    // 切换用户时，清空选中的日期，避免混淆
     setSelectedDate(null);
   }, [selectedUserId, checkIns]); 
 
@@ -91,7 +100,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   }, [targetDateStr]);
 
   const totalCheckInDays = useMemo(() => {
-      const uniqueDays = new Set(selectedUserCheckIns.map(c => new Date(c.timestamp).toDateString()));
+      const uniqueDays = new Set(selectedUserCheckIns.map(c => formatDateKey(new Date(c.timestamp))));
       return uniqueDays.size;
   }, [selectedUserCheckIns]);
 
@@ -243,28 +252,23 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
     return { daysInMonth, firstDayOfWeek, year, month };
   };
 
+  // 使用 formatDateKey 生成 Map，确保 key 与 calendar 渲染一致
   const dailyStatusMap = useMemo(() => {
     const map: Record<string, boolean> = {};
     selectedUserCheckIns.forEach(c => {
-        const date = new Date(c.timestamp);
-        const y = date.getFullYear();
-        const m = String(date.getMonth() + 1).padStart(2, '0');
-        const d = String(date.getDate()).padStart(2, '0');
-        const key = `${y}-${m}-${d}`;
+        const key = formatDateKey(new Date(c.timestamp));
         map[key] = true;
     });
     return map;
   }, [selectedUserCheckIns]);
 
+  // 修复：使用 formatDateKey 进行日期匹配
   const displayedCheckIns = useMemo(() => {
       let list = selectedUserCheckIns;
       if (selectedDate) {
           list = list.filter(c => {
-              const date = new Date(c.timestamp);
-              const y = date.getFullYear();
-              const m = String(date.getMonth() + 1).padStart(2, '0');
-              const d = String(date.getDate()).padStart(2, '0');
-              return `${y}-${m}-${d}` === selectedDate;
+              const checkInDate = formatDateKey(new Date(c.timestamp));
+              return checkInDate === selectedDate;
           });
       }
       return list.sort((a, b) => b.timestamp - a.timestamp).slice(0, 20); 
@@ -279,24 +283,26 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
     }
 
     for (let d = 1; d <= daysInMonth; d++) {
-        const dayStr = String(d).padStart(2, '0');
-        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${dayStr}`;
+        const currentDay = new Date(year, month, d);
+        const dateStr = formatDateKey(currentDay);
         const hasCheckIn = dailyStatusMap[dateStr];
         const isSelected = selectedDate === dateStr;
-        const isToday = dateStr === new Date().toISOString().split('T')[0];
+        const isToday = dateStr === formatDateKey(new Date());
 
         cells.push(
             <button
                 key={dateStr}
                 onClick={() => setSelectedDate(isSelected ? null : dateStr)}
-                className={`h-9 w-9 rounded-full flex flex-col items-center justify-center text-xs relative transition-all
+                className={`h-9 w-9 rounded-full flex flex-col items-center justify-center text-xs relative transition-all group
                     ${isSelected ? 'bg-brand-600 text-white shadow-md scale-110' : 'text-gray-700 hover:bg-gray-100'}
                     ${isToday && !isSelected ? 'text-brand-600 font-bold border border-brand-200' : ''}
                 `}
             >
                 {d}
                 {hasCheckIn && (
-                    <div className={`w-1 h-1 rounded-full mt-0.5 ${isSelected ? 'bg-white' : 'bg-brand-500'}`}></div>
+                    <div className={`w-1.5 h-1.5 rounded-full mt-0.5 transition-colors
+                        ${isSelected ? 'bg-white' : 'bg-brand-500'}
+                    `}></div>
                 )}
             </button>
         );

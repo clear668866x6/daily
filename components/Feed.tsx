@@ -86,7 +86,8 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
 
   // 3. 筛选逻辑：分离公告和普通动态
   const { announcements, regularPosts } = useMemo(() => {
-    const pinned = checkIns.filter(c => c.isAnnouncement);
+    // 强制类型转换以确保 bool
+    const pinned = checkIns.filter(c => !!c.isAnnouncement);
     const regular = checkIns.filter(c => !c.isAnnouncement);
     
     // 如果选择了“公告”筛选，则将所有公告放入列表显示，隐藏置顶区域
@@ -110,7 +111,7 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
     const isLiked = checkIn.likedBy.includes(user.id);
     const likeCount = checkIn.likedBy.length;
     const isOfficial = checkIn.userRole === 'admin';
-    const nameStyle = getUserStyle(checkIn.userRole || 'user', checkIn.userRating);
+    const nameStyle = getUserStyle(checkIn.userRole || 'user', checkIn.userRating || 1200);
     const subjectTheme = getSubjectTheme(checkIn.subject);
 
     return (
@@ -140,8 +141,8 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
                 <div className="flex items-center gap-3">
                     <div className="relative">
                         <img 
-                          src={checkIn.userAvatar} 
-                          alt={checkIn.userName} 
+                          src={checkIn.userAvatar || 'https://api.dicebear.com/7.x/notionists/svg?seed=Unknown'} 
+                          alt={checkIn.userName || 'User'} 
                           className={`w-11 h-11 rounded-full bg-gray-50 object-cover border-2 ${isOfficial ? 'border-indigo-200' : 'border-white shadow-sm'}`} 
                         />
                         {isOfficial && (
@@ -152,7 +153,7 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike }) 
                     </div>
                     <div>
                         <div className="flex items-center gap-2">
-                            <h3 className={`text-base ${nameStyle}`}>{checkIn.userName}</h3>
+                            <h3 className={`text-base ${nameStyle}`}>{checkIn.userName || '未知研友'}</h3>
                             {isOfficial && (
                                 <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-1.5 py-0.5 rounded">官方</span>
                             )}

@@ -153,27 +153,27 @@ export const getCheckIns = async (): Promise<CheckIn[]> => {
     .order('timestamp', { ascending: false }); 
     
   if (error) return [];
-  // 映射数据库字段到前端类型
+  // 映射数据库字段到前端类型，并处理 NULL 值情况
   return data.map((item: any) => ({
       id: item.id,
       userId: item.user_id,
-      userName: item.user_name,
-      userAvatar: item.user_avatar,
-      userRating: item.user_rating, 
-      userRole: item.user_role, 
+      userName: item.user_name || '未知研友', // 默认值
+      userAvatar: item.user_avatar || 'https://api.dicebear.com/7.x/notionists/svg?seed=Unknown', // 默认值
+      userRating: item.user_rating || 1200, // 默认值
+      userRole: item.user_role || 'user', // 默认值
       subject: item.subject,
       content: item.content,
       imageUrl: item.image_url,
-      duration: item.duration,
-      isPenalty: item.is_penalty,
-      isAnnouncement: item.is_announcement || false, // 新增
-      timestamp: item.timestamp,
+      duration: item.duration || 0,
+      isPenalty: item.is_penalty || false,
+      isAnnouncement: item.is_announcement || false, // 确保读取布尔值
+      timestamp: Number(item.timestamp), // 确保转为数字
       likedBy: item.liked_by || []
   })) as CheckIn[];
 };
 
 export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
-  // 1. 尝试包含所有新字段的完整 Payload (V1.3+ 协议)
+  // 1. 优先使用完整 Payload，包含 user_rating 和 is_announcement
   const fullPayload = {
     id: checkIn.id,
     user_id: checkIn.userId,
@@ -186,7 +186,7 @@ export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
     image_url: checkIn.imageUrl || null,
     duration: checkIn.duration || 0, 
     is_penalty: checkIn.isPenalty || false, 
-    is_announcement: checkIn.isAnnouncement || false, // 新增
+    is_announcement: checkIn.isAnnouncement || false, 
     timestamp: checkIn.timestamp,
     liked_by: checkIn.likedBy || []
   };
@@ -194,31 +194,10 @@ export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
   const { error } = await supabase.from('checkins').insert(fullPayload);
   
   if (error) {
-    console.warn("初次提交失败，尝试兼容模式...", error);
-    
-    // 2. 降级 Payload：尝试 V1.2 (含 penalty)
-    const v12Payload = { ...fullPayload };
-    delete (v12Payload as any).is_announcement;
-
-    const { error: v12Error } = await supabase.from('checkins').insert(v12Payload);
-    
-    if (v12Error) {
-        console.warn("V1.2 提交也失败，尝试最基础模式...", v12Error);
-        // 3. 降级 V1.0
-        const legacyPayload = {
-            id: checkIn.id,
-            user_id: checkIn.userId,
-            user_name: checkIn.userName,
-            user_avatar: checkIn.userAvatar,
-            subject: checkIn.subject,
-            content: checkIn.content,
-            image_url: checkIn.imageUrl || null,
-            timestamp: checkIn.timestamp,
-            liked_by: checkIn.likedBy || []
-        };
-        const { error: finalError } = await supabase.from('checkins').insert(legacyPayload);
-        if (finalError) throw finalError;
-    }
+    console.warn("初次提交失败，可能是数据库字段缺失，请检查 SQL 是否执行。", error);
+    // 如果失败，抛出错误，不要静默降级，否则会导致数据丢失（如公告状态）
+    // 但为了兼容性，我们可以尝试一次不带新字段的插入，但这应该只发生在极旧的 DB 上
+    throw error;
   }
 };
 
@@ -259,14 +238,11 @@ export const getUserGoals = async (userId: string): Promise<Goal[]> => {
 };
 
 export const addGoal = async (user: User, title: string): Promise<Goal | null> => {
-  // 目标表也可能有新旧兼容问题，我们这里简化处理，只发最基础的，
-  // 或者让数据库设置默认值
   const payload: any = { 
     user_id: user.id, 
     title: title,
     user_name: user.name, 
     user_avatar: user.avatar,
-    // user_rating 可能不存在于旧表，如果报错，建议用户更新 SQL
     user_rating: user.rating
   };
 
@@ -277,7 +253,7 @@ export const addGoal = async (user: User, title: string): Promise<Goal | null> =
     .single();
     
   if (error) {
-      // 简单的重试：去掉可能导致报错的 extra 字段
+      // 简单的重试
       const safePayload = {
           user_id: user.id,
           title: title
