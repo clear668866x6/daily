@@ -7,7 +7,8 @@ import { EnglishTutor } from './components/EnglishTutor';
 import { AlgorithmTutor } from './components/AlgorithmTutor';
 import { About } from './components/About';
 import { Login } from './components/Login';
-import { GlobalAlerts } from './components/GlobalAlerts'; // New Import
+import { GlobalAlerts } from './components/GlobalAlerts';
+import { Modal } from './components/Modal'; // New Import
 import { CheckIn, SubjectCategory, User, AlgorithmTask } from './types';
 import * as storage from './services/storageService';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
@@ -16,9 +17,13 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [user, setUser] = useState<User | null>(null);
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
-  const [algoTasks, setAlgoTasks] = useState<AlgorithmTask[]>([]); // New State
+  const [algoTasks, setAlgoTasks] = useState<AlgorithmTask[]>([]);
   const [isInitializing, setIsInitializing] = useState(true);
   
+  // Modal State
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [checkInToDelete, setCheckInToDelete] = useState<string | null>(null);
+
   // Toast State
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
@@ -33,12 +38,10 @@ const App: React.FC = () => {
 
   const refreshData = async () => {
     try {
-      // 并行请求数据
       const [fetchedCheckIns, fetchedTasks] = await Promise.all([
         storage.getCheckIns(),
         storage.getAlgorithmTasks()
       ]);
-      
       setCheckIns(fetchedCheckIns);
       setAlgoTasks(fetchedTasks);
     } catch (e) {
@@ -83,46 +86,55 @@ const App: React.FC = () => {
       showToast("访客模式无法发布打卡", 'error');
       return;
     }
-
-    // 乐观更新：先在本地显示
     setCheckIns(prev => [newCheckIn, ...prev]);
-    
     try {
       await storage.addCheckIn(newCheckIn);
       showToast("打卡发布成功！", 'success');
-      // 这里的 refreshData 很重要，它会从数据库拉取最新的数据
       await refreshData();
     } catch (e) {
       console.error(e);
       showToast("打卡上传失败，请检查网络", 'error');
     }
-
     if (activeTab === 'english' || activeTab === 'algorithm') {
       setActiveTab('feed');
     }
   };
 
-  const handleDeleteCheckIn = async (id: string) => {
-      if (!user) return;
-      if (user.role === 'guest') {
-          showToast("访客模式无法删除", 'error');
-          return;
-      }
-
-      const confirmDelete = window.confirm("确定要删除这条打卡记录吗？此操作无法撤销。");
-      if (!confirmDelete) return;
-
+  const confirmDeleteCheckIn = async () => {
+      if (!user || !checkInToDelete) return;
+      
+      const id = checkInToDelete;
+      
       // Optimistic update
       setCheckIns(prev => prev.filter(c => c.id !== id));
 
       try {
-          await storage.deleteCheckIn(id);
-          showToast("已删除", 'info');
+          const ratingDelta = await storage.deleteCheckIn(id);
+          
+          if (ratingDelta !== 0) {
+              const newRating = (user.rating || 1200) + ratingDelta;
+              const updatedUser = { ...user, rating: newRating };
+              setUser(updatedUser);
+              storage.updateUserLocal(updatedUser);
+              showToast(`已删除，Rating 已${ratingDelta > 0 ? '恢复' : '扣除'} ${Math.abs(ratingDelta)} 分`, 'info');
+          } else {
+              showToast("已删除", 'info');
+          }
       } catch(e) {
           console.error(e);
           showToast("删除失败，请重试", 'error');
           refreshData(); // Revert
       }
+  };
+
+  const handleDeleteCheckInTrigger = (id: string) => {
+      if (!user) return;
+      if (user.role === 'guest') {
+          showToast("访客模式无法删除", 'error');
+          return;
+      }
+      setCheckInToDelete(id);
+      setIsDeleteModalOpen(true);
   };
 
   const handleLike = async (checkInId: string) => {
@@ -188,7 +200,6 @@ const App: React.FC = () => {
       <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen relative">
         <div className="max-w-7xl mx-auto">
           
-          {/* Global Alerts Section (Inserted Here) */}
           <GlobalAlerts 
             user={user} 
             checkIns={checkIns} 
@@ -231,7 +242,7 @@ const App: React.FC = () => {
                 checkIns={checkIns} 
                 user={user} 
                 onAddCheckIn={handleAddCheckIn}
-                onDeleteCheckIn={handleDeleteCheckIn}
+                onDeleteCheckIn={handleDeleteCheckInTrigger}
                 onLike={handleLike}
               />
             </div>
@@ -265,6 +276,16 @@ const App: React.FC = () => {
         </div>
       </main>
       
+      <Modal 
+          isOpen={isDeleteModalOpen} 
+          onClose={() => setIsDeleteModalOpen(false)}
+          onConfirm={confirmDeleteCheckIn}
+          title="确认删除"
+          message="确定要删除这条打卡记录吗？删除后，该记录产生的 Rating 分数变化将被撤销（加分会被扣除，扣分会被返还）。"
+          confirmText="确认删除"
+          type="danger"
+      />
+
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       <style>{`

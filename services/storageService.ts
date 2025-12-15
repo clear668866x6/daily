@@ -217,9 +217,57 @@ export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
   }
 };
 
-export const deleteCheckIn = async (checkInId: string): Promise<void> => {
-    const { error } = await supabase.from('checkins').delete().eq('id', checkInId);
-    if (error) throw error;
+/**
+ * 删除打卡记录，并回滚 Rating
+ * @returns number 产生的 Rating 变化量 (delta)
+ */
+export const deleteCheckIn = async (checkInId: string): Promise<number> => {
+    // 1. 获取要删除的记录详情
+    const { data: checkIn, error: fetchError } = await supabase
+        .from('checkins')
+        .select('*')
+        .eq('id', checkInId)
+        .single();
+    
+    if (fetchError || !checkIn) throw new Error("Check-in not found");
+
+    // 2. 删除记录
+    const { error: deleteError } = await supabase.from('checkins').delete().eq('id', checkInId);
+    if (deleteError) throw deleteError;
+
+    // 3. 计算 Rating 回滚
+    // 如果是学习 (is_penalty = false)，当初加了分，现在要减掉 (delta 是负数)
+    // 如果是摸鱼 (is_penalty = true)，当初扣了分，现在要加回来 (delta 是正数)
+    let ratingDelta = 0;
+    const duration = checkIn.duration || 0;
+
+    if (checkIn.is_penalty) {
+        // 当初扣除: -Math.round((duration / 10) * 1.5) - 1
+        // 回滚: +(Math.round((duration / 10) * 1.5) + 1)
+        ratingDelta = Math.round((duration / 10) * 1.5) + 1;
+    } else if (duration > 0) {
+        // 当初增加: Math.floor(duration / 10) + 1
+        // 回滚: -(Math.floor(duration / 10) + 1)
+        ratingDelta = -(Math.floor(duration / 10) + 1);
+    }
+
+    // 4. 如果有 Rating 变化，更新用户表并记录历史
+    if (ratingDelta !== 0) {
+        // 先获取用户当前 Rating
+        const { data: userData } = await supabase.from('users').select('rating').eq('id', checkIn.user_id).single();
+        if (userData) {
+            const currentRating = userData.rating || 1200;
+            const newRating = currentRating + ratingDelta;
+            
+            await updateRating(
+                checkIn.user_id, 
+                newRating, 
+                `撤销打卡 (ID: ${checkInId.substring(0,6)}...)`
+            );
+        }
+    }
+
+    return ratingDelta;
 };
 
 export const toggleLike = async (checkInId: string, userId: string): Promise<void> => {

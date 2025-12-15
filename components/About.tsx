@@ -3,8 +3,20 @@ import React from 'react';
 import { Rocket, Zap, Bug, GitBranch, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export const About: React.FC = () => {
-  const version = "1.3.0";
+  const version = "1.4.0";
   const changelogs = [
+    {
+        version: "1.4.0",
+        date: "2025-12-05",
+        title: "交互体验优化与删除回滚",
+        features: [
+            "✨ Dashboard 布局重构：将【学习记录】与【To-Do List】置顶，操作更顺手。",
+            "🔙 Rating 智能回滚：删除打卡记录时，会自动撤销当时产生的 Rating 变化（加分被扣回，扣分被返还）。",
+            "🗑️ 安全删除：新增删除确认弹窗，防止手滑误删。",
+            "📝 Markdown 预览：学习记录输入框现已支持即时 Markdown 预览。",
+            "🐞 细节修复：修复了时长输入框遮挡、Profile 分数显示空白等小问题。"
+        ]
+    },
     {
         version: "1.3.0",
         date: "2025-12",

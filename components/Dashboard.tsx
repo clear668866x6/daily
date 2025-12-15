@@ -3,7 +3,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { CheckIn, User, Goal, SubjectCategory, RatingHistory, getUserStyle, getTitleName } from '../types';
 import * as storage from '../services/storageService';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Gamepad2, BrainCircuit, Filter, ChevronDown, UserCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Timer, CalendarCheck, Flag, Sparkles } from 'lucide-react';
+import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, EyeOff, BrainCircuit, ChevronDown, UserCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, CalendarCheck, Flag, Sparkles } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { ToastType } from './Toast';
 
@@ -16,7 +16,7 @@ interface Props {
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1'];
 
-// 严格的日期 Key 生成器 (YYYY-MM-DD)，使用本地时间，解决时区导致的“有打卡但没点”问题
+// 严格的日期 Key 生成器 (YYYY-MM-DD)
 const formatDateKey = (timestampOrDate: number | Date): string => {
     const date = typeof timestampOrDate === 'number' ? new Date(timestampOrDate) : timestampOrDate;
     const y = date.getFullYear();
@@ -44,6 +44,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const [logDuration, setLogDuration] = useState(45); 
   const [isLogging, setIsLogging] = useState(false);
   const [logMode, setLogMode] = useState<'study' | 'penalty'>('study');
+  const [logPreview, setLogPreview] = useState(false); // Markdown Preview
 
   // Calendar State
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
@@ -77,7 +78,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
         setDisplayGoals(uGoals);
     };
     loadData();
-    // 切换用户时，清空选中的日期，避免混淆
     setSelectedDate(null);
   }, [selectedUserId, checkIns]); 
 
@@ -86,7 +86,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   }, [allUsers, selectedUserId, currentUser]);
 
   const selectedUserCheckIns = useMemo(() => {
-      // 这里的过滤必须严格，确保 ID 匹配
       return checkIns.filter(c => c.userId === selectedUserId);
   }, [checkIns, selectedUserId]);
 
@@ -254,11 +253,9 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
     return { daysInMonth, firstDayOfWeek, year, month };
   };
 
-  // 使用 formatDateKey 生成 Map，确保 key 与 calendar 渲染一致
   const dailyStatusMap = useMemo(() => {
     const map: Record<string, boolean> = {};
     selectedUserCheckIns.forEach(c => {
-        // 使用相同的时间格式化工具
         const key = formatDateKey(c.timestamp);
         map[key] = true;
     });
@@ -273,7 +270,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
               return checkInDate === selectedDate;
           });
       }
-      // 按时间倒序
       return list.sort((a, b) => b.timestamp - a.timestamp).slice(0, 20); 
   }, [selectedUserCheckIns, selectedDate]);
 
@@ -313,18 +309,18 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
     return cells;
   };
 
-  const ratingColorClass = getUserStyle(selectedUser.role, selectedUser.rating);
-  const titleName = getTitleName(selectedUser.role, selectedUser.rating);
+  const ratingColorClass = getUserStyle(selectedUser.role, selectedUser.rating || 1200);
+  const titleName = getTitleName(selectedUser.role, selectedUser.rating || 1200);
 
   return (
     <div className="space-y-6 pb-24 animate-fade-in">
       
-      {/* --- Top Row: Profile & Key Stats --- */}
+      {/* --- Row 1: Profile & Key Stats --- */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
            
-           {/* 1. Rich Profile Card (Span 6) */}
+           {/* Profile Card (Span 6) */}
            <div className="lg:col-span-6 bg-white rounded-3xl p-6 border border-gray-100 shadow-xl shadow-gray-100/50 relative overflow-hidden flex flex-col justify-between group">
-               {/* User Switcher (Top Right) */}
+               {/* User Switcher */}
                <div className="absolute top-6 right-6 z-20">
                    <div className="relative">
                        <select 
@@ -357,7 +353,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                            <span className={`text-xs px-2 py-0.5 rounded font-bold border ${ratingColorClass.includes('text-red') ? 'bg-red-50 border-red-100' : 'bg-blue-50 border-blue-100 text-blue-600'}`}>
                                {titleName}
                            </span>
-                           <span className="text-gray-400 text-xs font-mono font-bold">R: {selectedUser.rating}</span>
+                           <span className="text-gray-400 text-xs font-mono font-bold">R: {selectedUser.rating || 1200}</span>
                        </div>
                    </div>
                </div>
@@ -385,11 +381,10 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                    </div>
                </div>
                
-               {/* Decor */}
                <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-gray-50 to-gray-100 rounded-bl-full -mr-10 -mt-10 -z-0 opacity-50"></div>
            </div>
 
-           {/* 2. Countdown Card (Span 3) */}
+           {/* Countdown Card (Span 3) */}
            <div className="lg:col-span-3 bg-gradient-to-br from-indigo-600 to-violet-600 rounded-3xl p-6 text-white shadow-xl shadow-indigo-200 relative overflow-hidden group">
                <div className="relative z-10 h-full flex flex-col justify-between">
                    <div className="flex justify-between items-start">
@@ -402,7 +397,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                            </button>
                        )}
                    </div>
-                   
                    <div className="mt-2">
                        {isEditingTarget ? (
                            <div className="flex flex-col gap-2 animate-fade-in">
@@ -428,7 +422,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                <CalendarCheck className="absolute -bottom-4 -right-4 w-24 h-24 text-white opacity-10 rotate-12" />
            </div>
 
-           {/* 3. Streak Card (Span 3) */}
+           {/* Streak Card (Span 3) */}
            <div className="lg:col-span-3 bg-gradient-to-br from-brand-500 to-cyan-500 rounded-3xl p-6 text-white shadow-xl shadow-blue-200 relative overflow-hidden">
                <div className="relative z-10 h-full flex flex-col justify-between">
                    <div className="text-blue-100 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
@@ -446,10 +440,151 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
            </div>
       </div>
 
-      {/* --- Row 2: Charts Area --- */}
+      {/* --- Row 2: Actions (Logger & ToDo) --- */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          
-          {/* 4. Rating Line Chart (Span 8) */}
+          {/* Logger Card (Span 8) */}
+          <div className="lg:col-span-8">
+            {isViewingSelf ? (
+                <div className={`bg-white rounded-3xl p-6 border shadow-sm flex flex-col transition-all duration-300 h-full ${logMode === 'penalty' ? 'border-red-200 ring-4 ring-red-50' : 'border-blue-200 ring-4 ring-blue-50'}`}>
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
+                            <Clock className={`w-4 h-4 ${logMode === 'penalty' ? 'text-red-500' : 'text-blue-500'}`} /> 
+                            {logMode === 'study' ? '记录学习成果' : '摸鱼忏悔'}
+                        </h3>
+                        <div className="bg-gray-100 p-1 rounded-lg flex text-xs font-bold">
+                            <button 
+                                onClick={() => setLogMode('study')}
+                                className={`px-3 py-1.5 rounded-md transition-all ${logMode === 'study' ? 'bg-white text-brand-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                            >
+                                🔥 学习
+                            </button>
+                            <button 
+                                onClick={() => setLogMode('penalty')}
+                                className={`px-3 py-1.5 rounded-md transition-all ${logMode === 'penalty' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                            >
+                                😴 摸鱼
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div className="flex-1 flex flex-col gap-3">
+                        <div className="flex gap-2">
+                            <div className={`flex-1 ${logMode === 'penalty' ? 'opacity-50 pointer-events-none' : ''}`}>
+                                <select 
+                                    value={logSubject} 
+                                    onChange={(e) => {
+                                        setLogMode('study');
+                                        setLogSubject(e.target.value as SubjectCategory);
+                                    }}
+                                    className="w-full bg-gray-50 border-0 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 font-medium text-gray-700"
+                                >
+                                    {Object.values(SubjectCategory).map(c => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                            </div>
+                            <div className="w-32 relative">
+                                <input 
+                                    type="number" value={logDuration} onChange={e => setLogDuration(parseInt(e.target.value))}
+                                    className="w-full bg-gray-50 border-0 rounded-xl pl-3 pr-10 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 text-center font-bold text-gray-700"
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none font-bold">min</span>
+                            </div>
+                        </div>
+
+                        <div className="relative">
+                            {logPreview ? (
+                                 <div 
+                                    className="w-full h-32 bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-sm overflow-y-auto prose prose-sm max-w-none cursor-text"
+                                    onClick={() => setLogPreview(false)}
+                                 >
+                                    {logContent ? <MarkdownText content={logContent} /> : <span className="text-gray-400 italic">内容预览...</span>}
+                                 </div>
+                            ) : (
+                                <textarea 
+                                    value={logContent}
+                                    onChange={e => setLogContent(e.target.value)}
+                                    className="w-full h-32 bg-gray-50 border-0 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 resize-none placeholder-gray-400 leading-relaxed"
+                                    placeholder={logMode === 'study' ? "今天学了什么？(支持 Markdown)" : "坦白从宽..."}
+                                />
+                            )}
+                            <button 
+                                onClick={() => setLogPreview(!logPreview)}
+                                className="absolute bottom-2 right-2 text-gray-400 hover:text-brand-600 bg-white/80 p-1.5 rounded-lg shadow-sm backdrop-blur-sm border border-gray-100 transition-colors"
+                                title={logPreview ? "编辑" : "预览"}
+                            >
+                                {logPreview ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
+                            </button>
+                        </div>
+
+                        <button 
+                            onClick={handleLogStudy}
+                            disabled={isLogging || !logContent.trim()}
+                            className={`w-full py-3 rounded-xl font-bold shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 text-white transition-all transform active:scale-[0.98] hover:-translate-y-0.5 ${
+                                logMode === 'study' 
+                                ? 'bg-gradient-to-r from-blue-600 to-blue-500 shadow-blue-200' 
+                                : 'bg-gradient-to-r from-red-500 to-pink-500 shadow-red-200'
+                            }`}
+                        >
+                            {isLogging ? '...' : <Send className="w-4 h-4" />}
+                            {isLogging ? '提交中' : '立即记录'}
+                        </button>
+                    </div>
+                </div>
+            ) : (
+                <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm h-full flex flex-col items-center justify-center text-gray-400 bg-gray-50/50">
+                    <UserCircle className="w-12 h-12 mb-3 opacity-20" />
+                    <p className="font-medium">你正在查看他人的主页</p>
+                    <p className="text-xs mt-1">仅本人可发布学习记录</p>
+                </div>
+            )}
+          </div>
+
+          {/* To-Do List (Span 4) */}
+          <div className="lg:col-span-4">
+            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm h-full flex flex-col">
+                <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 text-sm">
+                    <CheckSquare className="w-4 h-4 text-brand-500" /> {isViewingSelf ? '今日 To-Do' : 'TA 的 To-Do'}
+                </h3>
+                <div className="space-y-2 mb-4 flex-1 overflow-y-auto max-h-[220px] custom-scrollbar">
+                    {displayGoals.map(goal => (
+                    <div key={goal.id} className="flex items-center gap-3 group p-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer" onClick={() => isViewingSelf && handleToggleGoal(goal.id, goal.is_completed)}>
+                        <div className={`transition-colors ${goal.is_completed ? 'text-green-500' : 'text-gray-300 group-hover:text-brand-400'}`}>
+                            {goal.is_completed ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}
+                        </div>
+                        <span className={`flex-1 text-sm transition-all ${goal.is_completed ? 'text-gray-400 line-through decoration-gray-300' : 'text-gray-700'}`}>{goal.title}</span>
+                        {isViewingSelf && (
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); handleDeleteGoal(goal.id); }} 
+                                className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-all p-1"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                            </button>
+                        )}
+                    </div>
+                    ))}
+                    {displayGoals.length === 0 && <p className="text-xs text-gray-400 text-center py-8">暂无目标，添加一个吧！</p>}
+                </div>
+                
+                {isViewingSelf && (
+                    <div className="flex gap-2 mt-auto pt-4 border-t border-gray-50">
+                        <input 
+                            className="flex-1 bg-gray-50 border-0 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-brand-500 transition-shadow"
+                            placeholder="输入目标..."
+                            value={newGoalText}
+                            onChange={e => setNewGoalText(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleAddGoal()}
+                        />
+                        <button onClick={handleAddGoal} className="bg-brand-600 text-white p-2.5 rounded-xl hover:bg-brand-700 shadow-lg shadow-brand-200 transition-all active:scale-95">
+                            <Plus className="w-5 h-5" />
+                        </button>
+                    </div>
+                )}
+            </div>
+          </div>
+      </div>
+
+      {/* --- Row 3: Charts --- */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Rating Line Chart (Span 8) */}
           <div className="lg:col-span-8 bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
                 <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2 text-sm">
                     <TrendingUp className="w-4 h-4 text-red-500" /> Rating 积分趋势
@@ -490,12 +625,12 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                 </div>
           </div>
 
-          {/* 5. Subject Distribution Pie (Span 4) */}
+          {/* Subject Distribution Pie (Span 4) */}
           <div className="lg:col-span-4 bg-white rounded-3xl p-6 border border-gray-100 shadow-sm flex flex-col">
                 <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2 text-sm">
                     <BrainCircuit className="w-4 h-4 text-orange-500" /> 科目时长分布
                 </h3>
-                <div className="flex-1 min-h-[250px]">
+                <div className="flex-1 min-h-[200px]">
                     {stats.pieData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
@@ -521,7 +656,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                         </div>
                     )}
                 </div>
-                {/* Legend */}
                 <div className="flex flex-wrap gap-2 justify-center mt-4">
                     {stats.pieData.slice(0, 4).map((entry, index) => (
                         <div key={index} className="flex items-center gap-1 text-[10px] text-gray-500">
@@ -533,9 +667,9 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           </div>
       </div>
 
-      {/* --- Row 3: Daily Stats & Calendar --- */}
+      {/* --- Row 4: Daily Stats & Calendar --- */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* 6. Daily Bar Chart (Span 8) */}
+          {/* Daily Bar Chart (Span 8) */}
           <div className="lg:col-span-8 bg-white rounded-3xl p-6 border border-gray-100 shadow-sm h-80">
                 <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2 text-sm">
                     <Clock className="w-4 h-4 text-blue-500" /> 每日学习时长 (小时)
@@ -560,7 +694,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                 </div>
           </div>
 
-          {/* 7. Calendar (Span 4) */}
+          {/* Calendar (Span 4) */}
           <div className="lg:col-span-4 bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
@@ -585,178 +719,60 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           </div>
       </div>
 
-      {/* --- Row 4: Lists & Actions --- */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-           {/* 8. Check-in List (Span 8) */}
-           <div className="xl:col-span-8 bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
-                 <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
-                        <ListTodo className="w-4 h-4 text-brand-600" /> 
-                        {selectedDate ? `${selectedDate} 的记录` : '最近动态'}
-                    </h3>
-                    {selectedDate && (
-                        <button 
-                            onClick={() => setSelectedDate(null)} 
-                            className="text-xs bg-brand-50 text-brand-600 px-3 py-1 rounded-full font-bold hover:bg-brand-100 transition-colors"
-                        >
-                            显示全部
-                        </button>
-                    )}
-                 </div>
-                 
-                 <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                     {displayedCheckIns.length > 0 ? (
-                        displayedCheckIns.map(checkIn => (
-                                <div key={checkIn.id} className={`p-4 rounded-2xl border flex gap-4 transition-all hover:shadow-md ${checkIn.isPenalty ? 'bg-red-50/50 border-red-100' : 'bg-white border-gray-100'}`}>
-                                    <div className={`mt-1 font-bold text-[10px] px-2.5 py-1 rounded-lg h-fit shrink-0 ${checkIn.isPenalty ? 'bg-red-100 text-red-600' : 'bg-brand-50 text-brand-600'}`}>
-                                        {checkIn.subject}
-                                    </div>
-                                    <div className="flex-1">
-                                        <div className="flex justify-between items-start">
-                                            <div className="text-gray-800 text-sm leading-relaxed line-clamp-3">
-                                                <MarkdownText content={checkIn.content} />
-                                            </div>
-                                            <span className="text-xs text-gray-400 whitespace-nowrap ml-4 font-mono">
-                                                {new Date(checkIn.timestamp).toLocaleDateString()}
-                                            </span>
-                                        </div>
-                                        <div className="mt-3 flex items-center gap-3 text-xs">
-                                            <span className={`flex items-center gap-1.5 font-bold px-2 py-1 rounded-md ${checkIn.isPenalty ? 'bg-white text-red-500 shadow-sm' : 'bg-gray-50 text-blue-600'}`}>
-                                                <Clock className="w-3 h-3" /> 
-                                                {checkIn.isPenalty ? '摸鱼' : '学习'} {checkIn.duration} min
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))
-                     ) : (
-                         <div className="text-center py-12 text-gray-400 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200">
-                             <UserCircle className="w-10 h-10 mx-auto mb-3 opacity-20" />
-                             <p className="text-sm">
-                                {selectedDate 
-                                    ? `在 ${selectedDate} 这一天，${isViewingSelf ? '你' : 'TA'}似乎在休息` 
-                                    : '暂无打卡记录，快去发布一条吧！'}
-                             </p>
-                         </div>
-                     )}
-                 </div>
-           </div>
-
-           {/* 9. Action Column (Span 4) */}
-           <div className="xl:col-span-4 space-y-6">
-                
-                {/* To-Do List */}
-                <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
-                    <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 text-sm">
-                        <CheckSquare className="w-4 h-4 text-brand-500" /> {isViewingSelf ? '今日 To-Do' : 'TA 的 To-Do'}
-                    </h3>
-                    <div className="space-y-2 mb-4 min-h-[100px]">
-                        {displayGoals.map(goal => (
-                        <div key={goal.id} className="flex items-center gap-3 group p-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer" onClick={() => isViewingSelf && handleToggleGoal(goal.id, goal.is_completed)}>
-                            <div className={`transition-colors ${goal.is_completed ? 'text-green-500' : 'text-gray-300 group-hover:text-brand-400'}`}>
-                                {goal.is_completed ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}
-                            </div>
-                            <span className={`flex-1 text-sm transition-all ${goal.is_completed ? 'text-gray-400 line-through decoration-gray-300' : 'text-gray-700'}`}>{goal.title}</span>
-                            {isViewingSelf && (
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); handleDeleteGoal(goal.id); }} 
-                                    className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-all p-1"
-                                >
-                                    <Trash2 className="w-4 h-4" />
-                                </button>
-                            )}
-                        </div>
-                        ))}
-                        {displayGoals.length === 0 && <p className="text-xs text-gray-400 text-center py-8">暂无目标，添加一个吧！</p>}
-                    </div>
-                    
-                    {isViewingSelf && (
-                        <div className="flex gap-2 mt-auto">
-                            <input 
-                                className="flex-1 bg-gray-50 border-0 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-brand-500 transition-shadow"
-                                placeholder="输入目标..."
-                                value={newGoalText}
-                                onChange={e => setNewGoalText(e.target.value)}
-                                onKeyDown={e => e.key === 'Enter' && handleAddGoal()}
-                            />
-                            <button onClick={handleAddGoal} className="bg-brand-600 text-white p-2.5 rounded-xl hover:bg-brand-700 shadow-lg shadow-brand-200 transition-all active:scale-95">
-                                <Plus className="w-5 h-5" />
-                            </button>
-                        </div>
-                    )}
-                </div>
-
-                {/* Logger Card */}
-                {isViewingSelf && (
-                    <div className={`bg-white rounded-3xl p-6 border shadow-sm flex flex-col transition-all duration-300 ${logMode === 'penalty' ? 'border-red-200 ring-4 ring-red-50' : 'border-blue-200 ring-4 ring-blue-50'}`}>
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
-                                <Clock className={`w-4 h-4 ${logMode === 'penalty' ? 'text-red-500' : 'text-blue-500'}`} /> 
-                                {logMode === 'study' ? '学习记录' : '摸鱼忏悔'}
-                            </h3>
-                            <div className="bg-gray-100 p-1 rounded-lg flex text-xs font-bold">
-                                <button 
-                                    onClick={() => setLogMode('study')}
-                                    className={`px-3 py-1.5 rounded-md transition-all ${logMode === 'study' ? 'bg-white text-brand-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                                >
-                                    🔥 
-                                </button>
-                                <button 
-                                    onClick={() => setLogMode('penalty')}
-                                    className={`px-3 py-1.5 rounded-md transition-all ${logMode === 'penalty' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                                >
-                                    😴 
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <div className="flex-1 flex flex-col gap-3">
-                            <div className="flex gap-2">
-                                <div className={`flex-1 ${logMode === 'penalty' ? 'opacity-50 pointer-events-none' : ''}`}>
-                                    <select 
-                                        value={logSubject} 
-                                        onChange={(e) => {
-                                            setLogMode('study');
-                                            setLogSubject(e.target.value as SubjectCategory);
-                                        }}
-                                        className="w-full bg-gray-50 border-0 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 font-medium text-gray-700"
-                                    >
-                                        {Object.values(SubjectCategory).map(c => <option key={c} value={c}>{c}</option>)}
-                                    </select>
-                                </div>
-                                <div className="w-24 relative">
-                                    <input 
-                                        type="number" value={logDuration} onChange={e => setLogDuration(parseInt(e.target.value))}
-                                        className="w-full bg-gray-50 border-0 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 text-center font-bold text-gray-700"
-                                    />
-                                    <span className="absolute right-8 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none font-bold">min</span>
-                                </div>
-                            </div>
-
-                            <textarea 
-                                value={logContent}
-                                onChange={e => setLogContent(e.target.value)}
-                                className="w-full h-24 bg-gray-50 border-0 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 resize-none placeholder-gray-400"
-                                placeholder={logMode === 'study' ? "记录下你的学习成果..." : "坦白从宽..."}
-                            />
-
-                            <button 
-                                onClick={handleLogStudy}
-                                disabled={isLogging || !logContent.trim()}
-                                className={`w-full py-3 rounded-xl font-bold shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 text-white transition-all transform active:scale-[0.98] hover:-translate-y-0.5 ${
-                                    logMode === 'study' 
-                                    ? 'bg-gradient-to-r from-blue-600 to-blue-500 shadow-blue-200' 
-                                    : 'bg-gradient-to-r from-red-500 to-pink-500 shadow-red-200'
-                                }`}
-                            >
-                                {isLogging ? '...' : <Send className="w-4 h-4" />}
-                                {isLogging ? '提交中' : '立即记录'}
-                            </button>
-                        </div>
-                    </div>
+      {/* --- Row 5: Check-in List --- */}
+      <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
+             <div className="flex justify-between items-center mb-6">
+                <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
+                    <ListTodo className="w-4 h-4 text-brand-600" /> 
+                    {selectedDate ? `${selectedDate} 的记录` : '最近动态'}
+                </h3>
+                {selectedDate && (
+                    <button 
+                        onClick={() => setSelectedDate(null)} 
+                        className="text-xs bg-brand-50 text-brand-600 px-3 py-1 rounded-full font-bold hover:bg-brand-100 transition-colors"
+                    >
+                        显示全部
+                    </button>
                 )}
-           </div>
-      </div>
+             </div>
+             
+             <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                 {displayedCheckIns.length > 0 ? (
+                    displayedCheckIns.map(checkIn => (
+                            <div key={checkIn.id} className={`p-4 rounded-2xl border flex gap-4 transition-all hover:shadow-md ${checkIn.isPenalty ? 'bg-red-50/50 border-red-100' : 'bg-white border-gray-100'}`}>
+                                <div className={`mt-1 font-bold text-[10px] px-2.5 py-1 rounded-lg h-fit shrink-0 ${checkIn.isPenalty ? 'bg-red-100 text-red-600' : 'bg-brand-50 text-brand-600'}`}>
+                                    {checkIn.subject}
+                                </div>
+                                <div className="flex-1">
+                                    <div className="flex justify-between items-start">
+                                        <div className="text-gray-800 text-sm leading-relaxed line-clamp-3">
+                                            <MarkdownText content={checkIn.content} />
+                                        </div>
+                                        <span className="text-xs text-gray-400 whitespace-nowrap ml-4 font-mono">
+                                            {new Date(checkIn.timestamp).toLocaleDateString()}
+                                        </span>
+                                    </div>
+                                    <div className="mt-3 flex items-center gap-3 text-xs">
+                                        <span className={`flex items-center gap-1.5 font-bold px-2 py-1 rounded-md ${checkIn.isPenalty ? 'bg-white text-red-500 shadow-sm' : 'bg-gray-50 text-blue-600'}`}>
+                                            <Clock className="w-3 h-3" /> 
+                                            {checkIn.isPenalty ? '摸鱼' : '学习'} {checkIn.duration} min
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))
+                 ) : (
+                     <div className="text-center py-12 text-gray-400 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200">
+                         <UserCircle className="w-10 h-10 mx-auto mb-3 opacity-20" />
+                         <p className="text-sm">
+                            {selectedDate 
+                                ? `在 ${selectedDate} 这一天，${isViewingSelf ? '你' : 'TA'}似乎在休息` 
+                                : '暂无打卡记录，快去发布一条吧！'}
+                         </p>
+                     </div>
+                 )}
+             </div>
+       </div>
     </div>
   );
 };
