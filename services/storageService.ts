@@ -22,11 +22,17 @@ const INVITE_CODE = getEnv('VITE_INVITE_CODE', getEnv('INVITE_CODE', 'ky2025'));
 export const getAllUsers = async (): Promise<User[]> => {
   const { data, error } = await supabase.from('users').select('*').order('rating', { ascending: false });
   if (error) {
-    console.error('Error fetching users:', error);
+    console.error('Error fetching ALL users (Check RLS?):', error);
     return [];
   }
   return data as User[];
 };
+
+export const getUserById = async (id: string): Promise<User | null> => {
+    const { data, error } = await supabase.from('users').select('*').eq('id', id).single();
+    if (error) return null;
+    return data as User;
+}
 
 export const getCurrentUser = (): User | null => {
   const stored = localStorage.getItem('kaoyan_current_user');
@@ -63,7 +69,15 @@ export const loginUser = async (username: string, password?: string, inviteCode?
     }
   }
 
-  const { data: existingUsers } = await supabase.from('users').select('*').eq('name', username).single();
+  // NOTE: If RLS is enabled without proper public access, this select will fail or return empty even if user exists
+  const { data: existingUsers, error: selectError } = await supabase.from('users').select('*').eq('name', username).single();
+  
+  // If we get an error other than 'No rows found', it might be RLS or connection issue
+  if (selectError && selectError.code !== 'PGRST116') {
+      console.error("Login Select Error:", selectError);
+      throw new Error("Database connection error or permission denied.");
+  }
+
   let user: User;
 
   if (existingUsers) {
@@ -74,6 +88,7 @@ export const loginUser = async (username: string, password?: string, inviteCode?
         throw new Error("该账号已设置密码，请输入密码");
     }
   } else {
+    // Registration Logic
     if (inviteCode !== INVITE_CODE) throw new Error(`邀请码错误，请联系管理员获取。`);
     if (!password) throw new Error("注册新账号请设置密码");
 
@@ -98,8 +113,8 @@ export const loginUser = async (username: string, password?: string, inviteCode?
     });
     
     if (error) {
-      console.error("Register Error", error);
-      throw new Error(`注册失败: ${error.message}`);
+      console.error("Register Error:", error);
+      throw new Error(`注册失败: ${error.message} (Is RLS disabled?)`);
     }
     user = newUser;
   }
@@ -128,6 +143,36 @@ export const adminUpdateUser = async (userId: string, updates: Partial<User>): P
         await recordRatingHistory(userId, updates.rating, "Admin Manual Update");
     }
 };
+
+export const adminCreateUser = async (username: string, password?: string, initialRating: number = 1200): Promise<void> => {
+    // Check if user exists
+    const { data: existing } = await supabase.from('users').select('id').eq('name', username).single();
+    if (existing) throw new Error("用户名已存在");
+
+    const newUser: User = {
+        id: crypto.randomUUID(),
+        name: username,
+        avatar: `https://api.dicebear.com/7.x/notionists/svg?seed=${username}`,
+        role: 'user',
+        password: password,
+        rating: initialRating
+    };
+
+    const { error } = await supabase.from('users').insert(newUser);
+    if (error) throw error;
+    
+    await recordRatingHistory(newUser.id, initialRating, "Admin Created User");
+}
+
+export const adminDeleteUser = async (userId: string): Promise<void> => {
+    // Supabase cascade delete might handle this, but let's be safe and delete related data first
+    await supabase.from('checkins').delete().eq('user_id', userId);
+    await supabase.from('rating_history').delete().eq('user_id', userId);
+    await supabase.from('goals').delete().eq('user_id', userId);
+    // Finally delete user
+    const { error } = await supabase.from('users').delete().eq('id', userId);
+    if (error) throw error;
+}
 
 // --- Rating Logic ---
 export const updateRating = async (userId: string, newRating: number, reason: string) => {
@@ -185,6 +230,33 @@ export const getCheckIns = async (): Promise<CheckIn[]> => {
       likedBy: item.liked_by || []
   })) as CheckIn[];
 };
+
+export const getUserCheckIns = async (userId: string): Promise<CheckIn[]> => {
+    const { data, error } = await supabase
+        .from('checkins')
+        .select('*')
+        .eq('user_id', userId)
+        .order('timestamp', { ascending: false });
+    
+    if (error) return [];
+    
+     return data.map((item: any) => ({
+      id: item.id,
+      userId: item.user_id,
+      userName: item.user_name,
+      userAvatar: item.user_avatar,
+      userRating: item.user_rating,
+      userRole: item.user_role,
+      subject: item.subject,
+      content: item.content,
+      imageUrl: item.image_url,
+      duration: item.duration,
+      isPenalty: item.is_penalty,
+      isAnnouncement: item.is_announcement,
+      timestamp: Number(item.timestamp),
+      likedBy: item.liked_by || []
+  })) as CheckIn[];
+}
 
 export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
   const fullPayload = {

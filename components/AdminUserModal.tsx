@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, User as UserIcon, Shield, Search, Save, AlertTriangle } from 'lucide-react';
+import { X, User as UserIcon, Shield, Search, Save, AlertTriangle, UserPlus, Trash2 } from 'lucide-react';
 import { User, getUserStyle } from '../types';
 import * as storage from '../services/storageService';
 
@@ -19,6 +19,12 @@ export const AdminUserModal: React.FC<Props> = ({ isOpen, onClose, currentUser, 
   // Edit State
   const [editRating, setEditRating] = useState<number>(0);
   const [editPassword, setEditPassword] = useState<string>('');
+
+  // Create State
+  const [isCreating, setIsCreating] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newRating, setNewRating] = useState(1200);
 
   useEffect(() => {
     if (isOpen) {
@@ -44,7 +50,7 @@ export const AdminUserModal: React.FC<Props> = ({ isOpen, onClose, currentUser, 
       try {
           await storage.adminUpdateUser(editingUserId, {
               rating: editRating,
-              password: editPassword || undefined // Keep undefined if empty to not erase existing if logic changes, though here we overwrite
+              password: editPassword || undefined 
           });
           onShowToast("用户信息已更新", 'success');
           setEditingUserId(null);
@@ -55,11 +61,37 @@ export const AdminUserModal: React.FC<Props> = ({ isOpen, onClose, currentUser, 
       }
   };
 
+  const handleCreateUser = async () => {
+      if (!newUsername || !newPassword) return;
+      try {
+          await storage.adminCreateUser(newUsername, newPassword, newRating);
+          onShowToast("用户创建成功", 'success');
+          setIsCreating(false);
+          setNewUsername('');
+          setNewPassword('');
+          setNewRating(1200);
+          loadUsers();
+      } catch (e: any) {
+          onShowToast(`创建失败: ${e.message}`, 'error');
+      }
+  }
+
+  const handleDeleteUser = async (userId: string) => {
+      if (!confirm("确定要删除该用户吗？所有相关数据（打卡、记录）都将被永久删除！")) return;
+      try {
+          await storage.adminDeleteUser(userId);
+          onShowToast("用户已删除", 'info');
+          loadUsers();
+      } catch (e: any) {
+          onShowToast(`删除失败: ${e.message}`, 'error');
+      }
+  }
+
   if (!isOpen || currentUser.role !== 'admin') return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden">
         
         {/* Header */}
         <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
@@ -69,26 +101,58 @@ export const AdminUserModal: React.FC<Props> = ({ isOpen, onClose, currentUser, 
                 </div>
                 <div>
                     <h2 className="text-xl font-bold text-gray-800">用户管理控制台</h2>
-                    <p className="text-xs text-gray-500">修改用户密码与 Rating</p>
+                    <p className="text-xs text-gray-500">创建、修改与删除用户</p>
                 </div>
             </div>
             <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors"><X className="w-5 h-5 text-gray-500" /></button>
         </div>
 
-        {/* Toolbar */}
-        <div className="p-4 border-b border-gray-100 flex gap-4">
-            <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input 
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    placeholder="搜索用户名..."
-                    className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-                />
-            </div>
-            <div className="flex items-center text-xs text-gray-400 px-2 bg-gray-50 rounded-lg">
-                共 {users.length} 名用户
-            </div>
+        {/* Toolbar & Create */}
+        <div className="p-4 border-b border-gray-100 space-y-4">
+            {isCreating ? (
+                <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 animate-fade-in">
+                    <h3 className="text-sm font-bold text-indigo-800 mb-3 flex items-center gap-2"><UserPlus className="w-4 h-4"/> 新增用户</h3>
+                    <div className="flex flex-wrap gap-3 items-end">
+                        <div className="flex-1 min-w-[150px]">
+                            <label className="text-xs text-indigo-500 font-bold block mb-1">用户名</label>
+                            <input value={newUsername} onChange={e => setNewUsername(e.target.value)} className="w-full px-3 py-2 rounded border border-indigo-200 text-sm" placeholder="User01"/>
+                        </div>
+                        <div className="flex-1 min-w-[150px]">
+                            <label className="text-xs text-indigo-500 font-bold block mb-1">密码</label>
+                            <input value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full px-3 py-2 rounded border border-indigo-200 text-sm" placeholder="***"/>
+                        </div>
+                        <div className="w-24">
+                            <label className="text-xs text-indigo-500 font-bold block mb-1">Rating</label>
+                            <input type="number" value={newRating} onChange={e => setNewRating(parseInt(e.target.value))} className="w-full px-3 py-2 rounded border border-indigo-200 text-sm" />
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={handleCreateUser} className="px-4 py-2 bg-indigo-600 text-white rounded font-bold text-sm hover:bg-indigo-700">确认创建</button>
+                            <button onClick={() => setIsCreating(false)} className="px-4 py-2 bg-white text-gray-600 rounded font-bold text-sm hover:bg-gray-100">取消</button>
+                        </div>
+                    </div>
+                </div>
+            ) : (
+                <div className="flex gap-4">
+                    <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input 
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            placeholder="搜索用户名..."
+                            className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                        />
+                    </div>
+                    <button 
+                        onClick={() => setIsCreating(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors shadow-sm"
+                    >
+                        <UserPlus className="w-4 h-4" /> 新增用户
+                    </button>
+                    <div className="flex items-center text-xs text-gray-400 px-3 bg-gray-50 rounded-lg">
+                        共 {users.length} 人
+                    </div>
+                </div>
+            )}
         </div>
 
         {/* List */}
@@ -139,12 +203,21 @@ export const AdminUserModal: React.FC<Props> = ({ isOpen, onClose, currentUser, 
                                 <div className="font-bold text-gray-800">{user.rating}</div>
                             </div>
                             {user.role !== 'admin' && (
-                                <button 
-                                    onClick={() => startEdit(user)}
-                                    className="px-3 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors"
-                                >
-                                    管理
-                                </button>
+                                <div className="flex gap-2">
+                                    <button 
+                                        onClick={() => startEdit(user)}
+                                        className="px-3 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors"
+                                    >
+                                        管理
+                                    </button>
+                                    <button 
+                                        onClick={() => handleDeleteUser(user.id)}
+                                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                        title="删除用户"
+                                    >
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
+                                </div>
                             )}
                         </div>
                     )}

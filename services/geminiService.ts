@@ -30,8 +30,13 @@ const getApiUrl = () => {
     }
 }
 
-// 增加 style 参数
-export const generateEnglishDaily = async (wordCount: number = 30, book: string = 'kaoyan', style: string = 'academic'): Promise<EnglishDailyContent> => {
+// 增加 style 参数 和 excludeWords 参数
+export const generateEnglishDaily = async (
+    wordCount: number = 30, 
+    book: string = 'kaoyan', 
+    style: string = 'academic',
+    excludeWords: string[] = []
+): Promise<EnglishDailyContent> => {
   if (!API_KEY) {
     return getFallbackData("未配置 API Key", "请在 .env 文件中配置 VITE_API_KEY (填入 DeepSeek API Key)。");
   }
@@ -49,21 +54,28 @@ export const generateEnglishDaily = async (wordCount: number = 30, book: string 
       'academic': '学术议论文 (Academic/Argumentative) - 适合考研阅读Part A',
       'news': '新闻报道 (News/Journalism) - 经济学人风格',
       'narrative': '记叙文 (Narrative/Story) - 轻松易读',
-      'philosophy': '哲理散文 (Philosophical Essay) - 深度思考'
+      'philosophy': '哲理散文 (Philosophical Essay) - 深度思考',
+      'science': '科技前沿 (Science/Tech) - 说明文风格',
+      'literature': '经典文学 (Classic Literature) - 小说片段',
+      'dialogue': '日常对话 (Dialogue) - 口语/听力场景'
   };
 
   const targetBook = bookNameMap[book] || '考研英语大纲';
   const targetStyle = styleMap[style] || '学术议论文';
+  
+  // 限制排除词的数量，防止 Prompt 过长
+  const excludeStr = excludeWords.slice(0, 100).join(', ');
 
   const systemPrompt = `你是一个专业的英语辅导老师。请编写一篇英语阅读短文。
   
   要求：
   1. 题材与风格：请严格按照【${targetStyle}】风格编写。
   2. 词汇来源：从【${targetBook}】中随机抽取 ${wordCount} 个重点单词。
-  3. **重要：在文章正文中，必须将这 ${wordCount} 个重点单词用双大括号包裹，例如 {{ambiguous}}，以便前端识别高亮。**
-  4. 单词释义：**必须提供该单词在本文语境下的确切含义，不要直接给通用字典释义。**
-  5. 篇幅：150-250 词。
-  6. 输出格式：必须是合法的 JSON 格式。
+  3. **去重避让**：请尽量避免使用以下用户近期已背过的单词：[${excludeStr}]。如果必须使用，请不要将其作为本篇的核心生词。
+  4. **重要：在文章正文中，必须将这 ${wordCount} 个重点生词用双大括号包裹，例如 {{ambiguous}}，以便前端识别高亮。**
+  5. 单词释义：**必须提供该单词在本文语境下的确切含义，不要直接给通用字典释义。**
+  6. 篇幅：150-250 词。
+  7. 输出格式：必须是合法的 JSON 格式。
 
   JSON 结构示例：
   {

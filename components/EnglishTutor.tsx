@@ -2,7 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { EnglishDailyContent, SubjectCategory, User } from '../types';
 import { generateEnglishDaily } from '../services/geminiService';
-import { BookOpen, RefreshCw, Send, Loader2, Languages, Lock, Sparkles, Coffee, ChevronDown, Library, Palette, EyeOff } from 'lucide-react';
+import { getUserCheckIns } from '../services/storageService';
+import { BookOpen, RefreshCw, Send, Loader2, Languages, Lock, Sparkles, Coffee, ChevronDown, Library, Palette, Eye } from 'lucide-react';
 
 interface Props {
   user: User;
@@ -18,13 +19,15 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
   
   const [loading, setLoading] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
-  const [hideMeanings, setHideMeanings] = useState(false); // 新增：遮挡中文意思
   
   // Settings
   const [wordCount, setWordCount] = useState(5); 
   const [selectedBook, setSelectedBook] = useState('kaoyan');
-  const [selectedStyle, setSelectedStyle] = useState('academic'); // 新增：风格选择
+  const [selectedStyle, setSelectedStyle] = useState('academic'); 
   const [selectedWord, setSelectedWord] = useState<string | null>(null); 
+  
+  // Stats
+  const [learnedWordsCount, setLearnedWordsCount] = useState(0);
 
   const isGuest = user.role === 'guest';
 
@@ -35,13 +38,48 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
       }
   }, [content]);
 
+  // Load stats just for display/logic
+  useEffect(() => {
+      const loadHistory = async () => {
+          if (isGuest) return;
+          const checkIns = await getUserCheckIns(user.id);
+          const engCheckIns = checkIns.filter(c => c.subject === SubjectCategory.ENGLISH);
+          // 简单的估算：每个打卡按5个词算，或者之后可以解析内容
+          setLearnedWordsCount(engCheckIns.length * 5); 
+      }
+      loadHistory();
+  }, [user.id, isGuest]);
+
   const fetchDaily = async () => {
     if (isGuest) return;
     setLoading(true);
     setSelectedWord(null); 
     
-    // 调用 API, 传入自定义单词数、词书和风格
-    const data = await generateEnglishDaily(wordCount, selectedBook, selectedStyle);
+    // 1. 获取历史打卡记录进行去重
+    let excludeList: string[] = [];
+    try {
+        const checkIns = await getUserCheckIns(user.id);
+        const engCheckIns = checkIns.filter(c => c.subject === SubjectCategory.ENGLISH).slice(0, 20); // 只取最近20条
+        
+        // 解析打卡内容中的单词: 格式通常为 "- word: definition"
+        const regex = /- ([a-zA-Z\s]+):/g;
+        engCheckIns.forEach(c => {
+            let match;
+            while ((match = regex.exec(c.content)) !== null) {
+                if (match[1] && match[1].trim().length > 2) {
+                    excludeList.push(match[1].trim());
+                }
+            }
+        });
+        // 去重
+        excludeList = [...new Set(excludeList)];
+        console.log("Excluding words:", excludeList);
+    } catch (e) {
+        console.warn("Failed to fetch history for dedup", e);
+    }
+
+    // 2. 调用 API, 传入自定义参数
+    const data = await generateEnglishDaily(wordCount, selectedBook, selectedStyle, excludeList);
     
     if (data) {
         setContent(data);
@@ -102,7 +140,7 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
             <Sparkles className="w-6 h-6 text-brand-500" />
             AI 英语阅读教练
           </h2>
-          <p className="text-gray-500 text-sm">定制你的专属阅读材料，上下文记忆更牢固</p>
+          <p className="text-gray-500 text-sm">已累计学习约 {learnedWordsCount} 个单词，智能去重已开启</p>
         </div>
         
         {/* Settings Bar */}
@@ -132,6 +170,9 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
                     <option value="news">新闻</option>
                     <option value="narrative">记叙</option>
                     <option value="philosophy">哲理</option>
+                    <option value="science">科技</option>
+                    <option value="literature">文学</option>
+                    <option value="dialogue">对话</option>
                 </select>
             </div>
 
@@ -169,7 +210,7 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
         <div className="h-96 flex flex-col items-center justify-center bg-white rounded-2xl border border-gray-100 shadow-sm animate-pulse">
           <Loader2 className="w-12 h-12 text-brand-600 animate-spin mb-6" />
           <h3 className="text-lg font-bold text-gray-800">AI 正在为您编写文章...</h3>
-          <p className="text-gray-500 mt-2">基于 {selectedBook.toUpperCase()} 词汇库构建 {selectedStyle} 语境</p>
+          <p className="text-gray-500 mt-2">基于 {selectedBook.toUpperCase()} 词汇库构建 {selectedStyle} 语境 (智能避让生词)</p>
         </div>
       ) : content ? (
         <div className="space-y-6 animate-fade-in">
@@ -218,14 +259,9 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
                         <Languages className="w-4 h-4" />
                         <span>{showTranslation ? '隐藏全文翻译' : '查看全文翻译'}</span>
                     </button>
-                    
-                    <button 
-                        onClick={() => setHideMeanings(!hideMeanings)}
-                        className={`flex items-center space-x-2 text-sm font-medium transition-colors ${hideMeanings ? 'text-brand-600' : 'text-gray-500 hover:text-brand-600'}`}
-                    >
-                        <EyeOff className="w-4 h-4" />
-                        <span>{hideMeanings ? '显示中文意思' : '遮挡中文意思'}</span>
-                    </button>
+                    <span className="text-xs text-gray-400 flex items-center gap-1">
+                        <Eye className="w-3 h-3" /> 鼠标悬停单词即可查看释义
+                    </span>
                 </div>
 
                 <button 
@@ -260,11 +296,17 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
                     <div className="p-4 pt-0 border-t border-gray-50 bg-gray-50/50">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
                             {content.vocabList.map((item, idx) => (
-                                <div key={idx} className="flex flex-col p-3 bg-white rounded-xl border border-gray-100 hover:border-brand-200 transition-colors group/word">
+                                <div key={idx} className="flex flex-col p-3 bg-white rounded-xl border border-gray-100 hover:border-brand-200 transition-colors group/word relative overflow-hidden">
                                     <span className="font-bold text-gray-800 text-lg group-hover/word:text-brand-600 transition-colors">{item.word}</span>
-                                    <span className={`text-sm mt-1 transition-all duration-300 ${hideMeanings ? 'text-transparent bg-gray-100 rounded blur-sm select-none' : 'text-gray-500'}`}>
-                                        {item.definition}
-                                    </span>
+                                    {/* 默认模糊，Hover时清晰 */}
+                                    <div className="mt-1 transition-all duration-300 filter blur-[4px] group-hover/word:blur-0 select-none group-hover/word:select-text">
+                                        <span className="text-sm text-gray-500">
+                                            {item.definition}
+                                        </span>
+                                    </div>
+                                    <div className="absolute bottom-2 right-2 opacity-100 group-hover/word:opacity-0 transition-opacity pointer-events-none">
+                                        <Eye className="w-4 h-4 text-gray-300" />
+                                    </div>
                                 </div>
                             ))}
                         </div>

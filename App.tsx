@@ -54,10 +54,9 @@ const App: React.FC = () => {
       setCheckIns(fetchedCheckIns);
       setAlgoTasks(fetchedTasks);
 
-      // 同步最新的 User Rating (防止 Avatar 和 Chart 不一致)
+      // 同步最新的 User Rating (使用高效的 getUserById 而不是拉取所有用户)
       if (user) {
-         const allUsers = await storage.getAllUsers();
-         const freshUser = allUsers.find(u => u.id === user.id);
+         const freshUser = await storage.getUserById(user.id);
          if (freshUser && freshUser.rating !== user.rating) {
              const mergedUser = { ...user, rating: freshUser.rating };
              setUser(mergedUser);
@@ -338,7 +337,7 @@ const App: React.FC = () => {
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #d1d5db; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #d1d5db; }
       `}</style>
     </div>
   );

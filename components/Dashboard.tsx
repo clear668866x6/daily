@@ -3,7 +3,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { CheckIn, User, Goal, SubjectCategory, RatingHistory, getUserStyle, getTitleName } from '../types';
 import * as storage from '../services/storageService';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, EyeOff, BrainCircuit, ChevronDown, UserCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, CalendarCheck, Flag, Sparkles } from 'lucide-react';
+import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, EyeOff, BrainCircuit, ChevronDown, UserCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, CalendarCheck, Flag, Sparkles, Shield, Users } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { ToastType } from './Toast';
 
@@ -16,7 +16,6 @@ interface Props {
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1'];
 
-// 严格的日期 Key 生成器 (YYYY-MM-DD)
 const formatDateKey = (timestampOrDate: number | Date): string => {
     const date = typeof timestampOrDate === 'number' ? new Date(timestampOrDate) : timestampOrDate;
     const y = date.getFullYear();
@@ -44,7 +43,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const [logDuration, setLogDuration] = useState(45); 
   const [isLogging, setIsLogging] = useState(false);
   const [logMode, setLogMode] = useState<'study' | 'penalty'>('study');
-  const [logPreview, setLogPreview] = useState(false); // Markdown Preview
+  const [logPreview, setLogPreview] = useState(false); 
 
   // Calendar State
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
@@ -55,14 +54,15 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const [targetDateStr, setTargetDateStr] = useState(() => localStorage.getItem('kaoyan_target_date') || defaultTarget);
   const [isEditingTarget, setIsEditingTarget] = useState(false);
 
+  const isAdmin = currentUser.role === 'admin';
   const isViewingSelf = selectedUserId === currentUser.id;
 
   // Load Users
   useEffect(() => {
     storage.getAllUsers().then(users => {
         const sorted = users.sort((a, b) => {
-            if (a.id === currentUser.id) return -1;
-            if (b.id === currentUser.id) return 1;
+            if (a.role === 'admin') return -1; // Admin top
+            if (b.role === 'admin') return 1;
             return (b.rating || 0) - (a.rating || 0);
         });
         setAllUsers(sorted);
@@ -82,6 +82,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   }, [selectedUserId, checkIns]); 
 
   const selectedUser = useMemo(() => {
+      if (selectedUserId === currentUser.id) return currentUser;
       return allUsers.find(u => u.id === selectedUserId) || currentUser;
   }, [allUsers, selectedUserId, currentUser]);
 
@@ -90,7 +91,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   }, [checkIns, selectedUserId]);
 
   // --- Calculations ---
-
   const daysUntilExam = useMemo(() => {
       const target = new Date(targetDateStr);
       const today = new Date();
@@ -106,22 +106,28 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   }, [selectedUserCheckIns]);
 
   const stats = useMemo(() => {
-    const subjectDuration: Record<string, number> = {}; 
+    const subjectDuration: Record<string, number> = {}; // 今天的数据
     const dateDuration: Record<string, number> = {}; 
     let totalStudyMinutes = 0;
     let totalPenaltyMinutes = 0;
     
     const sortedCheckIns = [...selectedUserCheckIns].sort((a, b) => a.timestamp - b.timestamp);
+    const todayStr = formatDateKey(new Date());
 
     sortedCheckIns.forEach(c => {
-      const dateKey = new Date(c.timestamp).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+      const dateKey = formatDateKey(c.timestamp);
       const duration = c.duration || 0;
 
       if (c.isPenalty) {
           totalPenaltyMinutes += duration;
       } else {
-          subjectDuration[c.subject] = (subjectDuration[c.subject] || 0) + duration;
-          dateDuration[dateKey] = (dateDuration[dateKey] || 0) + duration;
+          // 只统计今天的科目分布
+          if (dateKey === todayStr) {
+             subjectDuration[c.subject] = (subjectDuration[c.subject] || 0) + duration;
+          }
+          // 每日柱状图
+          const barKey = new Date(c.timestamp).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+          dateDuration[barKey] = (dateDuration[barKey] || 0) + duration;
           totalStudyMinutes += duration;
       }
     });
@@ -149,7 +155,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       }));
   }, [ratingHistory]);
 
-  // --- Handlers ---
+  // ... (Handlers remain the same) ...
   const handleSaveTargetDate = () => {
       localStorage.setItem('kaoyan_target_date', targetDateStr);
       setIsEditingTarget(false);
@@ -232,6 +238,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       setLogMode('study');
 
     } catch (e) {
+      console.error(e);
       onShowToast("提交失败，请重试", 'error');
     } finally {
       setIsLogging(false);
@@ -244,7 +251,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
     onShowToast("座右铭已更新", 'success');
   };
 
-  // Calendar Helpers
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear();
     const month = date.getMonth();
@@ -311,6 +317,89 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
 
   const ratingColorClass = getUserStyle(selectedUser.role, selectedUser.rating || 1200);
   const titleName = getTitleName(selectedUser.role, selectedUser.rating || 1200);
+
+  if (isAdmin) {
+      return (
+          <div className="space-y-6 animate-fade-in pb-20">
+              {/* Admin Header Stats */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-gradient-to-br from-indigo-600 to-violet-600 rounded-3xl p-6 text-white shadow-xl shadow-indigo-200">
+                      <div className="flex items-center gap-3 mb-2">
+                          <div className="bg-white/20 p-2 rounded-lg"><Users className="w-5 h-5 text-white"/></div>
+                          <h3 className="font-bold text-indigo-100">总用户数</h3>
+                      </div>
+                      <div className="text-4xl font-black">{allUsers.length}</div>
+                      <p className="text-xs text-indigo-200 mt-1">包含管理员</p>
+                  </div>
+                  <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
+                       <div className="flex items-center gap-3 mb-2">
+                          <div className="bg-green-100 p-2 rounded-lg"><CheckSquare className="w-5 h-5 text-green-600"/></div>
+                          <h3 className="font-bold text-gray-800">总打卡记录</h3>
+                      </div>
+                      <div className="text-4xl font-black text-gray-900">{checkIns.length}</div>
+                      <p className="text-xs text-gray-400 mt-1">全站累计</p>
+                  </div>
+                   <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
+                       <div className="flex items-center gap-3 mb-2">
+                          <div className="bg-orange-100 p-2 rounded-lg"><Trophy className="w-5 h-5 text-orange-600"/></div>
+                          <h3 className="font-bold text-gray-800">最高 Rating</h3>
+                      </div>
+                      <div className="text-4xl font-black text-gray-900">
+                          {allUsers.length > 0 ? Math.max(...allUsers.map(u => u.rating || 1200)) : 0}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1">卷王之王</p>
+                  </div>
+              </div>
+
+              {/* Admin User List Table */}
+              <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+                  <div className="p-6 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+                      <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                          <Shield className="w-5 h-5 text-indigo-600" /> 用户管理总览
+                      </h2>
+                      <span className="text-xs text-gray-500 bg-white px-2 py-1 rounded border border-gray-200">
+                          按 Rating 排序
+                      </span>
+                  </div>
+                  <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                          <thead>
+                              <tr className="bg-white text-gray-500 text-xs uppercase border-b border-gray-100">
+                                  <th className="px-6 py-4 font-bold">排名</th>
+                                  <th className="px-6 py-4 font-bold">用户</th>
+                                  <th className="px-6 py-4 font-bold">身份</th>
+                                  <th className="px-6 py-4 font-bold">Rating</th>
+                                  <th className="px-6 py-4 font-bold">ID</th>
+                              </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-50">
+                              {allUsers.map((u, index) => (
+                                  <tr key={u.id} className="hover:bg-gray-50 transition-colors group">
+                                      <td className="px-6 py-4 text-sm font-bold text-gray-400">#{index + 1}</td>
+                                      <td className="px-6 py-4">
+                                          <div className="flex items-center gap-3">
+                                              <img src={u.avatar} className="w-9 h-9 rounded-full bg-gray-100 border border-gray-200" />
+                                              <span className={`font-bold text-sm ${getUserStyle(u.role, u.rating)}`}>{u.name}</span>
+                                          </div>
+                                      </td>
+                                      <td className="px-6 py-4">
+                                          <span className={`px-2 py-1 rounded text-xs font-bold border ${
+                                              u.role === 'admin' ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-gray-50 text-gray-600 border-gray-100'
+                                          }`}>
+                                              {u.role === 'admin' ? '管理员' : '普通研友'}
+                                          </span>
+                                      </td>
+                                      <td className="px-6 py-4 font-mono font-bold text-gray-700">{u.rating || 1200}</td>
+                                      <td className="px-6 py-4 text-xs text-gray-400 font-mono">{u.id.substring(0, 8)}...</td>
+                                  </tr>
+                              ))}
+                          </tbody>
+                      </table>
+                  </div>
+              </div>
+          </div>
+      );
+  }
 
   return (
     <div className="space-y-6 pb-24 animate-fade-in">
@@ -628,7 +717,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           {/* Subject Distribution Pie (Span 4) */}
           <div className="lg:col-span-4 bg-white rounded-3xl p-6 border border-gray-100 shadow-sm flex flex-col">
                 <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2 text-sm">
-                    <BrainCircuit className="w-4 h-4 text-orange-500" /> 科目时长分布
+                    <BrainCircuit className="w-4 h-4 text-orange-500" /> 今日科目时长分布
                 </h3>
                 <div className="flex-1 min-h-[200px]">
                     {stats.pieData.length > 0 ? (
@@ -652,7 +741,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                     ) : (
                         <div className="h-full flex flex-col items-center justify-center text-gray-400 text-xs bg-gray-50/50 rounded-2xl border border-dashed border-gray-100">
                              <AlertCircle className="w-8 h-8 mb-2 opacity-20" />
-                             <p>暂无数据</p>
+                             <p>今日暂无学习记录</p>
                         </div>
                     )}
                 </div>
