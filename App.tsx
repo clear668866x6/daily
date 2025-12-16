@@ -8,13 +8,16 @@ import { AlgorithmTutor } from './components/AlgorithmTutor';
 import { About } from './components/About';
 import { Login } from './components/Login';
 import { GlobalAlerts } from './components/GlobalAlerts';
-import { Modal } from './components/Modal'; // New Import
+import { Modal } from './components/Modal'; 
+import { AdminUserModal } from './components/AdminUserModal'; // New Import
 import { CheckIn, SubjectCategory, User, AlgorithmTask } from './types';
 import * as storage from './services/storageService';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  // Persistence: Initialize activeTab from localStorage
+  const [activeTab, setActiveTab] = useState(() => localStorage.getItem('kaoyan_active_tab') || 'dashboard');
+  
   const [user, setUser] = useState<User | null>(null);
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
   const [algoTasks, setAlgoTasks] = useState<AlgorithmTask[]>([]);
@@ -23,6 +26,7 @@ const App: React.FC = () => {
   // Modal State
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [checkInToDelete, setCheckInToDelete] = useState<string | null>(null);
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
 
   // Toast State
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -36,6 +40,11 @@ const App: React.FC = () => {
     setToasts(prev => prev.filter(t => t.id !== id));
   };
 
+  // Persistence: Save activeTab whenever it changes
+  useEffect(() => {
+    localStorage.setItem('kaoyan_active_tab', activeTab);
+  }, [activeTab]);
+
   const refreshData = async () => {
     try {
       const [fetchedCheckIns, fetchedTasks] = await Promise.all([
@@ -44,6 +53,18 @@ const App: React.FC = () => {
       ]);
       setCheckIns(fetchedCheckIns);
       setAlgoTasks(fetchedTasks);
+
+      // 同步最新的 User Rating (防止 Avatar 和 Chart 不一致)
+      if (user) {
+         const allUsers = await storage.getAllUsers();
+         const freshUser = allUsers.find(u => u.id === user.id);
+         if (freshUser && freshUser.rating !== user.rating) {
+             const mergedUser = { ...user, rating: freshUser.rating };
+             setUser(mergedUser);
+             storage.updateUserLocal(mergedUser);
+         }
+      }
+
     } catch (e) {
       console.error("Failed to load data", e);
     }
@@ -195,6 +216,8 @@ const App: React.FC = () => {
         activeTab={activeTab} 
         onTabChange={setActiveTab} 
         onLogout={handleLogout}
+        currentUser={user}
+        onOpenAdmin={() => setIsAdminModalOpen(true)}
       />
       
       <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen relative">
@@ -284,6 +307,13 @@ const App: React.FC = () => {
           message="确定要删除这条打卡记录吗？删除后，该记录产生的 Rating 分数变化将被撤销（加分会被扣除，扣分会被返还）。"
           confirmText="确认删除"
           type="danger"
+      />
+
+      <AdminUserModal 
+          isOpen={isAdminModalOpen}
+          onClose={() => setIsAdminModalOpen(false)}
+          currentUser={user}
+          onShowToast={showToast}
       />
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />

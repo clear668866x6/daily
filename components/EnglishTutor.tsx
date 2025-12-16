@@ -1,8 +1,8 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { EnglishDailyContent, SubjectCategory, User } from '../types';
 import { generateEnglishDaily } from '../services/geminiService';
-import { BookOpen, RefreshCw, Send, Loader2, Languages, Lock, Sparkles, Coffee, ChevronDown, Library } from 'lucide-react';
+import { BookOpen, RefreshCw, Send, Loader2, Languages, Lock, Sparkles, Coffee, ChevronDown, Library, Palette, EyeOff } from 'lucide-react';
 
 interface Props {
   user: User;
@@ -10,24 +10,38 @@ interface Props {
 }
 
 export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
-  const [content, setContent] = useState<EnglishDailyContent | null>(null);
+  // Persistence: Initialize state from localStorage if available
+  const [content, setContent] = useState<EnglishDailyContent | null>(() => {
+      const cached = localStorage.getItem('kaoyan_english_cache');
+      return cached ? JSON.parse(cached) : null;
+  });
+  
   const [loading, setLoading] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
+  const [hideMeanings, setHideMeanings] = useState(false); // 新增：遮挡中文意思
   
   // Settings
   const [wordCount, setWordCount] = useState(5); 
   const [selectedBook, setSelectedBook] = useState('kaoyan');
+  const [selectedStyle, setSelectedStyle] = useState('academic'); // 新增：风格选择
   const [selectedWord, setSelectedWord] = useState<string | null>(null); 
 
   const isGuest = user.role === 'guest';
+
+  // Persistence: Save to localStorage whenever content changes
+  useEffect(() => {
+      if (content) {
+          localStorage.setItem('kaoyan_english_cache', JSON.stringify(content));
+      }
+  }, [content]);
 
   const fetchDaily = async () => {
     if (isGuest) return;
     setLoading(true);
     setSelectedWord(null); 
     
-    // 调用 API, 传入自定义单词数和词书
-    const data = await generateEnglishDaily(wordCount, selectedBook);
+    // 调用 API, 传入自定义单词数、词书和风格
+    const data = await generateEnglishDaily(wordCount, selectedBook, selectedStyle);
     
     if (data) {
         setContent(data);
@@ -41,7 +55,7 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
     if (isGuest) return;
     if (!content) return;
     const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-    const checkInText = `## 每日AI英语阅读打卡 (${timeStr})\n\n学习了关于 "${content.article.substring(0, 20)}..." 的文章，重点背诵了 ${content.vocabList.length} 个单词。\n\n**今日新词：**\n${content.vocabList.map(v => `- ${v.word}: ${v.definition}`).join('\n')}\n\n感悟：DeepSeek 出题很有深度，点击查词功能很好用！`;
+    const checkInText = `## 每日AI英语阅读打卡 (${timeStr})\n\n学习了关于 "${content.article.substring(0, 20)}..." 的文章，重点背诵了 ${content.vocabList.length} 个单词。\n\n**今日新词：**\n${content.vocabList.map(v => `- ${v.word}: ${v.definition}`).join('\n')}\n\n感悟：DeepSeek 出题很有深度，上下文释义功能很好用！`;
     onCheckIn(SubjectCategory.ENGLISH, checkInText);
   };
 
@@ -61,7 +75,7 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
                 ? 'bg-brand-100 border-brand-500 text-brand-700' 
                 : 'border-brand-300 hover:bg-brand-50 text-gray-800'
             }`}
-            title="点击查看释义"
+            title="点击查看上下文释义"
           >
             {word}
           </span>
@@ -88,7 +102,7 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
             <Sparkles className="w-6 h-6 text-brand-500" />
             AI 英语阅读教练
           </h2>
-          <p className="text-gray-500 text-sm">选择词书，定制你的专属阅读材料</p>
+          <p className="text-gray-500 text-sm">定制你的专属阅读材料，上下文记忆更牢固</p>
         </div>
         
         {/* Settings Bar */}
@@ -98,12 +112,26 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
                 <select 
                     value={selectedBook}
                     onChange={(e) => setSelectedBook(e.target.value)}
-                    className="text-sm text-gray-700 bg-transparent focus:outline-none cursor-pointer font-medium"
+                    className="text-sm text-gray-700 bg-transparent focus:outline-none cursor-pointer font-medium max-w-[80px]"
                 >
-                    <option value="kaoyan">考研英语</option>
-                    <option value="cet4">四级 (CET-4)</option>
-                    <option value="cet6">六级 (CET-6)</option>
-                    <option value="ielts">雅思 (IELTS)</option>
+                    <option value="kaoyan">考研</option>
+                    <option value="cet4">四级</option>
+                    <option value="cet6">六级</option>
+                    <option value="ielts">雅思</option>
+                </select>
+            </div>
+
+            <div className="flex items-center gap-2 px-2 border-r border-gray-100">
+                <Palette className="w-4 h-4 text-gray-400" />
+                <select 
+                    value={selectedStyle}
+                    onChange={(e) => setSelectedStyle(e.target.value)}
+                    className="text-sm text-gray-700 bg-transparent focus:outline-none cursor-pointer font-medium max-w-[80px]"
+                >
+                    <option value="academic">学术</option>
+                    <option value="news">新闻</option>
+                    <option value="narrative">记叙</option>
+                    <option value="philosophy">哲理</option>
                 </select>
             </div>
 
@@ -119,16 +147,14 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
                 />
             </div>
 
-            {content && (
-                <button 
+            <button 
                 onClick={fetchDaily} 
                 disabled={loading || isGuest}
                 className="flex items-center space-x-2 px-3 py-1.5 bg-brand-50 text-brand-600 rounded-lg hover:bg-brand-100 transition-colors text-sm font-medium ml-1"
-                >
+            >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                <span>换一篇</span>
-                </button>
-            )}
+                <span>{content ? '换一篇' : '生成'}</span>
+            </button>
         </div>
       </div>
 
@@ -143,7 +169,7 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
         <div className="h-96 flex flex-col items-center justify-center bg-white rounded-2xl border border-gray-100 shadow-sm animate-pulse">
           <Loader2 className="w-12 h-12 text-brand-600 animate-spin mb-6" />
           <h3 className="text-lg font-bold text-gray-800">AI 正在为您编写文章...</h3>
-          <p className="text-gray-500 mt-2">基于 {selectedBook === 'kaoyan' ? '考研大纲' : selectedBook.toUpperCase()} 词汇库构建语境</p>
+          <p className="text-gray-500 mt-2">基于 {selectedBook.toUpperCase()} 词汇库构建 {selectedStyle} 语境</p>
         </div>
       ) : content ? (
         <div className="space-y-6 animate-fade-in">
@@ -154,9 +180,14 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
               </div>
 
               <div className="flex justify-between items-start mb-6 relative z-10">
-                <span className="bg-brand-50 text-brand-700 text-xs font-bold px-2 py-1 rounded-full border border-brand-100 uppercase">
-                    {selectedBook === 'kaoyan' ? 'Postgraduate' : selectedBook}
-                </span>
+                <div className="flex gap-2">
+                    <span className="bg-brand-50 text-brand-700 text-xs font-bold px-2 py-1 rounded-full border border-brand-100 uppercase">
+                        {selectedBook === 'kaoyan' ? 'Postgraduate' : selectedBook}
+                    </span>
+                    <span className="bg-purple-50 text-purple-700 text-xs font-bold px-2 py-1 rounded-full border border-purple-100 uppercase">
+                        {selectedStyle}
+                    </span>
+                </div>
                 <span className="text-gray-400 text-sm font-mono">{content.date}</span>
               </div>
               
@@ -167,25 +198,35 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
               </article>
 
               {/* 动态单词释义条 */}
-              <div className={`transition-all duration-300 overflow-hidden relative z-10 ${selectedWord ? 'max-h-24 opacity-100 mb-6' : 'max-h-0 opacity-0'}`}>
-                  <div className="bg-brand-50 border border-brand-200 p-4 rounded-xl flex items-center gap-3">
-                      <div className="bg-brand-500 text-white font-bold px-3 py-1 rounded-lg">
+              <div className={`transition-all duration-300 overflow-hidden relative z-10 ${selectedWord ? 'max-h-32 opacity-100 mb-6' : 'max-h-0 opacity-0'}`}>
+                  <div className="bg-brand-50 border border-brand-200 p-4 rounded-xl flex flex-col md:flex-row md:items-center gap-3 shadow-sm">
+                      <div className="bg-brand-500 text-white font-bold px-3 py-1 rounded-lg w-fit">
                           {selectedWord}
                       </div>
-                      <div className="text-gray-700 font-medium">
+                      <div className="text-gray-700 font-medium text-sm md:text-base">
                           {getCurrentDefinition()}
                       </div>
                   </div>
               </div>
               
-              <div className="border-t border-gray-100 pt-4 flex justify-between items-center relative z-10">
-                <button 
-                  onClick={() => setShowTranslation(!showTranslation)}
-                  className="flex items-center space-x-2 text-gray-500 hover:text-brand-600 text-sm font-medium transition-colors"
-                >
-                  <Languages className="w-4 h-4" />
-                  <span>{showTranslation ? '隐藏全文翻译' : '查看全文翻译'}</span>
-                </button>
+              <div className="border-t border-gray-100 pt-4 flex flex-wrap gap-4 justify-between items-center relative z-10">
+                <div className="flex gap-4">
+                    <button 
+                        onClick={() => setShowTranslation(!showTranslation)}
+                        className="flex items-center space-x-2 text-gray-500 hover:text-brand-600 text-sm font-medium transition-colors"
+                    >
+                        <Languages className="w-4 h-4" />
+                        <span>{showTranslation ? '隐藏全文翻译' : '查看全文翻译'}</span>
+                    </button>
+                    
+                    <button 
+                        onClick={() => setHideMeanings(!hideMeanings)}
+                        className={`flex items-center space-x-2 text-sm font-medium transition-colors ${hideMeanings ? 'text-brand-600' : 'text-gray-500 hover:text-brand-600'}`}
+                    >
+                        <EyeOff className="w-4 h-4" />
+                        <span>{hideMeanings ? '显示中文意思' : '遮挡中文意思'}</span>
+                    </button>
+                </div>
 
                 <button 
                     onClick={handleQuickCheckIn}
@@ -196,7 +237,8 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
               </div>
 
               {showTranslation && (
-                  <div className="mt-4 p-4 bg-gray-50 rounded-xl text-gray-600 text-sm leading-relaxed whitespace-pre-line animate-fade-in relative z-10">
+                  <div className="mt-4 p-4 bg-gray-50 rounded-xl text-gray-600 text-sm leading-relaxed whitespace-pre-line animate-fade-in relative z-10 border border-gray-200">
+                    <h4 className="font-bold text-gray-700 mb-2 text-xs uppercase">Reference Translation</h4>
                     {content.translation}
                   </div>
               )}
@@ -204,12 +246,12 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
 
             {/* 底部单词表 */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                <details className="group">
+                <details className="group" open>
                     <summary className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 transition-colors list-none select-none">
                         <div className="flex items-center gap-2 font-bold text-gray-700">
                             <BookOpen className="w-5 h-5 text-brand-500" />
-                            <span>完整单词表 ({content.vocabList.length})</span>
-                            <span className="text-xs font-normal text-gray-400 ml-2">点击展开背诵</span>
+                            <span>核心词汇 ({content.vocabList.length})</span>
+                            <span className="text-xs font-normal text-gray-400 ml-2">结合语境记忆</span>
                         </div>
                         <div className="text-gray-400 group-open:rotate-180 transition-transform">
                             <ChevronDown className="w-5 h-5" />
@@ -218,9 +260,11 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
                     <div className="p-4 pt-0 border-t border-gray-50 bg-gray-50/50">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
                             {content.vocabList.map((item, idx) => (
-                                <div key={idx} className="flex flex-col p-3 bg-white rounded-xl border border-gray-100 hover:border-brand-200 transition-colors">
-                                    <span className="font-bold text-gray-800 text-lg">{item.word}</span>
-                                    <span className="text-gray-500 text-sm mt-1">{item.definition}</span>
+                                <div key={idx} className="flex flex-col p-3 bg-white rounded-xl border border-gray-100 hover:border-brand-200 transition-colors group/word">
+                                    <span className="font-bold text-gray-800 text-lg group-hover/word:text-brand-600 transition-colors">{item.word}</span>
+                                    <span className={`text-sm mt-1 transition-all duration-300 ${hideMeanings ? 'text-transparent bg-gray-100 rounded blur-sm select-none' : 'text-gray-500'}`}>
+                                        {item.definition}
+                                    </span>
                                 </div>
                             ))}
                         </div>
@@ -235,7 +279,7 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
             </div>
             <h3 className="text-2xl font-bold text-gray-800 mb-2">准备好开始今天的阅读了吗？</h3>
             <p className="text-gray-500 max-w-md mb-8 leading-relaxed">
-                坚持每天一篇，轻松搞定长难句。选择你的目标词汇，AI 即刻为你出题。
+                上次阅读的内容已为您保存。点击生成，获取全新的上下文定制文章。
             </p>
             <button 
                 onClick={fetchDaily}
