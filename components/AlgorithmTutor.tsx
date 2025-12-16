@@ -2,10 +2,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { User, AlgorithmTask, AlgorithmSubmission, SubjectCategory } from '../types';
 import * as storage from '../services/storageService';
-import { Code, CheckCircle, Send, Play, Lock, FileCode, Loader2, ChevronDown, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Megaphone, PlusCircle, Terminal, Zap, Trophy, Layout, Cpu } from 'lucide-react';
+import { Code, CheckCircle, Send, Play, Lock, FileCode, Loader2, ChevronDown, ChevronLeft, ChevronRight, Megaphone, PlusCircle, Terminal, Zap, Trophy, Layout, Cpu, Award, X, Moon, Star, Flame } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { ToastType } from './Toast';
-import { Fireworks } from './Fireworks'; // Added Import
+import { Fireworks } from './Fireworks'; 
 
 interface Props {
   user: User;
@@ -14,36 +14,87 @@ interface Props {
 }
 
 const LANGUAGES = {
-    'cpp': { name: 'C++ 17', template: '#include <iostream>\nusing namespace std;\n\nclass Solution {\npublic:\n    void solve() {\n        // Your code here\n    }\n};' },
-    'java': { name: 'Java 11', template: 'class Solution {\n    public void solve() {\n        // Your code here\n    }\n}' },
-    'python': { name: 'Python 3', template: 'class Solution:\n    def solve(self):\n        # Your code here\n        pass' },
-    'javascript': { name: 'JavaScript', template: '/**\n * @param {string} arg\n * @return {void}\n */\nvar solve = function(arg) {\n    // Your code here\n};' }
+    'cpp': { name: 'C++ 17', template: '// Write your C++ solution here\n#include <iostream>\nusing namespace std;\n\nclass Solution {\npublic:\n    void solve() {\n        \n    }\n};' },
+    'java': { name: 'Java 11', template: '// Write your Java solution here\nimport java.util.*;\n\nclass Solution {\n    public void solve() {\n        \n    }\n}' },
+    'python': { name: 'Python 3', template: '# Write your Python solution here\n\nclass Solution:\n    def solve(self):\n        pass' },
+    'javascript': { name: 'JavaScript', template: '// Write your JavaScript solution here\n\n/**\n * @param {number[]} nums\n * @return {number}\n */\nvar solve = function(nums) {\n    \n};' }
 };
 
-// --- Simple Syntax Highlighter Helper ---
+// --- Achievement Config ---
+interface Achievement {
+    id: string;
+    title: string;
+    description: string;
+    icon: React.ElementType;
+    color: string;
+    condition: (submissions: AlgorithmSubmission[], tasks: AlgorithmTask[]) => boolean;
+}
+
+const ACHIEVEMENTS: Achievement[] = [
+    {
+        id: 'first_blood',
+        title: '初出茅庐',
+        description: '成功通过第 1 道算法题',
+        icon: Zap,
+        color: 'text-yellow-600 bg-yellow-100',
+        condition: (s) => s.filter(x => x.status === 'Passed').length >= 1
+    },
+    {
+        id: 'three_streak',
+        title: '持之以恒',
+        description: '累计 AC 题目达到 3 道',
+        icon: Star,
+        color: 'text-blue-600 bg-blue-100',
+        condition: (s) => new Set(s.filter(x => x.status === 'Passed').map(x => x.taskId)).size >= 3
+    },
+    {
+        id: 'five_kills',
+        title: '渐入佳境',
+        description: '累计 AC 题目达到 5 道',
+        icon: Flame,
+        color: 'text-orange-600 bg-orange-100',
+        condition: (s) => new Set(s.filter(x => x.status === 'Passed').map(x => x.taskId)).size >= 5
+    },
+    {
+        id: 'master',
+        title: '算法大师',
+        description: '累计 AC 题目达到 20 道',
+        icon: Trophy,
+        color: 'text-purple-600 bg-purple-100',
+        condition: (s) => new Set(s.filter(x => x.status === 'Passed').map(x => x.taskId)).size >= 20
+    },
+    {
+        id: 'night_owl',
+        title: '夜战考研人',
+        description: '在深夜 (23:00 - 04:00) 提交并通过代码',
+        icon: Moon,
+        color: 'text-indigo-600 bg-indigo-100',
+        condition: (s) => false // Dynamic check handled in submission logic
+    }
+];
+
+// --- Syntax Highlighter Helper (Simple) ---
 const highlightCode = (code: string) => {
-    // Basic keywords for C++/Java/JS/Python
+    if (!code) return <div className="h-6"></div>; 
+
     const keywords = /\b(class|public|private|protected|void|int|float|string|bool|if|else|for|while|return|import|using|namespace|function|var|let|const|def|pass|from|true|false|null|new|this)\b/g;
     const types = /\b(Solution|vector|map|set|List|ArrayList|String|Array|Object)\b/g;
     const comments = /(\/\/.*|\/\*[\s\S]*?\*\/|#.*)/g;
     
-    // Split by newlines to handle per-line rendering
     return code.split('\n').map((line, i) => {
         let processed = line
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;");
 
-        // Apply simplistic coloring
         processed = processed.replace(comments, '<span class="text-gray-400 italic">$&</span>');
-        // Only highlight keywords if not inside a comment span (simple heuristic)
         if (!processed.includes('span class="text-gray-400"')) {
              processed = processed
                 .replace(keywords, '<span class="text-purple-600 font-bold">$&</span>')
                 .replace(types, '<span class="text-yellow-600">$&</span>');
         }
         
-        return <div key={i} className="whitespace-pre" dangerouslySetInnerHTML={{__html: processed || ' '}} />;
+        return <div key={i} className="whitespace-pre min-h-[1.5rem]" dangerouslySetInnerHTML={{__html: processed || ' '}} />;
     });
 };
 
@@ -59,52 +110,48 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   
   // Language & Code State
   const [language, setLanguage] = useState<keyof typeof LANGUAGES>('cpp');
-  const [code, setCode] = useState(''); // Initial empty, loaded by effect
+  const [code, setCode] = useState(''); 
 
   const [isRunning, setIsRunning] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [showFireworks, setShowFireworks] = useState(false); // Fireworks State
   
+  // --- Effects State ---
+  const [showFireworks, setShowFireworks] = useState(false); 
+  const [showAchievementModal, setShowAchievementModal] = useState(false);
+  const [newlyUnlocked, setNewlyUnlocked] = useState<Achievement | null>(null);
+
   // Admin State
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDesc, setNewTaskDesc] = useState('');
   const [isPublishing, setIsPublishing] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
 
-  // UI State
+  // Refs for Editor Sync
   const editorRef = useRef<HTMLTextAreaElement>(null);
+  const highlighterRef = useRef<HTMLDivElement>(null);
 
   const isGuest = user.role === 'guest';
   const isAdmin = user.role === 'admin';
 
   // --- Persistence Logic ---
-
-  // 1. Load Draft when task or language changes
   useEffect(() => {
       if (!activeTask) return;
       const draftKey = `kaoyan_algo_draft_${user.id}_${activeTask}_${language}`;
       const savedCode = localStorage.getItem(draftKey);
-      
-      if (savedCode) {
-          setCode(savedCode);
-      } else {
-          setCode(LANGUAGES[language].template);
-      }
+      setCode(savedCode || LANGUAGES[language].template);
   }, [activeTask, language, user.id]);
 
-  // 2. Save Draft when code changes
   useEffect(() => {
-      if (!activeTask || !code) return;
-      // Debounce saving slightly or just save on every change (localStorage is fast enough for text)
+      if (!activeTask) return;
       const draftKey = `kaoyan_algo_draft_${user.id}_${activeTask}_${language}`;
       localStorage.setItem(draftKey, code);
   }, [code, activeTask, language, user.id]);
-
 
   useEffect(() => {
     refreshData();
   }, [user]);
 
+  // Auto-select first task of selected date
   useEffect(() => {
       const tasksForDay = tasks.filter(t => t.date === selectedDate);
       if (tasksForDay.length > 0) {
@@ -115,6 +162,13 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
           setActiveTask(null);
       }
   }, [selectedDate, tasks]);
+
+  const handleEditorScroll = () => {
+      if (editorRef.current && highlighterRef.current) {
+          highlighterRef.current.scrollTop = editorRef.current.scrollTop;
+          highlighterRef.current.scrollLeft = editorRef.current.scrollLeft;
+      }
+  };
 
   const refreshData = async () => {
     setIsLoading(true);
@@ -133,6 +187,37 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const checkAchievements = (currentSubs: AlgorithmSubmission[]) => {
+      // 1. Regular Check
+      ACHIEVEMENTS.forEach(ach => {
+          if (ach.id === 'night_owl') return;
+          
+          if (ach.condition(currentSubs, tasks)) {
+              const key = `ach_shown_${user.id}_${ach.id}`;
+              if (!localStorage.getItem(key)) {
+                  setNewlyUnlocked(ach);
+                  localStorage.setItem(key, 'true');
+                  setTimeout(() => setNewlyUnlocked(null), 5000);
+              }
+          }
+      });
+
+      // 2. Night Owl Check
+      const now = new Date();
+      const hour = now.getHours();
+      if (hour >= 23 || hour <= 4) {
+          const key = `ach_shown_${user.id}_night_owl`;
+          if (!localStorage.getItem(key)) {
+              const ach = ACHIEVEMENTS.find(a => a.id === 'night_owl');
+              if (ach) {
+                  setNewlyUnlocked(ach);
+                  localStorage.setItem(key, 'true');
+                  setTimeout(() => setNewlyUnlocked(null), 5000);
+              }
+          }
+      }
   };
 
   const handleAddTask = async () => {
@@ -163,9 +248,14 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   const handleSubmitCode = async () => {
     if (isGuest) return;
     if (!activeTask) return;
+    if (!code.trim()) {
+        onShowToast("代码不能为空", 'error');
+        return;
+    }
+
     setIsRunning(true);
     
-    // Simulate server delay
+    // Simulate submission delay
     setTimeout(() => {
       const submission: AlgorithmSubmission = {
         taskId: activeTask,
@@ -175,21 +265,24 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
         status: 'Passed'
       };
       storage.submitAlgorithmCode(submission);
-      setSubmissions(prev => {
-        const filtered = prev.filter(s => s.taskId !== activeTask);
-        return [...filtered, submission];
-      });
+      
+      const newSubs = [...submissions.filter(s => s.taskId !== activeTask), submission];
+      setSubmissions(newSubs);
       setIsRunning(false);
       
+      onShowToast("✅ 提交成功！AC！", 'success');
+      
       // Trigger Fireworks
-      onShowToast("✅ AC！测试用例全部通过。", 'success');
       setShowFireworks(true);
-      setTimeout(() => setShowFireworks(false), 4000); // Stop after 4s
+      setTimeout(() => setShowFireworks(false), 5000);
+
+      // Check achievements
+      checkAchievements(newSubs);
 
     }, 1200);
   };
 
-  // --- Calendar & Stats ---
+  // --- Calendar & Stats Helpers ---
   const getDaysInMonth = (date: Date) => {
       const year = date.getFullYear();
       const month = date.getMonth();
@@ -198,9 +291,6 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       return { daysInMonth, firstDayOfWeek, year, month };
   };
 
-  const prevMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
-  const nextMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
-
   const dateStatusMap = useMemo(() => {
       const map: Record<string, 'all' | 'partial' | 'none'> = {};
       const uniqueDates = Array.from(new Set(tasks.map(t => t.date)));
@@ -208,11 +298,9 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       uniqueDates.forEach(date => {
           const dateTasks = tasks.filter(t => t.date === date);
           if (dateTasks.length === 0) return;
-          
           const passedCount = dateTasks.filter(t => 
               submissions.some(s => s.taskId === t.id && s.status === 'Passed')
           ).length;
-          
           if (passedCount === dateTasks.length) map[date] = 'all';
           else if (passedCount > 0) map[date] = 'partial';
           else map[date] = 'none';
@@ -220,10 +308,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       return map;
   }, [tasks, submissions]);
 
-  const selectedDateTasks = useMemo(() => {
-      return tasks.filter(t => t.date === selectedDate);
-  }, [tasks, selectedDate]);
-
+  const selectedDateTasks = useMemo(() => tasks.filter(t => t.date === selectedDate), [tasks, selectedDate]);
   const isSelectedDateToday = selectedDate === todayStr;
   const passedCountForSelectedDate = selectedDateTasks.filter(t => 
     submissions.find(s => s.taskId === t.id && s.status === 'Passed')
@@ -249,9 +334,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       const cells = [];
       const monthStr = String(month + 1).padStart(2, '0');
 
-      for (let i = 0; i < firstDayOfWeek; i++) {
-          cells.push(<div key={`empty-${i}`} className="h-7 w-7"></div>);
-      }
+      for (let i = 0; i < firstDayOfWeek; i++) cells.push(<div key={`empty-${i}`} className="h-7 w-7"></div>);
 
       for (let d = 1; d <= daysInMonth; d++) {
           const dayStr = String(d).padStart(2, '0');
@@ -299,7 +382,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                 {isDone ? (
                     <CheckCircle className="w-4 h-4 text-green-500 fill-green-100" />
                 ) : (
-                    <div className="w-4 h-4 rounded-full border-2 border-gray-200"></div>
+                    <div className="w-4 h-4 rounded-full border-2 border-gray-200 group-hover:border-indigo-200 transition-colors"></div>
                 )}
             </div>
             <div className="flex justify-between items-center mt-2">
@@ -322,34 +405,62 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   return (
     <div className="flex flex-col gap-6 animate-fade-in pb-12 relative">
       
-      {/* Fireworks Overlay */}
+      {/* 🎆 Fireworks Overlay */}
       <Fireworks active={showFireworks} />
 
-      {/* Header Stats */}
-      <div className="flex items-center justify-between bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
+      {/* 🏆 Achievement Unlock Popup */}
+      {newlyUnlocked && (
+          <div className="fixed top-1/4 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[100] animate-bounce-in pointer-events-none">
+              <div className="bg-white/95 backdrop-blur px-8 py-6 rounded-3xl shadow-2xl flex flex-col items-center gap-4 border-2 border-yellow-400 text-center ring-4 ring-yellow-400/20">
+                  <div className={`p-4 rounded-full ${newlyUnlocked.color} shadow-lg mb-2`}>
+                      <newlyUnlocked.icon className="w-10 h-10" />
+                  </div>
+                  <div>
+                      <div className="text-yellow-500 font-black text-xs uppercase tracking-[0.2em] mb-1">New Achievement</div>
+                      <div className="font-bold text-2xl text-gray-800">{newlyUnlocked.title}</div>
+                      <div className="text-sm text-gray-500 mt-1 font-medium">{newlyUnlocked.description}</div>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Header Bar */}
+      <div className="flex items-center justify-between bg-white rounded-2xl p-6 border border-gray-100 shadow-sm sticky top-0 z-40 backdrop-blur-md bg-white/90">
           <div className="flex items-center gap-4">
-              <div className="bg-indigo-100 p-3 rounded-xl text-indigo-600">
+              <div className="bg-indigo-100 p-3 rounded-xl text-indigo-600 shadow-sm">
                   <Terminal className="w-6 h-6" />
               </div>
               <div>
                   <h1 className="text-xl font-bold text-gray-800">算法训练营</h1>
-                  <p className="text-xs text-gray-500 mt-1">Daily Algorithm Challenge</p>
+                  <p className="text-xs text-gray-500 mt-0.5">LeetCode Style Practice</p>
               </div>
           </div>
           <div className="flex items-center gap-6">
+              <button 
+                onClick={() => setShowAchievementModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-yellow-50 to-orange-50 text-yellow-700 rounded-xl border border-yellow-200 hover:shadow-md transition-all font-bold text-sm group"
+              >
+                  <Award className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                  <span>成就馆</span>
+              </button>
+              
+              <div className="h-8 w-px bg-gray-100 hidden md:block"></div>
+              
               <div className="text-right hidden md:block">
                   <div className="text-xs text-gray-400 font-medium">累计 AC</div>
                   <div className="text-2xl font-black text-gray-800 flex items-center justify-end gap-1">
                       {totalAcCount} <Trophy className="w-4 h-4 text-yellow-500 fill-yellow-500" />
                   </div>
               </div>
+              
               <div className="h-8 w-px bg-gray-100 hidden md:block"></div>
+              
               <div className="text-right">
                    <div className="text-xs text-gray-400 font-medium">今日进度</div>
                    <div className="flex items-center gap-2">
                        <div className="w-24 h-2 bg-gray-100 rounded-full overflow-hidden">
                            <div 
-                                className="h-full bg-green-500 rounded-full transition-all duration-500"
+                                className="h-full bg-green-500 rounded-full transition-all duration-500 ease-out"
                                 style={{width: `${selectedDateTasks.length > 0 ? (passedCountForSelectedDate/selectedDateTasks.length)*100 : 0}%`}}
                            ></div>
                        </div>
@@ -406,79 +517,80 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       {/* Main Workspace */}
       <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-280px)] min-h-[600px]">
         
-        {/* Left Sidebar: Mission Control */}
-        <div className="w-full lg:w-80 bg-gray-50/50 rounded-2xl border border-gray-200 flex flex-col overflow-hidden shrink-0">
-            {/* Calendar */}
-            <div className="p-4 border-b border-gray-200 bg-white">
+        {/* Left Sidebar */}
+        <div className="w-full lg:w-80 flex flex-col gap-4 shrink-0">
+            {/* Calendar Widget */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
                 <div className="flex justify-between items-center mb-3">
-                    <button onClick={prevMonth} className="p-1 hover:bg-gray-100 rounded-lg text-gray-500"><ChevronLeft className="w-4 h-4" /></button>
+                    <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-gray-100 rounded-lg text-gray-500"><ChevronLeft className="w-4 h-4" /></button>
                     <div className="text-sm font-bold text-gray-800">
                         {currentMonth.getFullYear()}年 {currentMonth.getMonth() + 1}月
                     </div>
-                    <button onClick={nextMonth} className="p-1 hover:bg-gray-100 rounded-lg text-gray-500"><ChevronRight className="w-4 h-4" /></button>
+                    <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-gray-100 rounded-lg text-gray-500"><ChevronRight className="w-4 h-4" /></button>
                 </div>
                 <div className="grid grid-cols-7 gap-1 place-items-center">
                     {renderCalendar()}
                 </div>
             </div>
 
-            {/* Task List Header */}
-            <div className="px-4 py-3 flex justify-between items-center bg-gray-100/50 border-b border-gray-200">
-                <div className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1">
-                    <Layout className="w-3 h-3" /> 任务列表
+            {/* Task List Widget */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col flex-1 overflow-hidden">
+                <div className="px-4 py-3 flex justify-between items-center bg-gray-50 border-b border-gray-100">
+                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                        <Layout className="w-3 h-3" /> 任务列表
+                    </div>
+                    <span className="text-[10px] bg-white border border-gray-200 text-gray-600 px-2 py-0.5 rounded-full font-mono">
+                        {selectedDateTasks.length}
+                    </span>
                 </div>
-                <span className="text-[10px] bg-white border border-gray-200 text-gray-600 px-2 py-0.5 rounded-full font-mono">
-                    {selectedDateTasks.length}
-                </span>
-            </div>
-            
-            {/* Task List */}
-            <div className="flex-1 overflow-y-auto p-3 custom-scrollbar bg-gray-50/50">
-                {isLoading ? (
-                    <div className="flex justify-center p-10"><Loader2 className="animate-spin text-indigo-400"/></div> 
-                ) : (
-                    <>
-                        {selectedDateTasks.length > 0 ? (
-                            selectedDateTasks.map(renderTaskItem)
-                        ) : (
-                            <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2 opacity-60">
-                                <Cpu className="w-8 h-8" />
-                                <p className="text-xs">休整日</p>
-                            </div>
-                        )}
-                    </>
+                
+                <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
+                    {isLoading ? (
+                        <div className="flex justify-center p-10"><Loader2 className="animate-spin text-indigo-400"/></div> 
+                    ) : (
+                        <>
+                            {selectedDateTasks.length > 0 ? (
+                                selectedDateTasks.map(renderTaskItem)
+                            ) : (
+                                <div className="flex flex-col items-center justify-center py-12 text-gray-300 gap-2 opacity-60">
+                                    <Cpu className="w-8 h-8" />
+                                    <p className="text-xs">今日休整</p>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+
+                {/* Check-in Action */}
+                {isSelectedDateToday && selectedDateTasks.length > 0 && (
+                    <div className="p-3 border-t border-gray-100">
+                        <button
+                            disabled={!isSelectedDateAllDone || isGuest}
+                            onClick={handleDailyCheckIn}
+                            className={`w-full py-3 rounded-xl font-bold text-sm flex justify-center items-center gap-2 transition-all shadow-sm ${
+                                isSelectedDateAllDone && !isGuest 
+                                ? 'bg-green-600 text-white hover:bg-green-700 shadow-green-200' 
+                                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            }`}
+                        >
+                            {isGuest ? <Lock className="w-3 h-3"/> : <Send className="w-3 h-3" />}
+                            {isGuest ? '访客不可打卡' : (isSelectedDateAllDone ? '一键算法打卡' : '待完成')}
+                        </button>
+                    </div>
                 )}
             </div>
-
-            {/* Check-in Action */}
-            {isSelectedDateToday && selectedDateTasks.length > 0 && (
-                <div className="p-3 bg-white border-t border-gray-200">
-                    <button
-                        disabled={!isSelectedDateAllDone || isGuest}
-                        onClick={handleDailyCheckIn}
-                        className={`w-full py-3 rounded-xl font-bold text-sm flex justify-center items-center gap-2 transition-all shadow-sm ${
-                            isSelectedDateAllDone && !isGuest 
-                            ? 'bg-green-600 text-white hover:bg-green-700 shadow-green-200' 
-                            : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                        }`}
-                    >
-                        {isGuest ? <Lock className="w-3 h-3"/> : <Send className="w-3 h-3" />}
-                        {isGuest ? '访客不可打卡' : (isSelectedDateAllDone ? '一键算法打卡' : '待完成')}
-                    </button>
-                </div>
-            )}
         </div>
 
-        {/* Right Editor: Coding Deck */}
-        <div className="flex-1 bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden relative">
+        {/* Right Editor */}
+        <div className="flex-1 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden relative">
             {activeTask ? (
             <>
-                {/* Task Details Header */}
+                {/* Task Description Panel */}
                 <div className="h-1/3 min-h-[150px] flex flex-col border-b border-gray-200">
-                     <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50/30">
+                     <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50/50">
                         <div className="flex items-center gap-3">
                             <h3 className="text-lg font-bold text-gray-800">{tasks.find(t => t.id === activeTask)?.title}</h3>
-                            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded border border-gray-200">Description</span>
+                            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded border border-gray-200">Problem</span>
                         </div>
                         
                         <div className="relative group">
@@ -499,9 +611,8 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                     </div>
                 </div>
                 
-                {/* Code Editor Area */}
+                {/* Code Editor Panel */}
                 <div className="flex-1 flex flex-col relative bg-white">
-                    {/* Toolbar */}
                     <div className="h-8 bg-gray-50 border-b border-gray-200 flex items-center px-4 gap-4 text-xs text-gray-500 select-none">
                         <span className="flex items-center gap-1.5"><FileCode className="w-3 h-3"/> main.{language === 'python' ? 'py' : language === 'javascript' ? 'js' : language === 'java' ? 'java' : 'cpp'}</span>
                         <span className="text-gray-300">|</span>
@@ -509,34 +620,40 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                         <span className="ml-auto text-green-600 flex items-center gap-1"><Zap className="w-3 h-3"/> Auto-saved</span>
                     </div>
 
-                    <div className="flex-1 relative overflow-hidden flex text-sm font-mono">
+                    <div className="flex-1 relative overflow-hidden flex text-sm font-mono group">
                         {/* Line Numbers */}
-                        <div className="w-10 bg-gray-50 border-r border-gray-100 text-gray-400 text-right py-4 pr-2 select-none shrink-0 leading-6">
-                            {code.split('\n').map((_, i) => (
+                        <div className="w-10 bg-gray-50/50 border-r border-gray-100 text-gray-400 text-right py-4 pr-2 select-none shrink-0 leading-6 z-10">
+                            {(code || '').split('\n').map((_, i) => (
                                 <div key={i}>{i + 1}</div>
                             ))}
                         </div>
 
-                        {/* Editor Container */}
-                        <div className="flex-1 relative">
-                            {/* Syntax Highlight Layer (Bottom) */}
-                            <div className="absolute inset-0 p-4 pointer-events-none leading-6 whitespace-pre overflow-hidden text-gray-800" aria-hidden="true">
+                        {/* Editor Layers */}
+                        <div className="flex-1 relative overflow-hidden">
+                            {/* Highlight Layer */}
+                            <div 
+                                ref={highlighterRef}
+                                className="absolute inset-0 p-4 pointer-events-none whitespace-pre overflow-hidden text-gray-800 leading-6" 
+                                aria-hidden="true"
+                                style={{ fontFamily: 'Menlo, Monaco, Consolas, "Courier New", monospace' }}
+                            >
                                 {highlightCode(code)}
                             </div>
 
-                            {/* Textarea Layer (Top, Transparent Text, Visible Caret) */}
+                            {/* Input Layer */}
                             <textarea
                                 ref={editorRef}
                                 value={code}
+                                onScroll={handleEditorScroll}
                                 onChange={e => !isGuest && setCode(e.target.value)}
                                 readOnly={isGuest}
                                 spellCheck={false}
-                                className={`absolute inset-0 w-full h-full p-4 bg-transparent text-transparent caret-black resize-none focus:outline-none leading-6 selection:bg-indigo-100 selection:text-transparent ${isGuest ? 'cursor-not-allowed opacity-50' : ''}`}
-                                style={{fontFamily: 'inherit'}}
+                                placeholder="// Write your solution here..."
+                                className={`absolute inset-0 w-full h-full p-4 bg-transparent text-transparent caret-indigo-600 resize-none focus:outline-none whitespace-pre overflow-auto leading-6 selection:bg-indigo-100/50 ${isGuest ? 'cursor-not-allowed opacity-50' : ''}`}
+                                style={{ fontFamily: 'Menlo, Monaco, Consolas, "Courier New", monospace' }}
                             />
                         </div>
 
-                        {/* Guest Overlay */}
                         {isGuest && (
                             <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[2px] z-20">
                                 <div className="bg-white px-6 py-4 rounded-xl border border-gray-200 shadow-xl flex flex-col items-center text-gray-500">
@@ -548,18 +665,18 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                     </div>
                 </div>
 
-                {/* Footer Controls */}
+                {/* Footer Action Bar */}
                 <div className="p-3 border-t border-gray-200 bg-white flex justify-end items-center gap-3">
                     <button
                         className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-gray-700 transition-colors"
-                        onClick={() => setCode(LANGUAGES[language].template)}
+                        onClick={() => setCode('')}
                     >
-                        重置代码
+                        清空代码
                     </button>
                     <button
                         onClick={handleSubmitCode}
                         disabled={isRunning || !code.trim() || isGuest}
-                        className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-all active:scale-95 flex items-center gap-2 shadow-md shadow-indigo-100 disabled:opacity-50 disabled:shadow-none"
+                        className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-all active:scale-95 flex items-center gap-2 shadow-md shadow-indigo-200 disabled:opacity-50 disabled:shadow-none"
                     >
                         {isRunning ? <Loader2 className="w-4 h-4 animate-spin"/> : <Play className="w-4 h-4 fill-current" />}
                         <span>{isRunning ? '运行中...' : '提交运行'}</span>
@@ -568,12 +685,75 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
             </>
             ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-gray-300 bg-gray-50/30">
-                <Code className="w-20 h-20 mb-6 opacity-20" />
+                <div className="bg-white p-6 rounded-full shadow-sm mb-4">
+                    <Code className="w-12 h-12 text-gray-200" />
+                </div>
                 <p className="font-medium text-gray-400">请从左侧选择一道题目开始编码</p>
             </div>
             )}
         </div>
       </div>
+
+      {/* Achievement Hall Modal */}
+      {showAchievementModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden relative transform transition-all">
+                  <button onClick={() => setShowAchievementModal(false)} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors z-10"><X className="w-4 h-4 text-gray-500"/></button>
+                  
+                  {/* Modal Header */}
+                  <div className="p-8 pb-4 bg-gradient-to-r from-gray-50 to-white border-b border-gray-100">
+                      <div className="flex items-center gap-3 mb-2">
+                          <div className="bg-yellow-100 p-2 rounded-xl">
+                              <Award className="w-6 h-6 text-yellow-600" />
+                          </div>
+                          <h2 className="text-2xl font-black text-gray-800">算法成就馆</h2>
+                      </div>
+                      <p className="text-gray-500 text-sm">收集徽章，见证你的算法进阶之路</p>
+                  </div>
+
+                  {/* Badges Grid */}
+                  <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto custom-scrollbar bg-white">
+                      {ACHIEVEMENTS.map(ach => {
+                          let unlocked = false;
+                          if (ach.id === 'night_owl') {
+                              unlocked = !!localStorage.getItem(`ach_shown_${user.id}_night_owl`);
+                          } else {
+                              unlocked = ach.condition(submissions, tasks);
+                          }
+
+                          return (
+                              <div key={ach.id} className={`p-4 rounded-2xl border flex items-center gap-4 transition-all relative overflow-hidden group ${
+                                  unlocked 
+                                  ? 'bg-white border-gray-200 shadow-sm opacity-100 hover:border-yellow-300 hover:shadow-md' 
+                                  : 'bg-gray-50 border-gray-100 opacity-60 grayscale'
+                              }`}>
+                                  <div className={`p-3 rounded-full shrink-0 relative z-10 ${unlocked ? ach.color : 'bg-gray-200 text-gray-400'}`}>
+                                      <ach.icon className="w-6 h-6" />
+                                  </div>
+                                  <div className="relative z-10">
+                                      <h4 className="font-bold text-gray-800">{ach.title}</h4>
+                                      <p className="text-xs text-gray-500 mt-0.5">{ach.description}</p>
+                                      {unlocked && <div className="mt-1 text-[10px] font-bold text-green-600 flex items-center gap-1"><CheckCircle className="w-3 h-3"/> 已解锁</div>}
+                                  </div>
+                                  {unlocked && <div className="absolute top-0 right-0 p-10 bg-gradient-to-br from-yellow-50 to-transparent rounded-full -mr-10 -mt-10 z-0 opacity-50"></div>}
+                              </div>
+                          );
+                      })}
+                  </div>
+              </div>
+          </div>
+      )}
+
+      <style>{`
+        .animate-bounce-in {
+            animation: bounceIn 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+        @keyframes bounceIn {
+            0% { transform: translate(-50%, -150%) scale(0.5); opacity: 0; }
+            60% { transform: translate(-50%, 10%) scale(1.05); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 };
