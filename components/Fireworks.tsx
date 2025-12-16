@@ -32,7 +32,7 @@ export const Fireworks: React.FC<Props> = ({ active }) => {
     // Configuration
     const gravity = 0.05;
     const friction = 0.98;
-    const colors = ['#ff0043', '#14fc56', '#1e90ff', '#e4fc14', '#fe00fe', '#00ffeb', '#ffffff'];
+    const colors = ['#ff0043', '#14fc56', '#1e90ff', '#e4fc14', '#fe00fe', '#00ffeb', '#ffffff', '#ffa500'];
 
     class Particle {
         x: number;
@@ -53,7 +53,7 @@ export const Fireworks: React.FC<Props> = ({ active }) => {
             this.vy = Math.sin(angle) * speed;
             this.alpha = 1;
             this.color = color;
-            this.decay = Math.random() * 0.015 + 0.015;
+            this.decay = Math.random() * 0.015 + 0.010;
         }
 
         update() {
@@ -67,7 +67,7 @@ export const Fireworks: React.FC<Props> = ({ active }) => {
 
         draw(ctx: CanvasRenderingContext2D) {
             ctx.save();
-            ctx.globalAlpha = this.alpha;
+            ctx.globalAlpha = Math.max(0, this.alpha);
             ctx.beginPath();
             ctx.arc(this.x, this.y, 2, 0, Math.PI * 2);
             ctx.fillStyle = this.color;
@@ -88,7 +88,7 @@ export const Fireworks: React.FC<Props> = ({ active }) => {
             this.x = Math.random() * canvas.width;
             this.y = canvas.height;
             this.targetY = Math.random() * (canvas.height / 2); // Explode in top half
-            this.vy = -Math.random() * 3 - 12; // Launch speed
+            this.vy = -Math.random() * 4 - 10; // Launch speed
             this.color = colors[Math.floor(Math.random() * colors.length)];
             this.exploded = false;
         }
@@ -104,7 +104,7 @@ export const Fireworks: React.FC<Props> = ({ active }) => {
         }
 
         createExplosion() {
-            const particleCount = 80; // Particles per explosion
+            const particleCount = 60; // Particles per explosion
             for (let i = 0; i < particleCount; i++) {
                 particles.push(new Particle(this.x, this.y, this.color));
             }
@@ -129,32 +129,32 @@ export const Fireworks: React.FC<Props> = ({ active }) => {
     let ticker = 0;
     const loop = () => {
         // Clear with trail effect
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'; 
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)'; 
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         // Spawn fireworks randomly
-        if (ticker % 15 === 0) {
+        if (ticker % 20 === 0) {
             fireworks.push(new Firework());
         }
         ticker++;
 
         // Update Fireworks
-        fireworks.forEach((fw, index) => {
-            fw.update();
-            fw.draw(ctx);
-            if (fw.exploded) {
-                fireworks.splice(index, 1);
+        for (let i = fireworks.length - 1; i >= 0; i--) {
+            fireworks[i].update();
+            fireworks[i].draw(ctx);
+            if (fireworks[i].exploded) {
+                fireworks.splice(i, 1);
             }
-        });
+        }
 
         // Update Particles
-        particles.forEach((p, index) => {
-            p.update();
-            p.draw(ctx);
-            if (p.alpha <= 0) {
-                particles.splice(index, 1);
+        for (let i = particles.length - 1; i >= 0; i--) {
+            particles[i].update();
+            particles[i].draw(ctx);
+            if (particles[i].alpha <= 0) {
+                particles.splice(i, 1);
             }
-        });
+        }
 
         animationFrameId = requestAnimationFrame(loop);
     };

@@ -73,28 +73,47 @@ const ACHIEVEMENTS: Achievement[] = [
     }
 ];
 
-// --- Syntax Highlighter Helper (Simple) ---
+// --- Improved Syntax Highlighter ---
 const highlightCode = (code: string) => {
     if (!code) return <div className="h-6"></div>; 
 
     const keywords = /\b(class|public|private|protected|void|int|float|string|bool|if|else|for|while|return|import|using|namespace|function|var|let|const|def|pass|from|true|false|null|new|this)\b/g;
     const types = /\b(Solution|vector|map|set|List|ArrayList|String|Array|Object)\b/g;
-    const comments = /(\/\/.*|\/\*[\s\S]*?\*\/|#.*)/g;
     
     return code.split('\n').map((line, i) => {
+        // 1. Escape HTML entities first
         let processed = line
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;");
 
-        processed = processed.replace(comments, '<span class="text-gray-400 italic">$&</span>');
-        if (!processed.includes('span class="text-gray-400"')) {
-             processed = processed
-                .replace(keywords, '<span class="text-purple-600 font-bold">$&</span>')
-                .replace(types, '<span class="text-yellow-600">$&</span>');
-        }
+        // 2. Separate Comments from Code to avoid overlapping replacements
+        // This simple regex looks for // or #. It doesn't handle strings containing // perfectly but is good for this use case.
+        const commentMatch = processed.match(/(\/\/|#)/);
+        let commentIndex = commentMatch ? commentMatch.index : -1;
         
-        return <div key={i} className="whitespace-pre min-h-[1.5rem]" dangerouslySetInnerHTML={{__html: processed || ' '}} />;
+        let codePart = processed;
+        let commentPart = '';
+
+        if (commentIndex !== undefined && commentIndex !== -1) {
+            codePart = processed.substring(0, commentIndex);
+            commentPart = processed.substring(commentIndex);
+        }
+
+        // 3. Highlight Keywords/Types only in the code part
+        codePart = codePart
+            .replace(keywords, '<span class="text-purple-600 font-bold">$&</span>')
+            .replace(types, '<span class="text-yellow-600">$&</span>');
+
+        // 4. Highlight Comment part
+        if (commentPart) {
+            commentPart = `<span class="text-gray-400 italic">${commentPart}</span>`;
+        }
+
+        // Recombine
+        const finalHtml = codePart + commentPart;
+
+        return <div key={i} className="whitespace-pre min-h-[1.5rem]" dangerouslySetInnerHTML={{__html: finalHtml || ' '}} />;
     });
 };
 
@@ -274,7 +293,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       
       // Trigger Fireworks
       setShowFireworks(true);
-      setTimeout(() => setShowFireworks(false), 5000);
+      setTimeout(() => setShowFireworks(false), 6000);
 
       // Check achievements
       checkAchievements(newSubs);
