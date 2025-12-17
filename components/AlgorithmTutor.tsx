@@ -88,7 +88,6 @@ const highlightCode = (code: string) => {
             .replace(/>/g, "&gt;");
 
         // 2. Separate Comments from Code to avoid overlapping replacements
-        // This simple regex looks for // or #. It doesn't handle strings containing // perfectly but is good for this use case.
         const commentMatch = processed.match(/(\/\/|#)/);
         let commentIndex = commentMatch ? commentMatch.index : -1;
         
@@ -148,6 +147,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   // Refs for Editor Sync
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const highlighterRef = useRef<HTMLDivElement>(null);
+  const lineNumbersRef = useRef<HTMLDivElement>(null);
 
   const isGuest = user.role === 'guest';
   const isAdmin = user.role === 'admin';
@@ -183,9 +183,17 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   }, [selectedDate, tasks]);
 
   const handleEditorScroll = () => {
-      if (editorRef.current && highlighterRef.current) {
-          highlighterRef.current.scrollTop = editorRef.current.scrollTop;
-          highlighterRef.current.scrollLeft = editorRef.current.scrollLeft;
+      if (editorRef.current) {
+          const { scrollTop, scrollLeft } = editorRef.current;
+          // Sync Highlighter
+          if (highlighterRef.current) {
+              highlighterRef.current.scrollTop = scrollTop;
+              highlighterRef.current.scrollLeft = scrollLeft;
+          }
+          // Sync Line Numbers
+          if (lineNumbersRef.current) {
+              lineNumbersRef.current.scrollTop = scrollTop;
+          }
       }
   };
 
@@ -615,11 +623,11 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                         <div className="relative group">
                             <select 
                                 value={language}
-                                onChange={(e) => setLanguage(e.target.value as any)}
+                                onChange={(e) => setLanguage(e.target.value as keyof typeof LANGUAGES)}
                                 className="appearance-none bg-white border border-gray-200 text-gray-700 text-xs font-bold py-1.5 pl-3 pr-8 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm hover:border-indigo-300 transition-colors"
                             >
-                                {Object.entries(LANGUAGES).map(([key, conf]) => (
-                                    <option key={key} value={key}>{conf.name}</option>
+                                {(Object.keys(LANGUAGES) as Array<keyof typeof LANGUAGES>).map((key) => (
+                                    <option key={key} value={key}>{LANGUAGES[key].name}</option>
                                 ))}
                             </select>
                             <ChevronDown className="w-3 h-3 text-gray-400 absolute right-2.5 top-1/2 transform -translate-y-1/2 pointer-events-none" />
@@ -631,7 +639,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                 </div>
                 
                 {/* Code Editor Panel */}
-                <div className="flex-1 flex flex-col relative bg-white">
+                <div className="flex-1 flex flex-col relative bg-white min-h-0">
                     <div className="h-8 bg-gray-50 border-b border-gray-200 flex items-center px-4 gap-4 text-xs text-gray-500 select-none">
                         <span className="flex items-center gap-1.5"><FileCode className="w-3 h-3"/> main.{language === 'python' ? 'py' : language === 'javascript' ? 'js' : language === 'java' ? 'java' : 'cpp'}</span>
                         <span className="text-gray-300">|</span>
@@ -639,9 +647,12 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                         <span className="ml-auto text-green-600 flex items-center gap-1"><Zap className="w-3 h-3"/> Auto-saved</span>
                     </div>
 
-                    <div className="flex-1 relative overflow-hidden flex text-sm font-mono group">
+                    <div className="flex-1 relative overflow-hidden flex text-sm font-mono group min-h-0">
                         {/* Line Numbers */}
-                        <div className="w-10 bg-gray-50/50 border-r border-gray-100 text-gray-400 text-right py-4 pr-2 select-none shrink-0 leading-6 z-10">
+                        <div 
+                            ref={lineNumbersRef}
+                            className="w-10 bg-gray-50/50 border-r border-gray-100 text-gray-400 text-right py-4 pr-2 select-none shrink-0 leading-6 z-10 overflow-hidden"
+                        >
                             {(code || '').split('\n').map((_, i) => (
                                 <div key={i}>{i + 1}</div>
                             ))}
