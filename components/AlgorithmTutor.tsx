@@ -301,6 +301,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       
       // Trigger Fireworks
       setShowFireworks(true);
+      // Auto close after 6 seconds if no interaction
       setTimeout(() => setShowFireworks(false), 6000);
 
       // Check achievements
@@ -433,7 +434,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
     <div className="flex flex-col gap-6 animate-fade-in pb-12 relative">
       
       {/* 🎆 Fireworks Overlay */}
-      <Fireworks active={showFireworks} />
+      <Fireworks active={showFireworks} onClose={() => setShowFireworks(false)} />
 
       {/* 🏆 Achievement Unlock Popup */}
       {newlyUnlocked && (

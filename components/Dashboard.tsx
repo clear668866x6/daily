@@ -331,12 +331,72 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const ratingColorClass = getUserStyle(selectedUser.role, selectedUser.rating || 1200);
   const titleName = getTitleName(selectedUser.role, selectedUser.rating || 1200);
 
+  // Admin View: Leaderboard
   if (isAdmin) {
+      const leaderboardUsers = [...allUsers].sort((a, b) => (b.rating || 1200) - (a.rating || 1200));
+
       return (
           <div className="space-y-6 animate-fade-in pb-20">
-              <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
-                  <h2 className="text-xl font-bold mb-4">管理员面板</h2>
-                  <p className="text-gray-500">请使用侧边栏 "后台管理" 按钮进行用户操作。</p>
+              <div className="bg-white rounded-[2rem] p-8 border border-gray-100 shadow-sm">
+                  <h2 className="text-2xl font-black text-gray-800 mb-6 flex items-center gap-2">
+                      <Trophy className="w-6 h-6 text-yellow-500" /> 全员 Rating 排行榜
+                  </h2>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                        <thead>
+                            <tr className="text-gray-400 text-xs uppercase tracking-wider border-b border-gray-100">
+                                <th className="pb-4 pl-4 font-bold">排名</th>
+                                <th className="pb-4 font-bold">用户</th>
+                                <th className="pb-4 font-bold">Rating</th>
+                                <th className="pb-4 font-bold">头衔</th>
+                                <th className="pb-4 font-bold text-right pr-4">ID</th>
+                            </tr>
+                        </thead>
+                        <tbody className="text-sm">
+                            {leaderboardUsers.map((user, index) => {
+                                const rank = index + 1;
+                                const style = getUserStyle(user.role, user.rating);
+                                const title = getTitleName(user.role, user.rating);
+                                return (
+                                    <tr key={user.id} className="group hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0">
+                                        <td className="py-4 pl-4 font-mono font-bold text-gray-500 w-16">
+                                            {rank <= 3 ? (
+                                                <span className={`flex items-center justify-center w-6 h-6 rounded-full text-white text-xs ${
+                                                    rank === 1 ? 'bg-yellow-400' : rank === 2 ? 'bg-gray-300' : 'bg-orange-300'
+                                                }`}>
+                                                    {rank}
+                                                </span>
+                                            ) : (
+                                                <span className="pl-1.5">#{rank}</span>
+                                            )}
+                                        </td>
+                                        <td className="py-4">
+                                            <div className="flex items-center gap-3">
+                                                <img src={user.avatar} className="w-10 h-10 rounded-full bg-gray-100 border border-gray-100" alt={user.name} />
+                                                <span className={`font-bold ${style}`}>{user.name}</span>
+                                            </div>
+                                        </td>
+                                        <td className="py-4 font-bold text-gray-700 font-mono">
+                                            {user.rating || 1200}
+                                        </td>
+                                        <td className="py-4">
+                                            <span className={`text-xs px-2 py-1 rounded-md border ${
+                                                style.includes('text-red') ? 'bg-red-50 border-red-100 text-red-600' : 
+                                                style.includes('text-blue') ? 'bg-blue-50 border-blue-100 text-blue-600' : 
+                                                'bg-gray-50 border-gray-200 text-gray-600'
+                                            }`}>
+                                                {title}
+                                            </span>
+                                        </td>
+                                        <td className="py-4 text-right pr-4 text-gray-400 font-mono text-xs">
+                                            {user.id.substring(0, 8)}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                  </div>
               </div>
           </div>
       );

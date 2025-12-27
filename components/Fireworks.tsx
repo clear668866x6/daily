@@ -1,12 +1,34 @@
 
 import React, { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
 interface Props {
   active: boolean;
+  onClose: () => void;
 }
 
-export const Fireworks: React.FC<Props> = ({ active }) => {
+export const Fireworks: React.FC<Props> = ({ active, onClose }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Handle closing on interaction
+  useEffect(() => {
+    if (!active) return;
+
+    const handleInteraction = () => {
+      onClose();
+    };
+
+    // "Click any key" interpreted as keyboard or mouse click
+    window.addEventListener('keydown', handleInteraction);
+    window.addEventListener('click', handleInteraction);
+    window.addEventListener('touchstart', handleInteraction);
+
+    return () => {
+      window.removeEventListener('keydown', handleInteraction);
+      window.removeEventListener('click', handleInteraction);
+      window.removeEventListener('touchstart', handleInteraction);
+    };
+  }, [active, onClose]);
 
   useEffect(() => {
     if (!active) return;
@@ -21,7 +43,6 @@ export const Fireworks: React.FC<Props> = ({ active }) => {
     let particles: Particle[] = [];
     let fireworks: Firework[] = [];
     
-    // Resize canvas
     const resize = () => {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
@@ -46,7 +67,6 @@ export const Fireworks: React.FC<Props> = ({ active }) => {
         constructor(x: number, y: number, color: string) {
             this.x = x;
             this.y = y;
-            // Explosion burst velocity
             const angle = Math.random() * Math.PI * 2;
             const speed = Math.random() * 5 + 2; 
             this.vx = Math.cos(angle) * speed;
@@ -87,15 +107,15 @@ export const Fireworks: React.FC<Props> = ({ active }) => {
         constructor() {
             this.x = Math.random() * canvas.width;
             this.y = canvas.height;
-            this.targetY = Math.random() * (canvas.height / 2); // Explode in top half
-            this.vy = -Math.random() * 4 - 10; // Launch speed
+            this.targetY = Math.random() * (canvas.height / 2);
+            this.vy = -Math.random() * 4 - 10;
             this.color = colors[Math.floor(Math.random() * colors.length)];
             this.exploded = false;
         }
 
         update() {
             this.y += this.vy;
-            this.vy += 0.15; // Gravity during launch
+            this.vy += 0.15;
 
             if (this.vy >= 0 || this.y <= this.targetY) {
                 this.exploded = true;
@@ -104,7 +124,7 @@ export const Fireworks: React.FC<Props> = ({ active }) => {
         }
 
         createExplosion() {
-            const particleCount = 60; // Particles per explosion
+            const particleCount = 60;
             for (let i = 0; i < particleCount; i++) {
                 particles.push(new Particle(this.x, this.y, this.color));
             }
@@ -116,7 +136,7 @@ export const Fireworks: React.FC<Props> = ({ active }) => {
             ctx.fillStyle = this.color;
             ctx.fill();
             
-            // Trail effect
+            // Trail
             ctx.beginPath();
             ctx.moveTo(this.x, this.y);
             ctx.lineTo(this.x, this.y + 15);
@@ -125,20 +145,19 @@ export const Fireworks: React.FC<Props> = ({ active }) => {
         }
     }
 
-    // Main Loop
     let ticker = 0;
     const loop = () => {
-        // Clear with trail effect
+        // Darken background for trail effect
+        // Using createPortal allows us to overlay the whole screen.
+        // We use a dark background fill to make it look like a modal/overlay.
         ctx.fillStyle = 'rgba(0, 0, 0, 0.2)'; 
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // Spawn fireworks randomly
         if (ticker % 20 === 0) {
             fireworks.push(new Firework());
         }
         ticker++;
 
-        // Update Fireworks
         for (let i = fireworks.length - 1; i >= 0; i--) {
             fireworks[i].update();
             fireworks[i].draw(ctx);
@@ -147,7 +166,6 @@ export const Fireworks: React.FC<Props> = ({ active }) => {
             }
         }
 
-        // Update Particles
         for (let i = particles.length - 1; i >= 0; i--) {
             particles[i].update();
             particles[i].draw(ctx);
@@ -169,11 +187,13 @@ export const Fireworks: React.FC<Props> = ({ active }) => {
 
   if (!active) return null;
 
-  return (
+  // Use Portal to ensure it sits on top of everything (z-index logic works relative to body)
+  return createPortal(
     <canvas 
         ref={canvasRef} 
-        className="fixed inset-0 pointer-events-none z-[9999]"
-        style={{ mixBlendMode: 'screen' }} 
-    />
+        className="fixed inset-0 z-[99999] cursor-pointer"
+        style={{ touchAction: 'none' }}
+    />,
+    document.body
   );
 };
