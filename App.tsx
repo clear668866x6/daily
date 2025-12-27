@@ -9,26 +9,22 @@ import { About } from './components/About';
 import { Login } from './components/Login';
 import { GlobalAlerts } from './components/GlobalAlerts';
 import { Modal } from './components/Modal'; 
-import { AdminUserModal } from './components/AdminUserModal'; // New Import
+import { AdminUserModal } from './components/AdminUserModal';
 import { CheckIn, SubjectCategory, User, AlgorithmTask } from './types';
 import * as storage from './services/storageService';
+import { getBusinessDate, getPreviousBusinessDate } from './utils/dateUtils';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 
 const App: React.FC = () => {
-  // Persistence: Initialize activeTab from localStorage
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('kaoyan_active_tab') || 'dashboard');
-  
+  const [isCollapsed, setIsCollapsed] = useState(() => localStorage.getItem('kaoyan_sidebar_collapsed') === 'true');
   const [user, setUser] = useState<User | null>(null);
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
   const [algoTasks, setAlgoTasks] = useState<AlgorithmTask[]>([]);
   const [isInitializing, setIsInitializing] = useState(true);
-  
-  // Modal State
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [checkInToDelete, setCheckInToDelete] = useState<string | null>(null);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
-
-  // Toast State
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const showToast = (message: string, type: ToastType = 'success') => {
@@ -36,14 +32,7 @@ const App: React.FC = () => {
     setToasts(prev => [...prev, { id, message, type }]);
   };
 
-  const dismissToast = (id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  };
-
-  // Persistence: Save activeTab whenever it changes
-  useEffect(() => {
-    localStorage.setItem('kaoyan_active_tab', activeTab);
-  }, [activeTab]);
+  const dismissToast = (id: string) => setToasts(prev => prev.filter(t => t.id !== id));
 
   const refreshData = async () => {
     try {
@@ -53,9 +42,9 @@ const App: React.FC = () => {
       ]);
       setCheckIns(fetchedCheckIns);
       setAlgoTasks(fetchedTasks);
-
-      // 同步最新的 User Rating (使用高效的 getUserById 而不是拉取所有用户)
-      if (user) {
+      
+      // 用户状态同步
+      if (user && user.role !== 'guest') {
          const freshUser = await storage.getUserById(user.id);
          if (freshUser && freshUser.rating !== user.rating) {
              const mergedUser = { ...user, rating: freshUser.rating };
@@ -63,281 +52,191 @@ const App: React.FC = () => {
              storage.updateUserLocal(mergedUser);
          }
       }
+    } catch (e) { console.error(e); }
+  };
 
-    } catch (e) {
-      console.error("Failed to load data", e);
-    }
+  // 每日自动化稽核 ( Rating 惩罚逻辑 )
+  const runDailyAudit = async (currentUser: User, allCheckIns: CheckIn[]) => {
+      if (currentUser.role === 'guest') return;
+      
+      const todayBusinessDate = getBusinessDate(Date.now());
+      const lastAuditDate = localStorage.getItem(`last_audit_${currentUser.id}`);
+      
+      // 如果今天还没稽核过
+      if (lastAuditDate !== todayBusinessDate) {
+          const yesterdayBusinessDate = getPreviousBusinessDate(Date.now());
+          
+          // 计算昨天的总学习时长
+          const yesterdayCheckIns = allCheckIns.filter(c => 
+              c.userId === currentUser.id && 
+              getBusinessDate(c.timestamp) === yesterdayBusinessDate &&
+              !c.isPenalty
+          );
+          
+          const totalDuration = yesterdayCheckIns.reduce((acc, curr) => acc + (curr.duration || 0), 0);
+          const targetDuration = parseInt(localStorage.getItem(`study_target_${currentUser.id}`) || '60');
+          
+          let penalty = 0;
+          let reason = "";
+
+          if (yesterdayCheckIns.length === 0) {
+              penalty = -15;
+              reason = `昨日(${yesterdayBusinessDate})未打卡惩罚`;
+          } else if (totalDuration < targetDuration) {
+              penalty = -10;
+              reason = `昨日(${yesterdayBusinessDate})学习时长未达标(${totalDuration}/${targetDuration}min)`;
+          }
+
+          if (penalty !== 0) {
+              const newRating = (currentUser.rating || 1200) + penalty;
+              await storage.updateRating(currentUser.id, newRating, reason);
+              showToast(`${reason}，Rating ${penalty}`, 'error');
+              
+              // 更新本地状态
+              const updatedUser = { ...currentUser, rating: newRating };
+              setUser(updatedUser);
+              storage.updateUserLocal(updatedUser);
+          }
+
+          localStorage.setItem(`last_audit_${currentUser.id}`, todayBusinessDate);
+      }
   };
 
   useEffect(() => {
     const init = async () => {
       const currentUser = storage.getCurrentUser();
+      if (currentUser) setUser(currentUser);
+      
+      const fetchedCheckIns = await storage.getCheckIns();
+      const fetchedTasks = await storage.getAlgorithmTasks();
+      setCheckIns(fetchedCheckIns);
+      setAlgoTasks(fetchedTasks);
+      
       if (currentUser) {
-        setUser(currentUser);
+          await runDailyAudit(currentUser, fetchedCheckIns);
       }
-      await refreshData();
+      
       setIsInitializing(false);
     };
     init();
-
-    const interval = setInterval(refreshData, 10000);
+    const interval = setInterval(refreshData, 30000);
     return () => clearInterval(interval);
   }, []);
 
+  // 监听导航
+  useEffect(() => { localStorage.setItem('kaoyan_active_tab', activeTab); }, [activeTab]);
+  useEffect(() => { localStorage.setItem('kaoyan_sidebar_collapsed', String(isCollapsed)); }, [isCollapsed]);
+
   const handleLogin = async (loggedInUser: User) => {
     setUser(loggedInUser);
-    showToast(`欢迎回来，${loggedInUser.name}！`, 'success');
-    await refreshData();
+    showToast(`上岸在望，${loggedInUser.name}！`, 'success');
+    const fetched = await storage.getCheckIns();
+    setCheckIns(fetched);
+    await runDailyAudit(loggedInUser, fetched);
   };
 
   const handleLogout = () => {
-    storage.logoutUser();
-    setUser(null);
-    setActiveTab('dashboard');
-    showToast("已退出登录", 'info');
-  };
-
-  const handleUpdateUser = (updatedUser: User) => {
-      setUser(updatedUser);
+    storage.logoutUser(); setUser(null); setActiveTab('dashboard');
+    showToast("已安全退出", 'info');
   };
 
   const handleAddCheckIn = async (newCheckIn: CheckIn) => {
-    if (user?.role === 'guest') {
-      showToast("访客模式无法发布打卡", 'error');
-      return;
-    }
+    if (user?.role === 'guest') return;
     setCheckIns(prev => [newCheckIn, ...prev]);
     try {
       await storage.addCheckIn(newCheckIn);
-      showToast("打卡发布成功！", 'success');
-      await refreshData();
-    } catch (e) {
-      console.error(e);
-      showToast("打卡上传失败，请检查网络", 'error');
-    }
-    if (activeTab === 'english' || activeTab === 'algorithm') {
-      setActiveTab('feed');
-    }
+      if (newCheckIn.userId === user?.id) {
+          const fresh = await storage.getUserById(user.id);
+          if (fresh) {
+              setUser(fresh);
+              storage.updateUserLocal(fresh);
+          }
+      }
+      showToast("打卡成功，Rating 已同步！", 'success');
+    } catch (e) { showToast("发布失败，请检查网络", 'error'); }
+    if (activeTab === 'english' || activeTab === 'algorithm') setActiveTab('feed');
   };
 
   const confirmDeleteCheckIn = async () => {
       if (!user || !checkInToDelete) return;
-      
-      const id = checkInToDelete;
-      
-      // Optimistic update
-      setCheckIns(prev => prev.filter(c => c.id !== id));
-
       try {
-          const ratingDelta = await storage.deleteCheckIn(id);
-          
+          const ratingDelta = await storage.deleteCheckIn(checkInToDelete);
+          setCheckIns(prev => prev.filter(c => c.id !== checkInToDelete));
           if (ratingDelta !== 0) {
-              const newRating = (user.rating || 1200) + ratingDelta;
-              const updatedUser = { ...user, rating: newRating };
-              setUser(updatedUser);
-              storage.updateUserLocal(updatedUser);
-              showToast(`已删除，Rating 已${ratingDelta > 0 ? '恢复' : '扣除'} ${Math.abs(ratingDelta)} 分`, 'info');
-          } else {
-              showToast("已删除", 'info');
+              const fresh = await storage.getUserById(user.id);
+              if (fresh) { setUser(fresh); storage.updateUserLocal(fresh); }
+              showToast(`记录已撤销，Rating 变动：${ratingDelta > 0 ? '+' : ''}${ratingDelta}`, 'info');
           }
-      } catch(e) {
-          console.error(e);
-          showToast("删除失败，请重试", 'error');
-          refreshData(); // Revert
-      }
+      } catch(e) { showToast("删除失败", 'error'); }
   };
 
-  const handleDeleteCheckInTrigger = (id: string) => {
-      if (!user) return;
-      if (user.role === 'guest') {
-          showToast("访客模式无法删除", 'error');
-          return;
-      }
-      setCheckInToDelete(id);
-      setIsDeleteModalOpen(true);
+  const handleLike = async (id: string) => {
+    if (!user || user.role === 'guest') return;
+    setCheckIns(prev => prev.map(c => c.id === id ? { ...c, likedBy: c.likedBy.includes(user.id) ? c.likedBy.filter(u => u !== user.id) : [...c.likedBy, user.id] } : c));
+    await storage.toggleLike(id, user.id);
   };
 
-  const handleLike = async (checkInId: string) => {
-    if (!user) return;
-    if (user.role === 'guest') return; 
-    
-    setCheckIns(prev => prev.map(c => {
-      if (c.id === checkInId) {
-        const isLiked = c.likedBy.includes(user.id);
-        const newLikedBy = isLiked 
-          ? c.likedBy.filter(id => id !== user.id)
-          : [...c.likedBy, user.id];
-        return { ...c, likedBy: newLikedBy };
-      }
-      return c;
-    }));
-
-    await storage.toggleLike(checkInId, user.id);
-  };
-
-  const handleAutoCheckIn = (subject: SubjectCategory, content: string) => {
-    if (!user) return;
-    if (user.role === 'guest') {
-      showToast("访客模式无法自动打卡", 'error');
-      return;
-    }
-    const newCheckIn: CheckIn = {
-      id: Date.now().toString(),
-      userId: user.id,
-      userName: user.name,
-      userAvatar: user.avatar,
-      userRating: user.rating,
-      userRole: user.role,
-      subject,
-      content,
-      timestamp: Date.now(),
-      likedBy: []
+  const handleAutoCheckIn = async (subject: SubjectCategory, content: string, duration?: number) => {
+    if (!user || user.role === 'guest') return;
+    const dur = duration || 0;
+    const ratingChange = Math.floor(dur / 10) + 1;
+    const newRating = (user.rating || 1200) + ratingChange;
+    const newCheckIn: CheckIn = { 
+        id: Date.now().toString(), 
+        userId: user.id, 
+        userName: user.name, 
+        userAvatar: user.avatar, 
+        userRating: newRating, 
+        userRole: user.role, 
+        subject, 
+        content, 
+        duration: dur, 
+        timestamp: Date.now(), 
+        likedBy: [] 
     };
+    
+    await storage.updateRating(user.id, newRating, `系统打卡: ${subject}`);
     handleAddCheckIn(newCheckIn);
   };
 
-  if (isInitializing) {
-    return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-400">正在连接数据库...</div>;
-  }
-
-  if (!user) {
-    return (
-        <>
-            <Login onLogin={handleLogin} />
-            <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-        </>
-    );
-  }
+  if (isInitializing) return <div className="min-h-screen flex items-center justify-center bg-gray-50 font-black text-brand-600 animate-pulse">KaoyanMate Loading...</div>;
+  if (!user) return <><Login onLogin={handleLogin} /><ToastContainer toasts={toasts} onDismiss={dismissToast} /></>;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row font-sans">
+    <div className="min-h-screen bg-gray-50 flex font-sans overflow-x-hidden">
       <Navigation 
         activeTab={activeTab} 
         onTabChange={setActiveTab} 
-        onLogout={handleLogout}
-        currentUser={user}
+        onLogout={handleLogout} 
+        currentUser={user} 
         onOpenAdmin={() => setIsAdminModalOpen(true)}
+        isCollapsed={isCollapsed}
+        setIsCollapsed={setIsCollapsed}
       />
       
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen relative">
-        <div className="max-w-7xl mx-auto">
-          
-          <GlobalAlerts 
-            user={user} 
-            checkIns={checkIns} 
-            algoTasks={algoTasks} 
-            onNavigate={setActiveTab} 
-          />
-
-          {activeTab === 'dashboard' && (
-            <div className="animate-fade-in">
-              <div className="mb-6 flex justify-between items-end">
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-900">
-                    欢迎回来，{user.name} {user.role === 'guest' && '(访客)'} 👋
-                  </h1>
-                  <p className="text-gray-500">距离考研还有一段时间，今天也要加油！</p>
-                </div>
-                <button onClick={refreshData} className="text-sm text-brand-600 hover:underline">
-                  刷新数据
-                </button>
-              </div>
-              <Dashboard 
-                checkIns={checkIns} 
-                currentUser={user} 
-                onUpdateUser={handleUpdateUser} 
-                onShowToast={showToast}
-              />
-            </div>
-          )}
-
-          {activeTab === 'feed' && (
-            <div className="animate-fade-in">
-              <div className="mb-6 text-center md:text-left flex justify-between items-center">
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-900">研友圈</h1>
-                  <p className="text-gray-500">看看大家都在卷什么</p>
-                </div>
-                <div className="text-xs text-gray-400">自动同步中...</div>
-              </div>
-              <Feed 
-                checkIns={checkIns} 
-                user={user} 
-                onAddCheckIn={handleAddCheckIn}
-                onDeleteCheckIn={handleDeleteCheckInTrigger}
-                onLike={handleLike}
-              />
-            </div>
-          )}
-
-          {activeTab === 'english' && (
-            <div className="animate-fade-in">
-              <EnglishTutor user={user} onCheckIn={handleAutoCheckIn} />
-            </div>
-          )}
-
-          {activeTab === 'algorithm' && (
-            <div className="animate-fade-in">
-               <div className="mb-6">
-                <h1 className="text-2xl font-bold text-gray-900">算法训练营</h1>
-                <p className="text-gray-500">每日精选算法题，AC 才是硬道理</p>
-              </div>
-              <AlgorithmTutor 
-                user={user} 
-                onCheckIn={handleAutoCheckIn} 
-                onShowToast={showToast}
-              />
-            </div>
-          )}
-
-          {activeTab === 'about' && (
-             <div className="animate-fade-in">
-               <About />
-             </div>
-          )}
+      <main className={`flex-1 transition-all duration-300 ${isCollapsed ? 'ml-0 md:ml-20' : 'ml-0 md:ml-64'}`}>
+        <div className="max-w-6xl mx-auto px-4 py-8">
+          <GlobalAlerts user={user} checkIns={checkIns} algoTasks={algoTasks} onNavigate={setActiveTab} />
+          <div className="animate-fade-in">
+            {activeTab === 'dashboard' && <Dashboard checkIns={checkIns} currentUser={user} onUpdateUser={setUser} onShowToast={showToast} />}
+            {activeTab === 'feed' && <Feed checkIns={checkIns} user={user} onAddCheckIn={handleAddCheckIn} onDeleteCheckIn={id => { setCheckInToDelete(id); setIsDeleteModalOpen(true); }} onLike={handleLike} />}
+            {activeTab === 'english' && <EnglishTutor user={user} onCheckIn={handleAutoCheckIn} />}
+            {activeTab === 'algorithm' && <AlgorithmTutor user={user} onCheckIn={handleAutoCheckIn} onShowToast={showToast} />}
+            {activeTab === 'about' && <About />}
+          </div>
         </div>
       </main>
-      
-      <Modal 
-          isOpen={isDeleteModalOpen} 
-          onClose={() => setIsDeleteModalOpen(false)}
-          onConfirm={confirmDeleteCheckIn}
-          title="确认删除"
-          message="确定要删除这条打卡记录吗？删除后，该记录产生的 Rating 分数变化将被撤销（加分会被扣除，扣分会被返还）。"
-          confirmText="确认删除"
-          type="danger"
-      />
 
-      <AdminUserModal 
-          isOpen={isAdminModalOpen}
-          onClose={() => setIsAdminModalOpen(false)}
-          currentUser={user}
-          onShowToast={showToast}
-      />
-
+      <Modal isOpen={isDeleteModalOpen} onClose={() => setIsDeleteModalOpen(false)} onConfirm={confirmDeleteCheckIn} title="确认删除" message="确定要删除这条打卡记录吗？Rating 变动将自动撤销。" confirmText="确认删除" type="danger" />
+      <AdminUserModal isOpen={isAdminModalOpen} onClose={() => setIsAdminModalOpen(false)} currentUser={user} onShowToast={showToast} />
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       <style>{`
-        @keyframes fade-in {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes slide-in {
-          from { opacity: 0; transform: translateX(20px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-        .animate-fade-in {
-          animation: fade-in 0.3s ease-out forwards;
-        }
-        .animate-slide-in {
-            animation: slide-in 0.3s cubic-bezier(0.2, 0, 0.2, 1) forwards;
-        }
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #d1d5db; }
+        @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fade-in 0.4s cubic-bezier(0.23, 1, 0.32, 1) forwards; }
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #d1d5db; }
       `}</style>
     </div>
   );
