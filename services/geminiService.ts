@@ -1,8 +1,5 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { EnglishDailyContent } from "../types";
-
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const getFallbackData = (errorTitle: string, errorDetail: string): EnglishDailyContent => {
     return {
@@ -25,6 +22,9 @@ export const generateEnglishDaily = async (
     style: string = 'academic',
     excludeWords: string[] = []
 ): Promise<EnglishDailyContent> => {
+  // 核心修复：在函数内部初始化实例，避免 top-level 导致的 process.env.API_KEY 获取失败
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
   const bookNameMap: Record<string, string> = {
       'kaoyan': '考研英语大纲核心词汇',
       'cet4': '大学英语四级(CET-4)必备词汇',
@@ -91,6 +91,6 @@ export const generateEnglishDaily = async (
     };
   } catch (error: any) {
     console.error("Gemini Service Error:", error);
-    return getFallbackData("生成失败", error.message || "请稍后重试");
+    return getFallbackData("生成失败", error.message || "请检查 API 配置或重试");
   }
 };
