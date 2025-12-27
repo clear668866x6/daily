@@ -2,7 +2,6 @@
 import React, { useMemo } from 'react';
 import { Megaphone, AlertCircle, Code2, ArrowRight } from 'lucide-react';
 import { CheckIn, AlgorithmTask, User } from '../types';
-import { getBusinessDate } from '../utils/dateUtils';
 
 interface Props {
   user: User;
@@ -12,7 +11,11 @@ interface Props {
 }
 
 export const GlobalAlerts: React.FC<Props> = ({ user, checkIns, algoTasks, onNavigate }) => {
-  const todayStr = getBusinessDate(Date.now());
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  const todayStr = `${year}-${month}-${day}`;
 
   // 1. 获取所有置顶公告，只显示最新的一个
   const latestAnnouncement = useMemo(() => {
@@ -21,12 +24,16 @@ export const GlobalAlerts: React.FC<Props> = ({ user, checkIns, algoTasks, onNav
     return all.sort((a, b) => b.timestamp - a.timestamp)[0];
   }, [checkIns]);
 
-  // 2. 检查今天是否已打卡 (业务日期)
+  // 2. 检查今天是否已打卡
   const hasCheckedInToday = useMemo(() => {
     return checkIns.some(c => {
-      return c.userId === user.id && getBusinessDate(c.timestamp) === todayStr;
+      const cDate = new Date(c.timestamp);
+      return c.userId === user.id && 
+             cDate.getDate() === today.getDate() &&
+             cDate.getMonth() === today.getMonth() &&
+             cDate.getFullYear() === today.getFullYear();
     });
-  }, [checkIns, user.id, todayStr]);
+  }, [checkIns, user.id]);
 
   // 3. 检查今天是否有算法题
   const todaysAlgoTask = useMemo(() => {
