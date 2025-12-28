@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { User, AlgorithmTask, AlgorithmSubmission, SubjectCategory } from '../types';
 import * as storage from '../services/storageService';
-import { Code, CheckCircle, Send, Play, Lock, FileCode, Loader2, ChevronDown, ChevronLeft, ChevronRight, Megaphone, PlusCircle, Terminal, Zap, Trophy, Layout, Cpu, Award, X, Moon, Star, Flame, Clock, Users } from 'lucide-react';
+import { Code, CheckCircle, Send, Play, Lock, FileCode, Loader2, ChevronDown, ChevronLeft, ChevronRight, Megaphone, PlusCircle, Terminal, Zap, Trophy, Layout, Cpu, Award, X, Moon, Star, Flame, Clock, Users, Trash2, Edit2, Save } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { ToastType } from './Toast';
 import { Fireworks } from './Fireworks'; 
@@ -140,10 +140,11 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   // Admin State
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDesc, setNewTaskDesc] = useState('');
-  const [assignedUsers, setAssignedUsers] = useState<string[]>([]); // New: Assignments
-  const [allUsers, setAllUsers] = useState<User[]>([]); // New: User List for admin
+  const [assignedUsers, setAssignedUsers] = useState<string[]>([]); 
+  const [allUsers, setAllUsers] = useState<User[]>([]); 
   const [isPublishing, setIsPublishing] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
 
   // Refs for Editor Sync
   const editorRef = useRef<HTMLTextAreaElement>(null);
@@ -176,7 +177,9 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
 
   // Auto-select first task of selected date
   useEffect(() => {
-      const tasksForDay = tasks.filter(t => t.date === selectedDate);
+      const visibleTasks = getFilteredTasks();
+      const tasksForDay = visibleTasks.filter(t => t.date === selectedDate);
+      
       if (tasksForDay.length > 0) {
           if (!activeTask || !tasksForDay.find(t => t.id === activeTask)) {
               setActiveTask(tasksForDay[0].id);
@@ -205,10 +208,6 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       const allTasks = await storage.getAlgorithmTasks();
       setTasks(allTasks);
       
-      if (allTasks.length > 0 && !activeTask) {
-        const todayTask = allTasks.find(t => t.date === todayStr);
-        setActiveTask(todayTask ? todayTask.id : allTasks[0].id);
-      }
       const subs = storage.getAlgorithmSubmissions(user.id);
       setSubmissions(subs);
     } catch (e) {
@@ -217,6 +216,14 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       setIsLoading(false);
     }
   };
+
+  const getFilteredTasks = () => {
+      if (isAdmin) return tasks;
+      // Show tasks if: 1. No assignment (public) OR 2. Assigned to current user
+      return tasks.filter(t => 
+          !t.assignedTo || t.assignedTo.length === 0 || t.assignedTo.includes(user.id)
+      );
+  }
 
   const checkAchievements = (currentSubs: AlgorithmSubmission[]) => {
       // 1. Regular Check
@@ -249,32 +256,66 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       }
   };
 
-  const handleAddTask = async () => {
+  const handlePublishOrUpdate = async () => {
     if (!newTaskTitle || !newTaskDesc) return;
     setIsPublishing(true);
     try {
-      const newTask: AlgorithmTask = {
-        id: Date.now().toString(),
-        title: newTaskTitle,
-        description: newTaskDesc,
-        difficulty: 'Medium',
-        date: todayStr,
-        assignedTo: assignedUsers.length > 0 ? assignedUsers : undefined
-      };
-      await storage.addAlgorithmTask(newTask);
+      if (editingTaskId) {
+          // Update
+          await storage.updateAlgorithmTask(editingTaskId, {
+              title: newTaskTitle,
+              description: newTaskDesc,
+              assignedTo: assignedUsers.length > 0 ? assignedUsers : undefined
+          });
+          onShowToast("✅ 题目更新成功！", 'success');
+          setEditingTaskId(null);
+      } else {
+          // Create
+          const newTask: AlgorithmTask = {
+            id: Date.now().toString(),
+            title: newTaskTitle,
+            description: newTaskDesc,
+            difficulty: 'Medium',
+            date: todayStr,
+            assignedTo: assignedUsers.length > 0 ? assignedUsers : undefined
+          };
+          await storage.addAlgorithmTask(newTask);
+          onShowToast("✅ 题目发布成功！", 'success');
+          setActiveTask(newTask.id);
+      }
+      
       setNewTaskTitle('');
       setNewTaskDesc('');
       setAssignedUsers([]);
-      onShowToast("✅ 题目发布成功！", 'success');
+      setShowAdminPanel(false);
       await refreshData();
-      setSelectedDate(todayStr);
-      setActiveTask(newTask.id);
+      
     } catch (e) {
-      onShowToast("发布失败", 'error');
+      onShowToast("操作失败", 'error');
     } finally {
       setIsPublishing(false);
     }
   };
+
+  const handleDeleteTask = async (taskId: string) => {
+      if (!confirm("确定要删除该题目吗？此操作无法撤销。")) return;
+      try {
+          await storage.deleteAlgorithmTask(taskId);
+          onShowToast("题目已删除", 'info');
+          if (activeTask === taskId) setActiveTask(null);
+          await refreshData();
+      } catch (e) {
+          onShowToast("删除失败", 'error');
+      }
+  }
+
+  const handleEditTask = (task: AlgorithmTask) => {
+      setNewTaskTitle(task.title);
+      setNewTaskDesc(task.description);
+      setAssignedUsers(task.assignedTo || []);
+      setEditingTaskId(task.id);
+      setShowAdminPanel(true);
+  }
 
   const toggleUserAssignment = (userId: string) => {
       setAssignedUsers(prev => 
@@ -328,12 +369,15 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       return { daysInMonth, firstDayOfWeek, year, month };
   };
 
+  // Memoized derived data based on FILTERED tasks
+  const visibleTasks = useMemo(() => getFilteredTasks(), [tasks, user.id, isAdmin]);
+
   const dateStatusMap = useMemo(() => {
       const map: Record<string, 'all' | 'partial' | 'none'> = {};
-      const uniqueDates = Array.from(new Set(tasks.map(t => t.date)));
+      const uniqueDates = Array.from(new Set(visibleTasks.map(t => t.date)));
       
       uniqueDates.forEach(date => {
-          const dateTasks = tasks.filter(t => t.date === date);
+          const dateTasks = visibleTasks.filter(t => t.date === date);
           if (dateTasks.length === 0) return;
           const passedCount = dateTasks.filter(t => 
               submissions.some(s => s.taskId === t.id && s.status === 'Passed')
@@ -343,9 +387,9 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
           else map[date] = 'none';
       });
       return map;
-  }, [tasks, submissions]);
+  }, [visibleTasks, submissions]);
 
-  const selectedDateTasks = useMemo(() => tasks.filter(t => t.date === selectedDate), [tasks, selectedDate]);
+  const selectedDateTasks = useMemo(() => visibleTasks.filter(t => t.date === selectedDate), [visibleTasks, selectedDate]);
   const isSelectedDateToday = selectedDate === todayStr;
   const passedCountForSelectedDate = selectedDateTasks.filter(t => 
     submissions.find(s => s.taskId === t.id && s.status === 'Passed')
@@ -353,9 +397,11 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   const isSelectedDateAllDone = selectedDateTasks.length > 0 && passedCountForSelectedDate === selectedDateTasks.length;
 
   const totalAcCount = useMemo(() => {
-      const uniqueSolvedTaskIds = new Set(submissions.filter(s => s.status === 'Passed').map(s => s.taskId));
+      // Only count tasks that are visible to user
+      const visibleTaskIds = new Set(visibleTasks.map(t => t.id));
+      const uniqueSolvedTaskIds = new Set(submissions.filter(s => s.status === 'Passed' && visibleTaskIds.has(s.taskId)).map(s => s.taskId));
       return uniqueSolvedTaskIds.size;
-  }, [submissions]);
+  }, [submissions, visibleTasks]);
 
   const handleOpenCheckInModal = () => {
       if (isGuest) return;
@@ -412,44 +458,68 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
     const isAssigned = task.assignedTo && task.assignedTo.includes(user.id);
 
     return (
-        <button
+        <div 
             key={task.id}
-            onClick={() => { setActiveTask(task.id); }}
-            className={`w-full text-left p-3 rounded-xl transition-all border relative overflow-hidden group mb-2.5 
+            className={`w-full text-left rounded-xl transition-all border relative overflow-hidden group mb-2.5 flex flex-col
                 ${isActive 
                     ? 'border-indigo-500 bg-indigo-50/50 shadow-sm' 
                     : 'border-gray-100 hover:border-indigo-200 hover:bg-white bg-white'
                 }`}
         >
-            <div className="flex justify-between items-center relative z-10">
-                <span className={`font-bold text-sm truncate pr-2 ${isActive ? 'text-indigo-900' : 'text-gray-700'}`}>{task.title}</span>
-                {isDone ? (
-                    <div className="bg-green-100 text-green-700 p-0.5 rounded-full"><CheckCircle className="w-3.5 h-3.5" /></div>
-                ) : (
-                    <div className="w-4 h-4 rounded-full border-2 border-gray-200 group-hover:border-indigo-200 transition-colors"></div>
-                )}
-            </div>
-            <div className="flex justify-between items-center mt-2">
-                <div className="flex items-center gap-1">
-                    <span className={`text-[10px] px-2 py-0.5 rounded font-medium border ${
-                        task.difficulty === 'Easy' ? 'bg-green-50 text-green-600 border-green-100' :
-                        task.difficulty === 'Medium' ? 'bg-yellow-50 text-yellow-600 border-yellow-100' :
-                        'bg-red-50 text-red-600 border-red-100'
-                    }`}>
-                        {task.difficulty}
-                    </span>
-                    {isAssigned && (
-                        <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold border border-red-200">
-                            指定
-                        </span>
+            <button 
+                onClick={() => setActiveTask(task.id)}
+                className="p-3 w-full text-left"
+            >
+                <div className="flex justify-between items-center relative z-10">
+                    <span className={`font-bold text-sm truncate pr-2 ${isActive ? 'text-indigo-900' : 'text-gray-700'}`}>{task.title}</span>
+                    {isDone ? (
+                        <div className="bg-green-100 text-green-700 p-0.5 rounded-full"><CheckCircle className="w-3.5 h-3.5" /></div>
+                    ) : (
+                        <div className="w-4 h-4 rounded-full border-2 border-gray-200 group-hover:border-indigo-200 transition-colors"></div>
                     )}
                 </div>
-                <span className="text-[10px] text-gray-400 font-mono">
-                    {new Date(task.date).getDate()}日
-                </span>
-            </div>
+                <div className="flex justify-between items-center mt-2">
+                    <div className="flex items-center gap-1">
+                        <span className={`text-[10px] px-2 py-0.5 rounded font-medium border ${
+                            task.difficulty === 'Easy' ? 'bg-green-50 text-green-600 border-green-100' :
+                            task.difficulty === 'Medium' ? 'bg-yellow-50 text-yellow-600 border-yellow-100' :
+                            'bg-red-50 text-red-600 border-red-100'
+                        }`}>
+                            {task.difficulty}
+                        </span>
+                        {isAssigned && (
+                            <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold border border-red-200">
+                                指定
+                            </span>
+                        )}
+                    </div>
+                    <span className="text-[10px] text-gray-400 font-mono">
+                        {new Date(task.date).getDate()}日
+                    </span>
+                </div>
+            </button>
+            
+            {isAdmin && (
+                <div className="border-t border-gray-200/50 bg-gray-50/50 flex justify-end p-1 gap-1">
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); handleEditTask(task); }}
+                        className="p-1.5 text-indigo-500 hover:bg-indigo-100 rounded-md transition-colors"
+                        title="编辑/分配"
+                    >
+                        <Edit2 className="w-3 h-3" />
+                    </button>
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }}
+                        className="p-1.5 text-red-500 hover:bg-red-100 rounded-md transition-colors"
+                        title="删除"
+                    >
+                        <Trash2 className="w-3 h-3" />
+                    </button>
+                </div>
+            )}
+            
             {isActive && <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500 rounded-l-md"></div>}
-        </button>
+        </div>
     );
   };
 
@@ -561,10 +631,19 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
         <div className="bg-white rounded-2xl shadow-sm border border-dashed border-indigo-200 overflow-hidden">
              <div 
                 className="bg-indigo-50/50 px-6 py-3 flex justify-between items-center cursor-pointer hover:bg-indigo-50 transition-colors"
-                onClick={() => setShowAdminPanel(!showAdminPanel)}
+                onClick={() => {
+                    if (showAdminPanel) {
+                         // Cancel edit mode if closing panel
+                         setEditingTaskId(null);
+                         setNewTaskTitle('');
+                         setNewTaskDesc('');
+                         setAssignedUsers([]);
+                    }
+                    setShowAdminPanel(!showAdminPanel)
+                }}
              >
                  <div className="flex items-center gap-2 text-indigo-700 font-bold text-sm">
-                     <Megaphone className="w-4 h-4" /> 管理员发题通道
+                     <Megaphone className="w-4 h-4" /> {editingTaskId ? '正在编辑题目' : '管理员发题通道'}
                  </div>
                  <ChevronDown className={`w-4 h-4 text-indigo-400 transition-transform ${showAdminPanel ? 'rotate-180' : ''}`} />
              </div>
@@ -606,12 +685,12 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                      </div>
                      <div className="md:col-span-4 flex items-end">
                          <button 
-                            onClick={handleAddTask} 
+                            onClick={handlePublishOrUpdate} 
                             disabled={isPublishing}
                             className="w-full h-full max-h-[140px] bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-md flex flex-col items-center justify-center gap-2"
                          >
-                            {isPublishing ? <Loader2 className="animate-spin w-6 h-6"/> : <PlusCircle className="w-8 h-8" />}
-                            <span>{isPublishing ? '发布中...' : '发布题目'}</span>
+                            {isPublishing ? <Loader2 className="animate-spin w-6 h-6"/> : (editingTaskId ? <Save className="w-8 h-8"/> : <PlusCircle className="w-8 h-8" />)}
+                            <span>{isPublishing ? '处理中...' : (editingTaskId ? '更新题目' : '发布题目')}</span>
                          </button>
                      </div>
                  </div>
@@ -659,7 +738,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                             ) : (
                                 <div className="flex flex-col items-center justify-center py-12 text-gray-300 gap-2 opacity-60">
                                     <Cpu className="w-8 h-8" />
-                                    <p className="text-xs">今日休整</p>
+                                    <p className="text-xs">今日无指定任务</p>
                                 </div>
                             )}
                         </>
@@ -694,7 +773,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                 <div className="h-1/3 min-h-[150px] flex flex-col border-b border-gray-200">
                      <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50/50">
                         <div className="flex items-center gap-3">
-                            <h3 className="text-lg font-bold text-gray-800">{tasks.find(t => t.id === activeTask)?.title}</h3>
+                            <h3 className="text-lg font-bold text-gray-800">{visibleTasks.find(t => t.id === activeTask)?.title}</h3>
                             <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded border border-gray-200">Problem</span>
                         </div>
                         
@@ -712,7 +791,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                         </div>
                     </div>
                     <div className="flex-1 overflow-y-auto p-5 custom-scrollbar bg-white prose prose-sm max-w-none prose-indigo">
-                        <MarkdownText content={tasks.find(t => t.id === activeTask)?.description || ''} />
+                        <MarkdownText content={visibleTasks.find(t => t.id === activeTask)?.description || ''} />
                     </div>
                 </div>
                 

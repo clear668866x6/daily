@@ -68,7 +68,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       }
   }, [initialSelectedUserId]);
 
-  // Load Users
+  // Load Users - Updated to refresh when checkIns change (for rating sync)
   useEffect(() => {
     storage.getAllUsers().then(users => {
         const sorted = users.sort((a, b) => {
@@ -78,7 +78,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
         });
         setAllUsers(sorted);
     });
-  }, [currentUser.id]);
+  }, [currentUser.id, checkIns]); // Added checkIns dependency
 
   // Load Data
   useEffect(() => {
@@ -709,8 +709,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           </div>
       </div>
 
-      {/* ... Row 3, 4, 5 unchanged ... */}
-      {/* ... (Keeping the rest of the Dashboard component as provided previously, assuming standard structure) ... */}
       {/* --- Row 3: Charts --- */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-8 bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm">

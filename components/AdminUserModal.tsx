@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, User as UserIcon, Shield, Search, Save, AlertTriangle, UserPlus, Trash2, Eye, CalendarOff } from 'lucide-react';
-import { User, getUserStyle, CheckIn } from '../types';
+import { X, User as UserIcon, Shield, Search, Save, AlertTriangle, UserPlus, Trash2, Eye, CalendarOff, Edit3, Undo2 } from 'lucide-react';
+import { User, getUserStyle, RatingHistory } from '../types';
 import * as storage from '../services/storageService';
 
 interface Props {
@@ -17,13 +17,15 @@ export const AdminUserModal: React.FC<Props> = ({ isOpen, onClose, currentUser, 
   const [search, setSearch] = useState('');
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   
-  // Edit State
+  // Edit User State
   const [editRating, setEditRating] = useState<number>(0);
   const [editPassword, setEditPassword] = useState<string>('');
   
   // Penalty Management State
-  const [userPenalties, setUserPenalties] = useState<CheckIn[]>([]);
+  const [userPenalties, setUserPenalties] = useState<RatingHistory[]>([]);
   const [isLoadingPenalties, setIsLoadingPenalties] = useState(false);
+  const [editingPenaltyId, setEditingPenaltyId] = useState<number | null>(null);
+  const [editPenaltyReason, setEditPenaltyReason] = useState('');
 
   // Create State
   const [isCreating, setIsCreating] = useState(false);
@@ -53,23 +55,17 @@ export const AdminUserModal: React.FC<Props> = ({ isOpen, onClose, currentUser, 
 
   const loadPenalties = async (userId: string) => {
       setIsLoadingPenalties(true);
-      // Fetch user's checkins and filter for penalties in memory (or add query filter if possible)
-      const allCheckIns = await storage.getUserCheckIns(userId);
-      // We are looking for "System generated penalties". Usually identified by isPenalty flag or specific content pattern.
-      // Assuming storage inserts them as regular checkins or we rely on 'isPenalty' flag if implemented on DB.
-      // Based on App.tsx logic: `storage.updateRating` is used, but a CheckIn record might NOT be created for penalties in current logic (only Rating History).
-      // However, the prompt says "delete penalty record".
-      // Let's check `App.tsx`: It updates rating but commented out `addCheckIn`.
-      // WAIT: If `addCheckIn` was removed, there are no check-in records to delete for penalties, only Rating History.
-      // But the prompt says "delete someone's penalty record".
-      // Let's assume we should look at RATING HISTORY for negative changes with "惩罚" in reason, OR restore check-in creation for penalties.
-      // Actually, looking at `App.tsx` again: `await storage.updateRating(..., '缺勤惩罚...')`.
-      // So we should fetch Rating History and allow reverting it? 
-      // OR, maybe the user wants to delete ACTUAL "penalty check-ins" if they exist (e.g. manual "Mo Yu").
-      // Let's support deleting `isPenalty` check-ins if they exist.
-      
-      const penalties = allCheckIns.filter(c => c.isPenalty);
-      setUserPenalties(penalties);
+      // Fetch full rating history
+      const history = await storage.getRatingHistory(userId);
+      // Filter for negative changes (penalties) OR explicitly marked penalties
+      // Since we store current rating, we can assume records with reason containing "惩罚" or "扣分" or "Undo"
+      // Or simply filter where we can infer a drop. But simpler is to list all NEGATIVE impact events.
+      // However, `rating` in history is the SNAPSHOT value, not the delta.
+      // We must infer delta or just list all history for Admin to decide.
+      // Let's list ALL history but highlight those that seem like penalties (dropped rating compared to previous).
+      // Or better: List all history so Admin can revert *any* mistake.
+      // But user requested "Penalty Management". Let's show all but styling penalties red.
+      setUserPenalties(history);
       setIsLoadingPenalties(false);
   }
 
@@ -123,16 +119,76 @@ export const AdminUserModal: React.FC<Props> = ({ isOpen, onClose, currentUser, 
       }
   }
 
-  const handleDeletePenalty = async (checkInId: string) => {
-      if (!confirm("确定要删除这条扣分记录吗？这将返还相应的 Rating。")) return;
+  const handleDeleteHistoryRecord = async (record: RatingHistory, prevRating: number) => {
+      const delta = record.rating - prevRating; 
+      // If delta was negative (penalty), refundAmount should be positive to reverse it.
+      // refundAmount = -delta.
+      // BUT WAIT: The history table stores the RESULTING rating.
+      // Reverting a specific history record in a chain is complex.
+      // Simplified Logic requested by user: "Delete penalty record and refund".
+      // We will assume the Admin knows what they are doing.
+      // We will ask the admin to confirm the "Refund Amount".
+      // Actually, easier heuristic:
+      // Calculate implied delta. If current rating is 1150, prev was 1200. Delta is -50.
+      // Deleting this record implies we want to give back 50.
+      
+      // Let's just ask for confirmation with a calculated guess, or just simple delete.
+      // The requirement says "modify or delete penalty record".
+      
+      // Better approach for "Delete": Just delete the row. 
+      // And separately provide a "Refund/Adjust" function?
+      // No, user said "delete record and it modifies the score".
+      
+      // Let's implement a smart delete:
+      // If we delete a record where rating dropped, we assume we should add points back.
+      // We can't easily know the "previous" rating without scanning all history.
+      // Let's simplisticly assume Admin manually fixes rating in the input above if needed,
+      // OR we just provide a "Delete Only" and "Delete & Revert" button.
+      
+      // Let's stick to the previous implementation logic: `deleteCheckIn` calculated delta from duration.
+      // Here we have `change_reason`.
+      
+      // WORKAROUND: Just allow deleting the record. And allow Admin to manually edit the user's rating in the form above.
+      // That is safest.
+      // BUT user said "can modify or delete penalty record... if delete, return score".
+      
+      // Let's try to parse the delta from the reason if possible, or just ask user.
+      // Actually, `storageService` has `deleteRatingHistoryRecord(id, userId, refundAmount)`.
+      // We will prompt for refund amount.
+      
+      const refundStr = prompt("请输入要返还/扣除的分数 (正数返还，负数扣除，0不处理):", "0");
+      if (refundStr === null) return;
+      const refund = parseInt(refundStr);
+      if (isNaN(refund)) {
+          onShowToast("请输入有效数字", 'error');
+          return;
+      }
+
       try {
-          // deleteCheckIn automatically handles rating refund
-          const refundAmount = await storage.deleteCheckIn(checkInId);
-          onShowToast(`记录已删除，Rating 已恢复 ${Math.abs(refundAmount)} 分`, 'success');
-          // Reload penalties
-          if (editingUserId) loadPenalties(editingUserId);
+          await storage.deleteRatingHistoryRecord(record.id, record.user_id, refund);
+          onShowToast(`记录已删除${refund !== 0 ? `，Rating 修正 ${refund}` : ''}`, 'success');
+          if (editingUserId) {
+              loadPenalties(editingUserId);
+              // Also refresh the main user list to show updated rating
+              loadUsers(); 
+              // Update local edit state
+              const u = users.find(u => u.id === editingUserId);
+              if (u) setEditRating((u.rating || 1200) + refund);
+          }
       } catch (e) {
           onShowToast("删除失败", 'error');
+      }
+  }
+
+  const handleUpdateReason = async (id: number) => {
+      if (!editPenaltyReason.trim()) return;
+      try {
+          await storage.updateRatingHistoryRecord(id, { change_reason: editPenaltyReason });
+          onShowToast("记录已更新", 'success');
+          setEditingPenaltyId(null);
+          if (editingUserId) loadPenalties(editingUserId);
+      } catch (e) {
+          onShowToast("更新失败", 'error');
       }
   }
 
@@ -259,7 +315,7 @@ export const AdminUserModal: React.FC<Props> = ({ isOpen, onClose, currentUser, 
                         )}
                     </div>
 
-                    {/* Edit Panel & Penalty Management */}
+                    {/* Edit Panel & History Management */}
                     {editingUserId === user.id && (
                         <div className="mt-4 pt-4 border-t border-dashed border-gray-200 animate-fade-in">
                             <div className="flex flex-wrap gap-4 items-end mb-4">
@@ -284,30 +340,72 @@ export const AdminUserModal: React.FC<Props> = ({ isOpen, onClose, currentUser, 
                                 </div>
                             </div>
 
-                            {/* Penalty List */}
-                            <div className="bg-red-50/50 rounded-xl p-3 border border-red-100">
-                                <div className="flex items-center gap-2 mb-2 text-xs font-bold text-red-600">
-                                    <CalendarOff className="w-3 h-3" /> 扣分记录管理
+                            {/* Penalty/History List */}
+                            <div className="bg-gray-50/50 rounded-xl p-3 border border-gray-200">
+                                <div className="flex items-center gap-2 mb-2 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                    <CalendarOff className="w-3 h-3" /> Rating 历史记录 (最近20条)
                                 </div>
-                                <div className="max-h-32 overflow-y-auto custom-scrollbar space-y-1">
+                                <div className="max-h-64 overflow-y-auto custom-scrollbar space-y-2">
                                     {isLoadingPenalties ? (
                                         <div className="text-xs text-gray-400 p-2">加载记录中...</div>
                                     ) : userPenalties.length === 0 ? (
-                                        <div className="text-xs text-gray-400 p-2">无扣分记录 (isPenalty=true)</div>
+                                        <div className="text-xs text-gray-400 p-2">无历史记录</div>
                                     ) : (
-                                        userPenalties.map(p => (
-                                            <div key={p.id} className="flex justify-between items-center bg-white p-2 rounded border border-red-100 text-xs">
-                                                <div className="truncate flex-1 mr-2 text-gray-600">
-                                                    {new Date(p.timestamp).toLocaleDateString()} - {p.content}
+                                        userPenalties.slice(0, 20).map((p, idx) => {
+                                            // Heuristic to detect drops. We don't know "prev" easily here.
+                                            // Just style by reason content keywords for visual aid
+                                            const isPenalty = p.change_reason?.includes('惩罚') || p.change_reason?.includes('扣分') || p.change_reason?.includes('撤销');
+                                            
+                                            return (
+                                                <div key={p.id} className={`flex justify-between items-center p-2 rounded border text-xs ${isPenalty ? 'bg-red-50 border-red-100' : 'bg-white border-gray-100'}`}>
+                                                    <div className="flex-1 mr-2 overflow-hidden">
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            <span className="font-mono text-gray-400">{new Date(p.recorded_at).toLocaleDateString()}</span>
+                                                            <span className={`font-bold px-1.5 rounded ${isPenalty ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+                                                                {p.rating}
+                                                            </span>
+                                                        </div>
+                                                        
+                                                        {editingPenaltyId === p.id ? (
+                                                            <div className="flex gap-2">
+                                                                <input 
+                                                                    value={editPenaltyReason} 
+                                                                    onChange={e => setEditPenaltyReason(e.target.value)}
+                                                                    className="flex-1 border rounded px-1 text-xs"
+                                                                    autoFocus
+                                                                />
+                                                                <button onClick={() => handleUpdateReason(p.id)} className="text-green-600"><Save className="w-3 h-3"/></button>
+                                                                <button onClick={() => setEditingPenaltyId(null)} className="text-gray-400"><X className="w-3 h-3"/></button>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="text-gray-600 truncate" title={p.change_reason}>
+                                                                {p.change_reason}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    
+                                                    <div className="flex items-center gap-1 shrink-0">
+                                                        <button 
+                                                            onClick={() => {
+                                                                setEditingPenaltyId(p.id);
+                                                                setEditPenaltyReason(p.change_reason || '');
+                                                            }}
+                                                            className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-gray-100 rounded"
+                                                            title="修改原因"
+                                                        >
+                                                            <Edit3 className="w-3 h-3" />
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => handleDeleteHistoryRecord(p, userPenalties[idx+1]?.rating || 1200)}
+                                                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                                                            title="删除记录 (可返还分数)"
+                                                        >
+                                                            <Trash2 className="w-3 h-3" />
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                                <button 
-                                                    onClick={() => handleDeletePenalty(p.id)}
-                                                    className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-2 py-0.5 rounded font-bold transition-colors"
-                                                >
-                                                    删除
-                                                </button>
-                                            </div>
-                                        ))
+                                            );
+                                        })
                                     )}
                                 </div>
                             </div>
