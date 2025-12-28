@@ -109,17 +109,63 @@ export const MarkdownText: React.FC<Props> = ({ content }) => {
   );
 };
 
-// Helper for inline styles (bold, code)
+// Helper for inline styles (bold, code, image, link)
 const parseInline = (text: string) => {
-  // Simple regex to split by bold (**text**) and code (`text`)
-  const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g);
+  // Regex Breakdown:
+  // 1. Images: !\[(.*?)\]\((.*?)\)
+  // 2. Links: \[((?:\[[^\]]*\]|[^\[\]])*)\]\((.*?)\)  <-- Simplified: \[([^\]]+)\]\(([^)]+)\)
+  // 3. Bold: \*\*.*?\*\*
+  // 4. Code: `.*?`
+  
+  // We split by capturing groups.
+  const regex = /(!\[.*?\]\(.*?\)|\[.*?\]\(.*?\)|(\*\*.*?\*\*|`.*?`))/g;
+  
+  const parts = text.split(regex).filter(p => p); // filter empty strings
+
   return parts.map((part, pIdx) => {
+    // Image: ![alt](url)
+    if (part.match(/^!\[(.*?)\]\((.*?)\)$/)) {
+        const match = part.match(/^!\[(.*?)\]\((.*?)\)$/);
+        if (match) {
+            return (
+                <img 
+                    key={pIdx} 
+                    src={match[2]} 
+                    alt={match[1]} 
+                    className="max-w-full h-auto rounded-lg border border-gray-100 my-2 shadow-sm"
+                />
+            );
+        }
+    }
+
+    // Link: [text](url)
+    if (part.match(/^\[(.*?)\]\((.*?)\)$/)) {
+        const match = part.match(/^\[(.*?)\]\((.*?)\)$/);
+        if (match) {
+            return (
+                <a 
+                    key={pIdx} 
+                    href={match[2]} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-brand-600 hover:underline font-medium break-all"
+                >
+                    {match[1]}
+                </a>
+            );
+        }
+    }
+
+    // Bold: **text**
     if (part.startsWith('**') && part.endsWith('**')) {
       return <strong key={pIdx} className="font-bold text-gray-900">{part.slice(2, -2)}</strong>;
     }
+
+    // Code: `text`
     if (part.startsWith('`') && part.endsWith('`')) {
       return <code key={pIdx} className="bg-gray-100 text-red-500 px-1.5 py-0.5 rounded font-mono text-xs border border-gray-200 mx-0.5">{part.slice(1, -1)}</code>;
     }
+
     return part;
   });
 };
