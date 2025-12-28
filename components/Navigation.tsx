@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { LayoutDashboard, BookOpen, Users, LogOut, GraduationCap, Cpu, Info, ChevronLeft, ChevronRight, Shield } from 'lucide-react';
-import { User } from '../types';
+import { User, getUserStyle } from '../types';
 
 interface Props {
   activeTab: string;
@@ -86,6 +86,19 @@ export const Navigation: React.FC<Props> = ({ activeTab, onTabChange, onLogout, 
 
       {/* Footer */}
       <div className="p-4 border-t border-gray-100 space-y-2">
+        {/* User Info Widget (Visible only when expanded) */}
+        {!isCollapsed && currentUser && (
+            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 mb-2">
+                <div className={`text-sm font-bold truncate ${getUserStyle(currentUser.role, currentUser.rating)}`}>
+                    {currentUser.name}
+                </div>
+                <div className="text-xs text-gray-400 mt-1 font-mono font-medium flex justify-between items-center">
+                    <span>Rating:</span>
+                    <span className="text-gray-600">{currentUser.rating ?? 1200}</span>
+                </div>
+            </div>
+        )}
+
         {currentUser?.role === 'admin' && (
             <button 
                 onClick={onOpenAdmin}

@@ -3,8 +3,20 @@ import React from 'react';
 import { Rocket, Zap, Bug, GitBranch, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export const About: React.FC = () => {
-  const version = "1.5.0";
+  const version = "1.6.0";
   const changelogs = [
+    {
+        version: "1.6.0",
+        date: "2025-12-15",
+        title: "正向激励与全屏沉浸",
+        features: [
+            "🏆 连续打卡成就：连续打卡 7/14/21 天将触发全屏庆祝动画，保持 Momentum！",
+            "🛑 私密缺勤提醒：未打卡不再公开发布，改为全屏强提醒，保护隐私同时拒绝摆烂。",
+            "🛡️ 管理员豁免：管理员账号不再受扣分逻辑影响。",
+            "💅 UI 细节优化：侧边栏显示当前 Rating 与昵称，Dashboard 新增总打卡次数统计。",
+            "📝 全屏编辑器重构：算法训练与打卡日志均支持沉浸式全屏编辑。"
+        ]
+    },
     {
         version: "1.5.0",
         date: "2025-12-10",

@@ -2,7 +2,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { CheckIn, SubjectCategory, User, getUserStyle } from '../types'; 
 import { MarkdownText } from './MarkdownText';
-import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Calculator, BookOpen, ScrollText, Cpu, Code2, Sparkles, Trash2, Pin, Save, Columns } from 'lucide-react';
+import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Calculator, BookOpen, ScrollText, Cpu, Code2, Sparkles, Trash2, Pin, Save, Columns, Clock } from 'lucide-react';
 import { FullScreenEditor } from './FullScreenEditor';
 
 interface Props {
@@ -128,7 +128,7 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
     const canDelete = isOwner || isAdmin;
     const canEdit = isOwner || isAdmin;
 
-    const nameStyle = getUserStyle(checkIn.userRole || 'user', checkIn.userRating || 1200);
+    const nameStyle = getUserStyle(checkIn.userRole || 'user', checkIn.userRating ?? 1200);
     const subjectTheme = getSubjectTheme(checkIn.subject);
 
     return (
@@ -180,8 +180,13 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                                 </span>
                             )}
                         </div>
-                        <div className="text-xs text-gray-400 mt-0.5 font-mono">
-                            {new Date(checkIn.timestamp).toLocaleString('zh-CN', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'})}
+                        <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5 font-mono">
+                            <span>{new Date(checkIn.timestamp).toLocaleString('zh-CN', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'})}</span>
+                            {checkIn.duration > 0 && (
+                                <span className="flex items-center gap-1 bg-gray-50 px-1.5 py-0.5 rounded text-gray-500 border border-gray-100">
+                                    <Clock className="w-3 h-3" /> {checkIn.duration}m
+                                </span>
+                            )}
                         </div>
                     </div>
                 </div>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, User as UserIcon, Shield, Search, Save, AlertTriangle, UserPlus, Trash2 } from 'lucide-react';
+import { X, User as UserIcon, Shield, Search, Save, AlertTriangle, UserPlus, Trash2, Eye } from 'lucide-react';
 import { User, getUserStyle } from '../types';
 import * as storage from '../services/storageService';
 
@@ -9,9 +9,10 @@ interface Props {
   onClose: () => void;
   currentUser: User;
   onShowToast: (msg: string, type: 'success' | 'error' | 'info') => void;
+  onViewUser?: (userId: string) => void;
 }
 
-export const AdminUserModal: React.FC<Props> = ({ isOpen, onClose, currentUser, onShowToast }) => {
+export const AdminUserModal: React.FC<Props> = ({ isOpen, onClose, currentUser, onShowToast, onViewUser }) => {
   const [users, setUsers] = useState<User[]>([]);
   const [search, setSearch] = useState('');
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -41,7 +42,7 @@ export const AdminUserModal: React.FC<Props> = ({ isOpen, onClose, currentUser, 
 
   const startEdit = (user: User) => {
       setEditingUserId(user.id);
-      setEditRating(user.rating || 1200);
+      setEditRating(user.rating ?? 1200);
       setEditPassword(user.password || '');
   };
 
@@ -204,6 +205,13 @@ export const AdminUserModal: React.FC<Props> = ({ isOpen, onClose, currentUser, 
                             </div>
                             {user.role !== 'admin' && (
                                 <div className="flex gap-2">
+                                    <button 
+                                        onClick={() => onViewUser && onViewUser(user.id)}
+                                        className="p-1.5 text-indigo-500 hover:bg-indigo-50 rounded-lg transition-colors"
+                                        title="查看主页"
+                                    >
+                                        <Eye className="w-4 h-4" />
+                                    </button>
                                     <button 
                                         onClick={() => startEdit(user)}
                                         className="px-3 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors"

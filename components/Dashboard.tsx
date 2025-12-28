@@ -2,8 +2,8 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { CheckIn, User, Goal, SubjectCategory, RatingHistory, getUserStyle, getTitleName } from '../types';
 import * as storage from '../services/storageService';
-import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, AreaChart, Area } from 'recharts';
-import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, EyeOff, BrainCircuit, ChevronDown, UserCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, CalendarCheck, Flag, Sparkles, Shield, Users, Activity, Maximize2 } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceArea } from 'recharts';
+import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, EyeOff, BrainCircuit, ChevronDown, UserCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, CalendarCheck, Flag, Sparkles, Activity, Maximize2 } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { ToastType } from './Toast';
 import { FullScreenEditor } from './FullScreenEditor';
@@ -14,6 +14,7 @@ interface Props {
   onUpdateUser: (user: User) => void;
   onShowToast: (message: string, type: ToastType) => void;
   onUpdateCheckIn?: (id: string, content: string) => void;
+  initialSelectedUserId?: string | null;
 }
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1'];
@@ -26,12 +27,12 @@ const formatDateKey = (timestampOrDate: number | Date): string => {
     return `${y}-${m}-${d}`;
 };
 
-export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser, onShowToast }) => {
+export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser, onShowToast, initialSelectedUserId }) => {
   const [motto, setMotto] = useState(() => localStorage.getItem('user_motto') || "考研是一场孤独的旅行，但终点是星辰大海。");
   const [isEditingMotto, setIsEditingMotto] = useState(false);
   
   // View State
-  const [selectedUserId, setSelectedUserId] = useState<string>(currentUser.id);
+  const [selectedUserId, setSelectedUserId] = useState<string>(initialSelectedUserId || currentUser.id);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   
   // Data State
@@ -60,13 +61,20 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const isAdmin = currentUser.role === 'admin';
   const isViewingSelf = selectedUserId === currentUser.id;
 
+  // React to prop change for selected user (e.g. from Admin Modal)
+  useEffect(() => {
+      if (initialSelectedUserId) {
+          setSelectedUserId(initialSelectedUserId);
+      }
+  }, [initialSelectedUserId]);
+
   // Load Users
   useEffect(() => {
     storage.getAllUsers().then(users => {
         const sorted = users.sort((a, b) => {
             if (a.role === 'admin') return -1; // Admin top
             if (b.role === 'admin') return 1;
-            return (b.rating || 0) - (a.rating || 0);
+            return (b.rating ?? 0) - (a.rating ?? 0);
         });
         setAllUsers(sorted);
     });
@@ -105,6 +113,10 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const totalCheckInDays = useMemo(() => {
       const uniqueDays = new Set(selectedUserCheckIns.filter(c => !c.isPenalty).map(c => formatDateKey(c.timestamp)));
       return uniqueDays.size;
+  }, [selectedUserCheckIns]);
+
+  const totalCheckInCount = useMemo(() => {
+      return selectedUserCheckIns.filter(c => !c.isPenalty).length;
   }, [selectedUserCheckIns]);
 
   const stats = useMemo(() => {
@@ -152,14 +164,18 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       
       sorted.forEach(r => {
           const dateKey = new Date(r.recorded_at).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+          // Store just the date, or precise time if needed. For charts, date is usually fine to reduce clutter.
           dailyRatings.set(dateKey, { rating: r.rating, reason: r.change_reason || '' });
       });
 
-      return Array.from(dailyRatings.entries()).map(([date, data]) => ({
+      const arr = Array.from(dailyRatings.entries()).map(([date, data]) => ({
           date,
           rating: data.rating,
           reason: data.reason
       }));
+      // Add initial point if empty or single point to make chart look better
+      if (arr.length === 0) return [{ date: 'Start', rating: 1200, reason: 'Init' }];
+      return arr;
   }, [ratingHistory]);
 
   const handleSaveTargetDate = () => {
@@ -196,7 +212,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
     setIsLogging(true);
     
     let ratingChange = 0;
-    let newRating = currentUser.rating || 1200;
+    let newRating = currentUser.rating ?? 1200;
 
     if (logMode === 'study') {
         ratingChange = Math.floor(durationVal / 10) + 1;
@@ -325,12 +341,12 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
     return cells;
   };
 
-  const ratingColorClass = getUserStyle(selectedUser.role, selectedUser.rating || 1200);
-  const titleName = getTitleName(selectedUser.role, selectedUser.rating || 1200);
+  const ratingColorClass = getUserStyle(selectedUser.role, selectedUser.rating ?? 1200);
+  const titleName = getTitleName(selectedUser.role, selectedUser.rating ?? 1200);
 
   // Admin View: Leaderboard
   if (isAdmin) {
-      const leaderboardUsers = [...allUsers].sort((a, b) => (b.rating || 1200) - (a.rating || 1200));
+      const leaderboardUsers = [...allUsers].sort((a, b) => (b.rating ?? 1200) - (a.rating ?? 1200));
 
       return (
           <div className="space-y-6 animate-fade-in pb-20">
@@ -374,7 +390,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                                             </div>
                                         </td>
                                         <td className="py-4 font-bold text-gray-700 font-mono">
-                                            {user.rating || 1200}
+                                            {user.rating ?? 1200}
                                         </td>
                                         <td className="py-4">
                                             <span className={`text-xs px-2 py-1 rounded-md border ${
@@ -414,7 +430,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       
       {/* --- Row 1: Profile & Key Stats --- */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-           {/* ... Profile Card content unchanged ... */}
+           {/* ... Profile Card ... */}
            <div className="lg:col-span-6 bg-white/80 backdrop-blur-xl rounded-[2rem] p-6 border border-white shadow-xl shadow-gray-100/50 relative overflow-hidden flex flex-col justify-between group transition-all hover:shadow-2xl hover:shadow-brand-100/50">
                {/* User Switcher */}
                <div className="absolute top-6 right-6 z-20">
@@ -440,7 +456,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                        <div className={`absolute -bottom-1 -right-1 px-2.5 py-0.5 rounded-full text-[10px] font-black text-white shadow-md border-2 border-white ${
                            selectedUser.rating && selectedUser.rating >= 2100 ? 'bg-gradient-to-r from-orange-500 to-red-500' : 'bg-gradient-to-r from-brand-500 to-blue-600'
                        }`}>
-                           Lv.{Math.floor((selectedUser.rating || 1200)/100)}
+                           Lv.{Math.floor((selectedUser.rating ?? 1200)/100)}
                        </div>
                    </div>
                    <div>
@@ -449,7 +465,9 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                            <span className={`text-xs px-2 py-0.5 rounded-md font-bold border shadow-sm ${ratingColorClass.includes('text-red') ? 'bg-red-50 border-red-100' : 'bg-blue-50 border-blue-100 text-blue-600'}`}>
                                {titleName}
                            </span>
-                           <span className="text-gray-400 text-xs font-mono font-bold bg-gray-50 px-2 py-0.5 rounded-md border border-gray-100">R: {selectedUser.rating || 1200}</span>
+                           <span className="text-gray-400 text-xs font-mono font-bold bg-gray-50 px-2 py-0.5 rounded-md border border-gray-100">
+                               R: {selectedUser.rating ?? 1200} <span className="mx-1 text-gray-300">|</span> {totalCheckInCount} 次
+                           </span>
                        </div>
                    </div>
                </div>
@@ -702,33 +720,48 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           <div className="lg:col-span-8 bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm">
                 <div className="flex justify-between items-center mb-6">
                      <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
-                        <TrendingUp className="w-5 h-5 text-red-500" /> Rating 积分趋势
+                        <TrendingUp className="w-5 h-5 text-red-500" /> Rating 积分趋势 (Codeforces Style)
                     </h3>
                     <div className="text-[10px] text-gray-400 bg-gray-50 px-2 py-1 rounded flex items-center gap-1">
                         <AlertCircle className="w-3 h-3" /> 触发：打卡或凌晨4点结算
                     </div>
                 </div>
                 <div className="h-64">
-                    {ratingChartData.length > 1 ? (
+                    {ratingChartData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={ratingChartData}>
-                                <defs>
-                                    <linearGradient id="colorRating" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
-                                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-                                    </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                            <LineChart data={ratingChartData}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" opacity={0.5} />
+                                {/* Codeforces / AtCoder Rating Color Bands */}
+                                <ReferenceArea y1={0} y2={1199} fill="#f3f4f6" fillOpacity={0.5} /> {/* Newbie - Gray */}
+                                <ReferenceArea y1={1200} y2={1399} fill="#dcfce7" fillOpacity={0.5} /> {/* Pupil - Green */}
+                                <ReferenceArea y1={1400} y2={1599} fill="#cffafe" fillOpacity={0.5} /> {/* Specialist - Cyan */}
+                                <ReferenceArea y1={1600} y2={1899} fill="#dbeafe" fillOpacity={0.5} /> {/* Expert - Blue */}
+                                <ReferenceArea y1={1900} y2={2099} fill="#f3e8ff" fillOpacity={0.5} /> {/* CM - Violet */}
+                                <ReferenceArea y1={2100} y2={2399} fill="#ffedd5" fillOpacity={0.5} /> {/* Master - Orange */}
+                                <ReferenceArea y1={2400} fill="#fee2e2" fillOpacity={0.5} /> {/* GM - Red */}
+
                                 <XAxis dataKey="date" tick={{fontSize: 10, fill: '#9ca3af'}} tickLine={false} axisLine={false} minTickGap={30} />
                                 <YAxis domain={['auto', 'auto']} tick={{fontSize: 10, fill: '#9ca3af'}} tickLine={false} axisLine={false} />
-                                <Tooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} itemStyle={{color: '#ef4444', fontWeight: 'bold'}} />
-                                <Area type="monotone" dataKey="rating" stroke="#ef4444" strokeWidth={3} fillOpacity={1} fill="url(#colorRating)" dot={{r: 3, fill: '#ef4444', strokeWidth: 2, stroke: '#fff'}} activeDot={{r: 6}} />
-                            </AreaChart>
+                                <Tooltip 
+                                    contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '12px'}} 
+                                    itemStyle={{color: '#1f2937', fontWeight: 'bold'}}
+                                    cursor={{stroke: '#9ca3af', strokeWidth: 1, strokeDasharray: '3 3'}}
+                                />
+                                <Line 
+                                    type="stepAfter" 
+                                    dataKey="rating" 
+                                    stroke="#4b5563" 
+                                    strokeWidth={2} 
+                                    dot={{r: 3, fill: '#ffffff', stroke: '#4b5563', strokeWidth: 2}} 
+                                    activeDot={{r: 5, fill: '#4b5563', stroke: '#ffffff', strokeWidth: 2}} 
+                                    animationDuration={1000}
+                                />
+                            </LineChart>
                         </ResponsiveContainer>
                     ) : (
                         <div className="h-full flex flex-col items-center justify-center text-gray-400 text-xs bg-gray-50/50 rounded-2xl border border-dashed border-gray-100">
                             <TrendingUp className="w-8 h-8 mb-2 opacity-20" />
-                            <p>坚持打卡，让曲线飙升！</p>
+                            <p>暂无数据，加油打卡！</p>
                         </div>
                     )}
                 </div>

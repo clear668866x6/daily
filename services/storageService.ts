@@ -120,7 +120,7 @@ export const loginUser = async (username: string, password?: string, inviteCode?
   }
   
   // Login 成功时，记录一次初始 Rating 历史（如果还没有的话）
-  await recordRatingHistory(user.id, user.rating || 1200, "Initial Login / Sync");
+  await recordRatingHistory(user.id, user.rating ?? 1200, "Initial Login / Sync");
 
   localStorage.setItem('kaoyan_current_user', JSON.stringify(user));
   return user;
@@ -139,7 +139,7 @@ export const adminUpdateUser = async (userId: string, updates: Partial<User>): P
     const { error } = await supabase.from('users').update(updates).eq('id', userId);
     if (error) throw error;
 
-    if (updates.rating) {
+    if (updates.rating !== undefined) {
         await recordRatingHistory(userId, updates.rating, "Admin Manual Update");
     }
 };
@@ -218,7 +218,7 @@ export const getCheckIns = async (): Promise<CheckIn[]> => {
       userId: item.user_id,
       userName: item.user_name || '未知研友', 
       userAvatar: item.user_avatar || 'https://api.dicebear.com/7.x/notionists/svg?seed=Unknown',
-      userRating: item.user_rating || 1200, 
+      userRating: item.user_rating ?? 1200, 
       userRole: item.user_role || 'user', 
       subject: item.subject,
       content: item.content,
@@ -329,7 +329,7 @@ export const deleteCheckIn = async (checkInId: string): Promise<number> => {
     if (ratingDelta !== 0) {
         const { data: userData } = await supabase.from('users').select('rating').eq('id', checkIn.user_id).single();
         if (userData) {
-            const currentRating = userData.rating || 1200;
+            const currentRating = userData.rating ?? 1200;
             const newRating = currentRating + ratingDelta;
             
             await updateRating(

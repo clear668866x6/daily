@@ -13,6 +13,8 @@ import { AdminUserModal } from './components/AdminUserModal';
 import { CheckIn, SubjectCategory, User, AlgorithmTask } from './types';
 import * as storage from './services/storageService';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
+import { Fireworks } from './components/Fireworks'; // Import Fireworks
+import { X, CalendarOff, Flame, Trophy } from 'lucide-react'; // Icons
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('kaoyan_active_tab') || 'dashboard');
@@ -26,6 +28,13 @@ const App: React.FC = () => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [checkInToDelete, setCheckInToDelete] = useState<string | null>(null);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+
+  // Dashboard Target User (for Admin View)
+  const [dashboardTargetId, setDashboardTargetId] = useState<string | null>(null);
+
+  // New Full Screen Modals State
+  const [penaltyModalData, setPenaltyModalData] = useState<{count: number, date: string} | null>(null);
+  const [streakModalData, setStreakModalData] = useState<number | null>(null);
 
   // Toast State
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -76,8 +85,54 @@ const App: React.FC = () => {
       return adjustedDate.toISOString().split('T')[0];
   };
 
+  // Helper: Calculate Streak
+  const calculateStreak = async (userId: string): Promise<number> => {
+      const userCheckIns = await storage.getUserCheckIns(userId);
+      // Filter out penalties
+      const validDates = userCheckIns
+          .filter(c => !c.isPenalty)
+          .map(c => getBusinessDate(new Date(c.timestamp)));
+      
+      const uniqueDates = Array.from(new Set(validDates)).sort().reverse();
+      
+      if (uniqueDates.length === 0) return 0;
+
+      const today = getBusinessDate(new Date());
+      // Logic: If the latest check-in is today or yesterday (since today might not be over), start counting
+      // If latest is older than yesterday, streak is broken (0).
+      
+      const latest = uniqueDates[0];
+      const yesterday = new Date();
+      if (yesterday.getHours() < 4) yesterday.setDate(yesterday.getDate() - 2);
+      else yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+      if (latest !== today && latest !== yesterdayStr) {
+          return 0; 
+      }
+
+      let streak = 1;
+      // Start checking from the gap between 0 and 1
+      for (let i = 0; i < uniqueDates.length - 1; i++) {
+          const curr = new Date(uniqueDates[i]);
+          const prev = new Date(uniqueDates[i+1]);
+          const diffTime = Math.abs(curr.getTime() - prev.getTime());
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+          
+          if (diffDays === 1) {
+              streak++;
+          } else {
+              break;
+          }
+      }
+      return streak;
+  };
+
   const checkDailyPenalties = async (currentUser: User) => {
-      if (currentUser.role === 'guest') return;
+      if (currentUser.role === 'guest') return currentUser;
+      
+      // ADMIN IMMUNITY: Admins do not get penalties
+      if (currentUser.role === 'admin') return currentUser;
 
       const lastCheckedDate = localStorage.getItem(`last_penalty_check_${currentUser.id}`);
       const todayBusinessDate = getBusinessDate(new Date());
@@ -88,21 +143,19 @@ const App: React.FC = () => {
           // Determine the "Yesterday Business Day"
           const yesterday = new Date();
           if (yesterday.getHours() < 4) {
-             yesterday.setDate(yesterday.getDate() - 2); // It's currently < 4am (so today is D), yesterday was D-1. We want to check D-1.
+             yesterday.setDate(yesterday.getDate() - 2); 
           } else {
              yesterday.setDate(yesterday.getDate() - 1);
           }
           const yesterdayStr = yesterday.toISOString().split('T')[0];
           
-          // Only run if the last check was strictly before yesterday (meaning we haven't processed yesterday's results)
-          if (lastCheckedDate < yesterdayStr || lastCheckedDate === yesterdayStr) { // Simplification: Just check if we missed the previous day
+          // Only run if the last check was strictly before yesterday
+          if (lastCheckedDate < yesterdayStr || lastCheckedDate === yesterdayStr) { 
               console.log(`Running Penalty Check for ${yesterdayStr}...`);
               
-              // 1. Fetch user check-ins for yesterday
               const userCheckIns = await storage.getUserCheckIns(currentUser.id);
               const hasCheckInYesterday = userCheckIns.some(c => {
                   const cDate = new Date(c.timestamp);
-                  // Adjust check-in time to business date logic
                   const cBusinessDate = getBusinessDate(cDate);
                   return cBusinessDate === yesterdayStr && !c.isPenalty;
               });
@@ -112,30 +165,27 @@ const App: React.FC = () => {
                   const penaltyRating = -50;
                   const newRating = (currentUser.rating || 1200) + penaltyRating;
                   
-                  const penaltyCheckIn: CheckIn = {
-                      id: `penalty-absent-${yesterdayStr}-${Date.now()}`,
-                      userId: currentUser.id,
-                      userName: currentUser.name,
-                      userAvatar: currentUser.avatar,
-                      userRating: newRating,
-                      userRole: currentUser.role,
-                      subject: SubjectCategory.OTHER,
-                      content: `### 📉 缺勤惩罚\n\n昨日 (${yesterdayStr}) 未在凌晨 4:00 前完成打卡。\n\n**Rating -50**`,
-                      timestamp: Date.now(),
-                      isPenalty: true,
-                      duration: 0,
-                      likedBy: []
-                  };
-
-                  await storage.addCheckIn(penaltyCheckIn);
+                  // REMOVED: storage.addCheckIn(...) -> No longer posting to public feed
+                  
+                  // Update Rating
                   await storage.updateRating(currentUser.id, newRating, `缺勤惩罚 (${yesterdayStr})`);
-                  showToast(`⚠️ 昨日未打卡，Rating -50`, 'error');
+                  
+                  // Track cumulative missed count locally
+                  const missedKey = `kaoyan_missed_count_${currentUser.id}`;
+                  const currentMissed = parseInt(localStorage.getItem(missedKey) || '0') + 1;
+                  localStorage.setItem(missedKey, currentMissed.toString());
+
+                  // Show Full Screen Alert
+                  setPenaltyModalData({ count: currentMissed, date: yesterdayStr });
                   
                   // Update local user object immediately
                   currentUser.rating = newRating; 
               }
 
-              // Penalty 2: Algorithm Task Missed
+              // Penalty 2: Algorithm Task Missed (Optional: Can also be silent or just reduced rating)
+              // Keeping existing logic but suppressing feed post? 
+              // For now, let's just do the rating deduction silently for algo to reduce noise, or keep it standard.
+              // Given the prompt "don't report in the circle", I will apply it to Algo too if missed.
               const tasks = await storage.getAlgorithmTasks();
               const taskYesterday = tasks.find(t => t.date === yesterdayStr);
               if (taskYesterday) {
@@ -145,26 +195,10 @@ const App: React.FC = () => {
                   if (!isDone) {
                        const algoPenalty = -20;
                        const newAlgoRating = (currentUser.rating || 1200) + algoPenalty;
-                       
-                       const algoPenaltyCheckIn: CheckIn = {
-                          id: `penalty-algo-${yesterdayStr}-${Date.now()}`,
-                          userId: currentUser.id,
-                          userName: currentUser.name,
-                          userAvatar: currentUser.avatar,
-                          userRating: newAlgoRating,
-                          userRole: currentUser.role,
-                          subject: SubjectCategory.ALGORITHM,
-                          content: `### 📉 算法未完成\n\n未能在截止时间前 AC 昨日算法题：${taskYesterday.title}。\n\n**Rating -20**`,
-                          timestamp: Date.now(),
-                          isPenalty: true,
-                          duration: 0,
-                          likedBy: []
-                      };
-                      
-                      await storage.addCheckIn(algoPenaltyCheckIn);
-                      await storage.updateRating(currentUser.id, newAlgoRating, `算法未完成 (${yesterdayStr})`);
-                      showToast(`⚠️ 昨日算法未AC，Rating -20`, 'error');
-                      currentUser.rating = newAlgoRating;
+                       // No public check-in
+                       await storage.updateRating(currentUser.id, newAlgoRating, `算法未完成 (${yesterdayStr})`);
+                       // No specific modal for Algo needed if we have the general one, or we update the user object
+                       currentUser.rating = newAlgoRating;
                   }
               }
           }
@@ -238,6 +272,20 @@ const App: React.FC = () => {
       await storage.addCheckIn(newCheckIn);
       showToast("打卡发布成功！", 'success');
       await refreshData();
+
+      // Check for Streak Achievements
+      // Need a small delay or refetch to ensure the calculation includes the just-added one
+      // Since we added it to local state `prev => [newCheckIn, ...prev]`, local calc might miss it if we rely on storage
+      // Let's rely on calculating manually or waiting a bit.
+      // Better: Update calculation to include the new one implicitly or fetch fresh.
+      setTimeout(async () => {
+          const streak = await calculateStreak(user.id);
+          // Trigger on multiples of 7
+          if (streak > 0 && streak % 7 === 0) {
+              setStreakModalData(streak);
+          }
+      }, 500);
+
     } catch (e) {
       console.error(e);
       showToast("打卡上传失败，请检查网络", 'error');
@@ -324,6 +372,12 @@ const App: React.FC = () => {
     handleAddCheckIn(newCheckIn);
   };
 
+  const handleAdminViewUser = (userId: string) => {
+      setIsAdminModalOpen(false);
+      setDashboardTargetId(userId);
+      setActiveTab('dashboard');
+  };
+
   if (isInitializing) {
     return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-400">正在连接数据库...</div>;
   }
@@ -338,7 +392,63 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row font-sans">
+    <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row font-sans relative">
+      
+      {/* --- Full Screen Penalty Modal --- */}
+      {penaltyModalData && (
+          <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-red-600/95 backdrop-blur-md animate-fade-in text-white p-8 text-center">
+              <div className="bg-white/20 p-6 rounded-full mb-6 animate-bounce">
+                  <CalendarOff className="w-16 h-16 text-white" />
+              </div>
+              <h2 className="text-3xl font-black mb-2">昨日未打卡!</h2>
+              <p className="text-red-100 text-lg mb-8 max-w-md">
+                  考研是一场持久战，请坚持下去。<br/>
+                  昨日 ({penaltyModalData.date}) 未检测到打卡记录。
+              </p>
+              
+              <div className="bg-black/20 rounded-2xl p-6 mb-10 w-full max-w-xs border border-white/10">
+                  <div className="text-sm text-red-200 uppercase font-bold tracking-widest mb-1">累计缺勤</div>
+                  <div className="text-6xl font-black font-mono">{penaltyModalData.count} <span className="text-lg">次</span></div>
+              </div>
+
+              <div className="flex gap-4">
+                  <button 
+                    onClick={() => setPenaltyModalData(null)}
+                    className="bg-white text-red-600 px-8 py-3 rounded-xl font-bold hover:bg-red-50 transition-colors shadow-lg"
+                  >
+                      我已知晓，立即补救
+                  </button>
+              </div>
+          </div>
+      )}
+
+      {/* --- Full Screen Streak Achievement Modal --- */}
+      {streakModalData && (
+          <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-gradient-to-br from-indigo-900 to-purple-900 animate-fade-in text-white p-8 text-center cursor-pointer" onClick={() => setStreakModalData(null)}>
+              <Fireworks active={true} onClose={() => setStreakModalData(null)} />
+              
+              <div className="relative z-10 flex flex-col items-center">
+                  <div className="mb-6 relative">
+                      <div className="absolute inset-0 bg-yellow-400 blur-2xl opacity-50 rounded-full"></div>
+                      <Trophy className="w-24 h-24 text-yellow-300 relative z-10" />
+                  </div>
+                  
+                  <div className="text-yellow-400 font-black text-lg uppercase tracking-[0.3em] mb-2 animate-pulse">Momentum Streak</div>
+                  <h2 className="text-5xl md:text-6xl font-black mb-6 bg-clip-text text-transparent bg-gradient-to-r from-yellow-200 to-yellow-500 drop-shadow-sm">
+                      连续打卡 {streakModalData} 天!
+                  </h2>
+                  
+                  <p className="text-indigo-200 text-lg max-w-md leading-relaxed mb-12">
+                      坚持就是胜利。保持这个节奏，上岸指日可待！
+                  </p>
+
+                  <div className="flex items-center gap-2 text-white/50 text-sm animate-bounce">
+                      <span>点击任意处关闭</span>
+                  </div>
+              </div>
+          </div>
+      )}
+
       <Navigation 
         activeTab={activeTab} 
         onTabChange={setActiveTab} 
@@ -376,6 +486,7 @@ const App: React.FC = () => {
                 onUpdateUser={handleUpdateUser} 
                 onShowToast={showToast}
                 onUpdateCheckIn={handleUpdateCheckIn}
+                initialSelectedUserId={dashboardTargetId}
               />
             </div>
           )}
@@ -443,6 +554,7 @@ const App: React.FC = () => {
           onClose={() => setIsAdminModalOpen(false)}
           currentUser={user}
           onShowToast={showToast}
+          onViewUser={handleAdminViewUser}
       />
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
