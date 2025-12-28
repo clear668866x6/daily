@@ -163,6 +163,7 @@ export const adminDeleteUser = async (userId: string): Promise<void> => {
     await supabase.from('checkins').delete().eq('user_id', userId);
     await supabase.from('rating_history').delete().eq('user_id', userId);
     await supabase.from('goals').delete().eq('user_id', userId);
+    await supabase.from('algorithm_submissions').delete().eq('user_id', userId);
     const { error } = await supabase.from('users').delete().eq('id', userId);
     if (error) throw error;
 }
@@ -190,33 +191,20 @@ export const getRatingHistory = async (userId: string): Promise<RatingHistory[]>
     return (data as RatingHistory[]) || [];
 }
 
-// NEW: Delete a rating history record and refund the user's rating if needed
 export const deleteRatingHistoryRecord = async (historyId: number, userId: string, refundAmount: number): Promise<void> => {
-    // 1. Delete the record
     const { error } = await supabase.from('rating_history').delete().eq('id', historyId);
     if (error) throw error;
 
-    // 2. Refund/Adjust the user's current rating
-    // refundAmount should be positive if we are reverting a penalty (e.g. was -50, so refund +50)
-    // or negative if reverting a bonus.
     if (refundAmount !== 0) {
         const { data: user } = await supabase.from('users').select('rating').eq('id', userId).single();
         if (user) {
             const currentRating = user.rating || 1200;
             const newRating = currentRating + refundAmount;
-            
             await supabase.from('users').update({ rating: newRating }).eq('id', userId);
-            
-            // Log the refund implicitly or explicitly? 
-            // The prompt asks to modify/delete. If we just update the user rating, it might look like magic.
-            // Let's NOT insert a new history record to keep it clean (as if the penalty never happened), 
-            // OR we insert a system log. 
-            // Current decision: Just update the User table rating.
         }
     }
 }
 
-// NEW: Update a rating history record (e.g. reason)
 export const updateRatingHistoryRecord = async (historyId: number, updates: Partial<RatingHistory>): Promise<void> => {
     const { error } = await supabase.from('rating_history').update(updates).eq('id', historyId);
     if (error) throw error;
@@ -298,179 +286,206 @@ export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
   const { error } = await supabase.from('checkins').insert(fullPayload);
   
   if (error) {
-    const safePayload = {
-        id: checkIn.id,
-        user_id: checkIn.userId,
-        user_name: checkIn.userName,
-        user_avatar: checkIn.userAvatar,
-        subject: checkIn.subject,
-        content: checkIn.content,
-        timestamp: checkIn.timestamp,
-        image_url: checkIn.imageUrl || null,
-        liked_by: []
-    }
-    await supabase.from('checkins').insert(safePayload);
+    console.error("Supabase Insert Error:", error);
+    throw error;
   }
 };
 
-export const updateCheckIn = async (checkInId: string, content: string): Promise<void> => {
-    const { error } = await supabase.from('checkins').update({ content }).eq('id', checkInId);
-    if (error) throw error;
-};
-
-export const deleteCheckIn = async (checkInId: string): Promise<number> => {
-    const { data: checkIn, error: fetchError } = await supabase.from('checkins').select('*').eq('id', checkInId).single();
-    if (fetchError || !checkIn) throw new Error("Check-in not found");
-
-    const { error: deleteError } = await supabase.from('checkins').delete().eq('id', checkInId);
-    if (deleteError) throw deleteError;
-
+export const deleteCheckIn = async (id: string): Promise<number> => {
+    // Get checkin first to know impact
+    const { data: checkIn } = await supabase.from('checkins').select('*').eq('id', id).single();
+    if (!checkIn) return 0;
+    
     let ratingDelta = 0;
-    const duration = checkIn.duration || 0;
-
     if (checkIn.is_penalty) {
-        ratingDelta = Math.round((duration / 10) * 1.5) + 1;
-    } else if (duration > 0) {
-        ratingDelta = -(Math.floor(duration / 10) + 1);
+        // Was penalty (-points), undoing means (+points)
+        // Estimate: 30 min penalty was approx -5 points
+        // Simplified: +5
+        // Better: We should have stored the delta.
+        // For now, let's reverse the duration logic roughly.
+        // Or cleaner: Don't guess, just delete. The User Rating History has the real record.
+        // But for "instant feedback", we return 0 here and let the user handle via Rating History admin tools if precise needed.
+        // Wait, app logic relies on this. 
+        // Let's assume standard: duration/10 + 1 for study.
+        if (checkIn.duration) {
+            ratingDelta = Math.round((checkIn.duration / 10) * 1.5) + 1; // Refund penalty
+        }
+    } else {
+        // Was study (+points), undoing means (-points)
+        if (checkIn.duration) {
+             ratingDelta = -(Math.floor(checkIn.duration / 10) + 1);
+        }
     }
 
+    const { error } = await supabase.from('checkins').delete().eq('id', id);
+    if (error) throw error;
+    
+    // Also try to find a matching rating_history record to delete? 
+    // It's hard to match exactly without ID link. 
+    // We will just perform a new rating update to offset it.
     if (ratingDelta !== 0) {
-        const { data: userData } = await supabase.from('users').select('rating').eq('id', checkIn.user_id).single();
-        if (userData) {
-            const currentRating = userData.rating ?? 1200;
-            const newRating = currentRating + ratingDelta;
-            
-            await updateRating(
-                checkIn.user_id, 
-                newRating, 
-                `撤销打卡 (ID: ${checkInId.substring(0,6)}...)`
-            );
+        const { data: user } = await supabase.from('users').select('rating').eq('id', checkIn.user_id).single();
+        if (user) {
+             const newRating = (user.rating || 1200) + ratingDelta;
+             await updateRating(checkIn.user_id, newRating, `撤销打卡/惩罚 (ID:${id.substring(0,4)})`);
         }
     }
 
     return ratingDelta;
-};
+}
+
+export const updateCheckIn = async (id: string, content: string): Promise<void> => {
+    const { error } = await supabase.from('checkins').update({ content }).eq('id', id);
+    if (error) throw error;
+}
 
 export const toggleLike = async (checkInId: string, userId: string): Promise<void> => {
-  const { data: currentCheckIn, error: fetchError } = await supabase.from('checkins').select('liked_by').eq('id', checkInId).single();
-  if (fetchError || !currentCheckIn) return;
+    const { data } = await supabase.from('checkins').select('liked_by').eq('id', checkInId).single();
+    if (data) {
+        let likes: string[] = data.liked_by || [];
+        if (likes.includes(userId)) {
+            likes = likes.filter(id => id !== userId);
+        } else {
+            likes.push(userId);
+        }
+        await supabase.from('checkins').update({ liked_by: likes }).eq('id', checkInId);
+    }
+}
 
-  const likedBy = (currentCheckIn.liked_by as string[]) || [];
-  const isLiked = likedBy.includes(userId);
-  const newLikedBy = isLiked ? likedBy.filter(id => id !== userId) : [...likedBy, userId];
-
-  await supabase.from('checkins').update({ liked_by: newLikedBy }).eq('id', checkInId);
-};
-
-// --- Goals Management ---
-
-export const getAllPublicGoals = async (): Promise<Goal[]> => {
-    const { data, error } = await supabase
-        .from('goals')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(50);
-    
+// --- Goals ---
+export const getUserGoals = async (userId: string): Promise<Goal[]> => {
+    const { data, error } = await supabase.from('goals').select('*').eq('user_id', userId).order('created_at', { ascending: false });
     if (error) return [];
     return data as Goal[];
 }
 
-export const getUserGoals = async (userId: string): Promise<Goal[]> => {
-  const { data, error } = await supabase
-    .from('goals')
-    .select('*')
-    .eq('user_id', userId)
-    .order('id', { ascending: true });
-
-  if (error) return [];
-  return data as Goal[];
-};
-
 export const addGoal = async (user: User, title: string): Promise<Goal | null> => {
-  const payload: any = { 
-    user_id: user.id, 
-    title: title,
-    user_name: user.name, 
-    user_avatar: user.avatar,
-    user_rating: user.rating
-  };
-
-  const { data, error } = await supabase
-    .from('goals')
-    .insert(payload)
-    .select()
-    .single();
+    const { data, error } = await supabase.from('goals').insert({
+        user_id: user.id,
+        user_name: user.name,
+        user_avatar: user.avatar,
+        user_rating: user.rating,
+        title,
+        is_completed: false
+    }).select().single();
     
-  if (error) {
-      const safePayload = {
-          user_id: user.id,
-          title: title
-      };
-      const { data: safeData, error: safeError } = await supabase.from('goals').insert(safePayload).select().single();
-      if (!safeError) return safeData as Goal;
-      return null;
-  }
-  return data as Goal;
-};
-
-export const toggleGoal = async (goalId: number, isCompleted: boolean): Promise<void> => {
-  await supabase.from('goals').update({ is_completed: isCompleted }).eq('id', goalId);
-};
-
-export const deleteGoal = async (goalId: number): Promise<void> => {
-  await supabase.from('goals').delete().eq('id', goalId);
-};
-
-// --- Algorithm ---
-export const getAlgorithmTasks = async (): Promise<AlgorithmTask[]> => {
-  const { data, error } = await supabase.from('algorithm_tasks').select('*').order('date', { ascending: false });
-  if (error) return [];
-  
-  return data.map((item: any) => ({
-      ...item,
-      assignedTo: item.assigned_to || [] // Map snake_case to camelCase
-  })) as AlgorithmTask[];
-};
-
-export const addAlgorithmTask = async (task: AlgorithmTask): Promise<void> => {
-  const { error } = await supabase.from('algorithm_tasks').insert({
-    id: task.id,
-    title: task.title,
-    description: task.description,
-    difficulty: task.difficulty,
-    date: task.date,
-    assigned_to: task.assignedTo || null // Map camelCase to snake_case
-  });
-  if (error) throw error;
-};
-
-// NEW: Delete Algorithm Task
-export const deleteAlgorithmTask = async (taskId: string): Promise<void> => {
-    const { error } = await supabase.from('algorithm_tasks').delete().eq('id', taskId);
-    if (error) throw error;
+    if (error) return null;
+    return data as Goal;
 }
 
-// NEW: Update Algorithm Task
-export const updateAlgorithmTask = async (taskId: string, updates: Partial<AlgorithmTask>): Promise<void> => {
+export const toggleGoal = async (id: number, status: boolean): Promise<void> => {
+    await supabase.from('goals').update({ is_completed: status }).eq('id', id);
+}
+
+export const deleteGoal = async (id: number): Promise<void> => {
+    await supabase.from('goals').delete().eq('id', id);
+}
+
+// --- Algorithm Tasks (Database backed) ---
+
+export const getAlgorithmTasks = async (): Promise<AlgorithmTask[]> => {
+    const { data, error } = await supabase.from('algorithm_tasks').select('*');
+    if (error) return [];
+    return data.map((t:any) => ({
+        id: t.id,
+        title: t.title,
+        description: t.description,
+        difficulty: t.difficulty,
+        date: t.date,
+        assignedTo: t.assigned_to
+    }));
+};
+
+export const addAlgorithmTask = async (task: AlgorithmTask) => {
+    const { error } = await supabase.from('algorithm_tasks').insert({
+        id: task.id,
+        title: task.title,
+        description: task.description,
+        difficulty: task.difficulty,
+        date: task.date,
+        assigned_to: task.assignedTo
+    });
+    if (error) throw error;
+};
+
+export const updateAlgorithmTask = async (id: string, updates: Partial<AlgorithmTask>) => {
     const payload: any = { ...updates };
     if (updates.assignedTo) {
         payload.assigned_to = updates.assignedTo;
         delete payload.assignedTo;
     }
-    const { error } = await supabase.from('algorithm_tasks').update(payload).eq('id', taskId);
+    const { error } = await supabase.from('algorithm_tasks').update(payload).eq('id', id);
     if (error) throw error;
-}
-
-export const getAlgorithmSubmissions = (userId: string): AlgorithmSubmission[] => {
-  const stored = localStorage.getItem('kaoyan_algo_subs');
-  const all: AlgorithmSubmission[] = stored ? JSON.parse(stored) : [];
-  return all.filter(s => s.userId === userId);
 };
 
-export const submitAlgorithmCode = (submission: AlgorithmSubmission) => {
-  const stored = localStorage.getItem('kaoyan_algo_subs');
-  const all: AlgorithmSubmission[] = stored ? JSON.parse(stored) : [];
-  const filtered = all.filter(s => !(s.userId === submission.userId && s.taskId === submission.taskId));
-  filtered.push(submission);
-  localStorage.setItem('kaoyan_algo_subs', JSON.stringify(filtered));
+export const deleteAlgorithmTask = async (id: string) => {
+    await supabase.from('algorithm_submissions').delete().eq('task_id', id);
+    const { error } = await supabase.from('algorithm_tasks').delete().eq('id', id);
+    if (error) throw error;
+};
+
+// --- Algorithm Submissions (Database backed) ---
+
+export const getAllAlgorithmSubmissions = async (): Promise<AlgorithmSubmission[]> => {
+    const { data, error } = await supabase
+        .from('algorithm_submissions')
+        .select('*')
+        .order('timestamp', { ascending: false });
+        
+    if (error) return [];
+    
+    return data.map((s: any) => ({
+        id: s.id.toString(),
+        taskId: s.task_id,
+        userId: s.user_id,
+        userName: s.user_name,
+        userAvatar: s.user_avatar,
+        code: s.code,
+        language: s.language,
+        status: s.status,
+        timestamp: Number(s.timestamp),
+        duration: s.duration
+    }));
+};
+
+export const getAlgorithmSubmissions = async (userId: string): Promise<AlgorithmSubmission[]> => {
+    const { data, error } = await supabase
+        .from('algorithm_submissions')
+        .select('*')
+        .eq('user_id', userId);
+        
+    if (error) return [];
+    
+    return data.map((s: any) => ({
+        id: s.id.toString(),
+        taskId: s.task_id,
+        userId: s.user_id,
+        userName: s.user_name,
+        userAvatar: s.user_avatar,
+        code: s.code,
+        language: s.language,
+        status: s.status,
+        timestamp: Number(s.timestamp),
+        duration: s.duration
+    }));
+};
+
+export const submitAlgorithmCode = async (submission: AlgorithmSubmission) => {
+    const { error } = await supabase.from('algorithm_submissions').insert({
+        task_id: submission.taskId,
+        user_id: submission.userId,
+        user_name: submission.userName,
+        user_avatar: submission.userAvatar,
+        code: submission.code,
+        language: submission.language,
+        status: submission.status,
+        timestamp: submission.timestamp,
+        duration: submission.duration
+    });
+    if (error) throw error;
+};
+
+export const deleteAlgorithmSubmission = async (id: string) => {
+    const { error } = await supabase.from('algorithm_submissions').delete().eq('id', id);
+    if (error) throw error;
 };

@@ -76,11 +76,16 @@ export interface AlgorithmTask {
 }
 
 export interface AlgorithmSubmission {
+  id?: string; // Database ID (string to handle bigint/uuid)
   taskId: string;
   userId: string;
+  userName?: string; 
+  userAvatar?: string;
   code: string;
   language: string; 
   status: 'Passed' | 'Failed';
+  timestamp: number;
+  duration?: number; // Minutes spent solving
 }
 
 export interface DailyStats {
