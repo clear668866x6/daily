@@ -72,6 +72,7 @@ export interface AlgorithmTask {
   description: string;
   difficulty: 'Easy' | 'Medium' | 'Hard';
   date: string;
+  assignedTo?: string[]; // Array of User IDs. If present, only these users are penalized for missing it.
 }
 
 export interface AlgorithmSubmission {

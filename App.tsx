@@ -135,9 +135,16 @@ const App: React.FC = () => {
       if (currentUser.role === 'admin') return currentUser;
 
       const lastCheckedDate = localStorage.getItem(`last_penalty_check_${currentUser.id}`);
-      const todayBusinessDate = getBusinessDate(new Date());
+      
+      // Safety: Only check penalties if it's past 4:05 AM to avoid race conditions with midnight logic
+      const now = new Date();
+      if (now.getHours() < 4) return currentUser;
 
-      // If we haven't checked for today yet, AND there is a stored date (not first login)
+      const todayBusinessDate = getBusinessDate(now);
+
+      // If we haven't checked for today's logical date yet
+      // Note: "Today's Business Day" checking actually means verifying "Yesterday" was completed.
+      // We run this once per Business Day (e.g., sometime on Dec 15 after 4am).
       if (lastCheckedDate && lastCheckedDate !== todayBusinessDate) {
           
           // Determine the "Yesterday Business Day"
@@ -149,9 +156,9 @@ const App: React.FC = () => {
           }
           const yesterdayStr = yesterday.toISOString().split('T')[0];
           
-          // Only run if the last check was strictly before yesterday
+          // Only run if the last check was strictly before yesterday (avoid double penalty)
           if (lastCheckedDate < yesterdayStr || lastCheckedDate === yesterdayStr) { 
-              console.log(`Running Penalty Check for ${yesterdayStr}...`);
+              console.log(`Running Penalty Check for Business Day: ${yesterdayStr}...`);
               
               const userCheckIns = await storage.getUserCheckIns(currentUser.id);
               const hasCheckInYesterday = userCheckIns.some(c => {
@@ -164,8 +171,6 @@ const App: React.FC = () => {
               if (!hasCheckInYesterday) {
                   const penaltyRating = -50;
                   const newRating = (currentUser.rating || 1200) + penaltyRating;
-                  
-                  // REMOVED: storage.addCheckIn(...) -> No longer posting to public feed
                   
                   // Update Rating
                   await storage.updateRating(currentUser.id, newRating, `缺勤惩罚 (${yesterdayStr})`);
@@ -182,23 +187,26 @@ const App: React.FC = () => {
                   currentUser.rating = newRating; 
               }
 
-              // Penalty 2: Algorithm Task Missed (Optional: Can also be silent or just reduced rating)
-              // Keeping existing logic but suppressing feed post? 
-              // For now, let's just do the rating deduction silently for algo to reduce noise, or keep it standard.
-              // Given the prompt "don't report in the circle", I will apply it to Algo too if missed.
+              // Penalty 2: Algorithm Task Missed
               const tasks = await storage.getAlgorithmTasks();
               const taskYesterday = tasks.find(t => t.date === yesterdayStr);
+              
+              // New Logic: Only penalize if assigned explicitly
               if (taskYesterday) {
-                  const subs = storage.getAlgorithmSubmissions(currentUser.id);
-                  const isDone = subs.some(s => s.taskId === taskYesterday.id && s.status === 'Passed');
-                  
-                  if (!isDone) {
-                       const algoPenalty = -20;
-                       const newAlgoRating = (currentUser.rating || 1200) + algoPenalty;
-                       // No public check-in
-                       await storage.updateRating(currentUser.id, newAlgoRating, `算法未完成 (${yesterdayStr})`);
-                       // No specific modal for Algo needed if we have the general one, or we update the user object
-                       currentUser.rating = newAlgoRating;
+                  // If assignedTo is missing or empty, assume it's optional or open to all (no penalty for now based on request "if not selected, don't count")
+                  // Logic: If assignedTo exists AND includes current user ID -> Mandatory.
+                  const isAssignedToUser = taskYesterday.assignedTo && taskYesterday.assignedTo.includes(currentUser.id);
+
+                  if (isAssignedToUser) {
+                      const subs = storage.getAlgorithmSubmissions(currentUser.id);
+                      const isDone = subs.some(s => s.taskId === taskYesterday.id && s.status === 'Passed');
+                      
+                      if (!isDone) {
+                           const algoPenalty = -20;
+                           const newAlgoRating = (currentUser.rating || 1200) + algoPenalty;
+                           await storage.updateRating(currentUser.id, newAlgoRating, `算法未完成 (${yesterdayStr})`);
+                           currentUser.rating = newAlgoRating;
+                      }
                   }
               }
           }

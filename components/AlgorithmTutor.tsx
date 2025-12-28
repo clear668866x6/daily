@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { User, AlgorithmTask, AlgorithmSubmission, SubjectCategory } from '../types';
 import * as storage from '../services/storageService';
-import { Code, CheckCircle, Send, Play, Lock, FileCode, Loader2, ChevronDown, ChevronLeft, ChevronRight, Megaphone, PlusCircle, Terminal, Zap, Trophy, Layout, Cpu, Award, X, Moon, Star, Flame, Clock } from 'lucide-react';
+import { Code, CheckCircle, Send, Play, Lock, FileCode, Loader2, ChevronDown, ChevronLeft, ChevronRight, Megaphone, PlusCircle, Terminal, Zap, Trophy, Layout, Cpu, Award, X, Moon, Star, Flame, Clock, Users } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { ToastType } from './Toast';
 import { Fireworks } from './Fireworks'; 
@@ -140,6 +140,8 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   // Admin State
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDesc, setNewTaskDesc] = useState('');
+  const [assignedUsers, setAssignedUsers] = useState<string[]>([]); // New: Assignments
+  const [allUsers, setAllUsers] = useState<User[]>([]); // New: User List for admin
   const [isPublishing, setIsPublishing] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
 
@@ -167,6 +169,9 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
 
   useEffect(() => {
     refreshData();
+    if (isAdmin) {
+        storage.getAllUsers().then(setAllUsers);
+    }
   }, [user]);
 
   // Auto-select first task of selected date
@@ -253,11 +258,13 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
         title: newTaskTitle,
         description: newTaskDesc,
         difficulty: 'Medium',
-        date: todayStr
+        date: todayStr,
+        assignedTo: assignedUsers.length > 0 ? assignedUsers : undefined
       };
       await storage.addAlgorithmTask(newTask);
       setNewTaskTitle('');
       setNewTaskDesc('');
+      setAssignedUsers([]);
       onShowToast("✅ 题目发布成功！", 'success');
       await refreshData();
       setSelectedDate(todayStr);
@@ -268,6 +275,12 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       setIsPublishing(false);
     }
   };
+
+  const toggleUserAssignment = (userId: string) => {
+      setAssignedUsers(prev => 
+          prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+      );
+  }
 
   const handleSubmitCode = async () => {
     if (isGuest) return;
@@ -395,6 +408,9 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   const renderTaskItem = (task: AlgorithmTask) => {
     const isDone = submissions.some(s => s.taskId === task.id && s.status === 'Passed');
     const isActive = activeTask === task.id;
+    // Highlight assigned tasks
+    const isAssigned = task.assignedTo && task.assignedTo.includes(user.id);
+
     return (
         <button
             key={task.id}
@@ -414,13 +430,20 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                 )}
             </div>
             <div className="flex justify-between items-center mt-2">
-                <span className={`text-[10px] px-2 py-0.5 rounded font-medium border ${
-                    task.difficulty === 'Easy' ? 'bg-green-50 text-green-600 border-green-100' :
-                    task.difficulty === 'Medium' ? 'bg-yellow-50 text-yellow-600 border-yellow-100' :
-                    'bg-red-50 text-red-600 border-red-100'
-                }`}>
-                    {task.difficulty}
-                </span>
+                <div className="flex items-center gap-1">
+                    <span className={`text-[10px] px-2 py-0.5 rounded font-medium border ${
+                        task.difficulty === 'Easy' ? 'bg-green-50 text-green-600 border-green-100' :
+                        task.difficulty === 'Medium' ? 'bg-yellow-50 text-yellow-600 border-yellow-100' :
+                        'bg-red-50 text-red-600 border-red-100'
+                    }`}>
+                        {task.difficulty}
+                    </span>
+                    {isAssigned && (
+                        <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold border border-red-200">
+                            指定
+                        </span>
+                    )}
+                </div>
                 <span className="text-[10px] text-gray-400 font-mono">
                     {new Date(task.date).getDate()}日
                 </span>
@@ -561,6 +584,25 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                             value={newTaskDesc} 
                             onChange={e => setNewTaskDesc(e.target.value)} 
                         />
+                        {/* Assignment Selector */}
+                        <div className="bg-gray-50 p-3 rounded-xl border border-gray-200">
+                            <h4 className="text-xs font-bold text-gray-500 mb-2 flex items-center gap-1"><Users className="w-3 h-3"/> 指定完成人 (不选默认全员可选)</h4>
+                            <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto custom-scrollbar">
+                                {allUsers.filter(u => u.role !== 'admin').map(u => (
+                                    <button 
+                                        key={u.id}
+                                        onClick={() => toggleUserAssignment(u.id)}
+                                        className={`text-xs px-2 py-1 rounded-full border transition-colors ${
+                                            assignedUsers.includes(u.id) 
+                                            ? 'bg-indigo-100 border-indigo-300 text-indigo-700 font-bold' 
+                                            : 'bg-white border-gray-200 text-gray-600 hover:border-indigo-200'
+                                        }`}
+                                    >
+                                        {u.name}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
                      </div>
                      <div className="md:col-span-4 flex items-end">
                          <button 
