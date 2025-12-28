@@ -3,15 +3,17 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { CheckIn, User, Goal, SubjectCategory, RatingHistory, getUserStyle, getTitleName } from '../types';
 import * as storage from '../services/storageService';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, AreaChart, Area } from 'recharts';
-import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, EyeOff, BrainCircuit, ChevronDown, UserCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, CalendarCheck, Flag, Sparkles, Shield, Users, Activity } from 'lucide-react';
+import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, EyeOff, BrainCircuit, ChevronDown, UserCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, CalendarCheck, Flag, Sparkles, Shield, Users, Activity, Maximize2 } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { ToastType } from './Toast';
+import { FullScreenEditor } from './FullScreenEditor';
 
 interface Props {
   checkIns: CheckIn[];
   currentUser: User;
   onUpdateUser: (user: User) => void;
   onShowToast: (message: string, type: ToastType) => void;
+  onUpdateCheckIn?: (id: string, content: string) => void;
 }
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1'];
@@ -44,6 +46,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const [isLogging, setIsLogging] = useState(false);
   const [logMode, setLogMode] = useState<'study' | 'penalty'>('study');
   const [logPreview, setLogPreview] = useState(false); 
+  const [isFullScreen, setIsFullScreen] = useState(false);
 
   // Calendar State
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
@@ -78,7 +81,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
         setDisplayGoals(uGoals);
     };
     loadData();
-    // Do NOT reset selectedDate here to allow calendar navigation persistence
   }, [selectedUserId, checkIns]); 
 
   const selectedUser = useMemo(() => {
@@ -111,10 +113,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
     let totalStudyMinutes = 0;
     let totalPenaltyMinutes = 0;
     
-    // Sort logic
     const sortedCheckIns = [...selectedUserCheckIns].sort((a, b) => a.timestamp - b.timestamp);
-    
-    // Determine which date to show for the Pie Chart. Default to "Today" if no date selected.
     const targetDateForPie = selectedDate || formatDateKey(new Date());
 
     sortedCheckIns.forEach(c => {
@@ -122,14 +121,11 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       const duration = c.duration || 0;
 
       if (c.isPenalty) {
-          totalPenaltyMinutes += duration; // Assuming penalty logic sets duration
+          totalPenaltyMinutes += duration; 
       } else {
-          // Pie Chart Logic: Filter by selected date (or today)
           if (dateKey === targetDateForPie) {
              subjectDuration[c.subject] = (subjectDuration[c.subject] || 0) + duration;
           }
-          
-          // Bar Chart Logic: All history
           const barKey = new Date(c.timestamp).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
           dateDuration[barKey] = (dateDuration[barKey] || 0) + duration;
           totalStudyMinutes += duration;
@@ -151,14 +147,11 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   }, [selectedUserCheckIns, selectedDate]);
 
   const ratingChartData = useMemo(() => {
-      // Group by date and take the LAST rating of that day to show cumulative progress
       const dailyRatings = new Map<string, { rating: number, reason: string }>();
-
       const sorted = [...ratingHistory].sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime());
       
       sorted.forEach(r => {
           const dateKey = new Date(r.recorded_at).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
-          // Overwrite to keep the latest for the day
           dailyRatings.set(dateKey, { rating: r.rating, reason: r.change_reason || '' });
       });
 
@@ -198,18 +191,18 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
     onShowToast("目标已删除", 'info');
   };
 
-  const handleLogStudy = async () => {
-    if (!logContent.trim()) return;
+  const executeLogStudy = async (contentStr: string, subjectVal: SubjectCategory, durationVal: number) => {
+    if (!contentStr.trim()) return;
     setIsLogging(true);
     
     let ratingChange = 0;
     let newRating = currentUser.rating || 1200;
 
     if (logMode === 'study') {
-        ratingChange = Math.floor(logDuration / 10) + 1;
+        ratingChange = Math.floor(durationVal / 10) + 1;
         newRating += ratingChange;
     } else {
-        ratingChange = -Math.round((logDuration / 10) * 1.5) - 1;
+        ratingChange = -Math.round((durationVal / 10) * 1.5) - 1;
         newRating += ratingChange;
     }
 
@@ -220,9 +213,9 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       userAvatar: currentUser.avatar,
       userRating: newRating,
       userRole: currentUser.role,
-      subject: logMode === 'study' ? logSubject : SubjectCategory.OTHER,
-      content: logContent,
-      duration: logDuration,
+      subject: logMode === 'study' ? subjectVal : SubjectCategory.OTHER,
+      content: contentStr,
+      duration: durationVal,
       isPenalty: logMode === 'penalty',
       timestamp: Date.now(),
       likedBy: []
@@ -230,7 +223,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
 
     try {
       await storage.addCheckIn(newCheckIn);
-      const reason = logMode === 'study' ? `专注学习 ${logDuration} 分钟` : `摸鱼/娱乐 ${logDuration} 分钟 (扣分)`;
+      const reason = logMode === 'study' ? `专注学习 ${durationVal} 分钟` : `摸鱼/娱乐 ${durationVal} 分钟 (扣分)`;
       await storage.updateRating(currentUser.id, newRating, reason);
       
       const updatedUser = { ...currentUser, rating: newRating };
@@ -256,6 +249,10 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
     } finally {
       setIsLogging(false);
     }
+  }
+
+  const handleLogStudy = async () => {
+      await executeLogStudy(logContent, logSubject, logDuration);
   };
 
   const saveMotto = () => {
@@ -403,12 +400,21 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   }
 
   return (
-    <div className="space-y-6 pb-24 animate-fade-in">
+    <div className="space-y-6 pb-24 animate-fade-in relative">
+      
+      {/* Full Screen Editor Portal */}
+      <FullScreenEditor 
+          isOpen={isFullScreen}
+          onClose={() => setIsFullScreen(false)}
+          initialContent={logContent}
+          initialSubject={logSubject}
+          initialDuration={logDuration}
+          onSave={executeLogStudy}
+      />
       
       {/* --- Row 1: Profile & Key Stats --- */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-           
-           {/* Profile Card (Span 6) */}
+           {/* ... Profile Card content unchanged ... */}
            <div className="lg:col-span-6 bg-white/80 backdrop-blur-xl rounded-[2rem] p-6 border border-white shadow-xl shadow-gray-100/50 relative overflow-hidden flex flex-col justify-between group transition-all hover:shadow-2xl hover:shadow-brand-100/50">
                {/* User Switcher */}
                <div className="absolute top-6 right-6 z-20">
@@ -541,19 +547,30 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                             <Clock className={`w-5 h-5 ${logMode === 'penalty' ? 'text-red-500' : 'text-blue-500'}`} /> 
                             {logMode === 'study' ? '记录学习成果' : '摸鱼忏悔室'}
                         </h3>
-                        <div className="bg-gray-100/80 p-1 rounded-xl flex text-xs font-bold shadow-inner">
+                        <div className="flex items-center gap-3">
+                            {/* Full Screen Toggle */}
                             <button 
-                                onClick={() => setLogMode('study')}
-                                className={`px-4 py-1.5 rounded-lg transition-all ${logMode === 'study' ? 'bg-white text-brand-600 shadow-sm scale-105' : 'text-gray-500 hover:text-gray-700'}`}
+                                onClick={() => setIsFullScreen(true)}
+                                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                                title="全屏沉浸模式"
                             >
-                                🔥 学习
+                                <Maximize2 className="w-4 h-4" />
                             </button>
-                            <button 
-                                onClick={() => setLogMode('penalty')}
-                                className={`px-4 py-1.5 rounded-lg transition-all ${logMode === 'penalty' ? 'bg-white text-red-600 shadow-sm scale-105' : 'text-gray-500 hover:text-gray-700'}`}
-                            >
-                                😴 摸鱼
-                            </button>
+                            
+                            <div className="bg-gray-100/80 p-1 rounded-xl flex text-xs font-bold shadow-inner">
+                                <button 
+                                    onClick={() => setLogMode('study')}
+                                    className={`px-4 py-1.5 rounded-lg transition-all ${logMode === 'study' ? 'bg-white text-brand-600 shadow-sm scale-105' : 'text-gray-500 hover:text-gray-700'}`}
+                                >
+                                    🔥 学习
+                                </button>
+                                <button 
+                                    onClick={() => setLogMode('penalty')}
+                                    className={`px-4 py-1.5 rounded-lg transition-all ${logMode === 'penalty' ? 'bg-white text-red-600 shadow-sm scale-105' : 'text-gray-500 hover:text-gray-700'}`}
+                                >
+                                    😴 摸鱼
+                                </button>
+                            </div>
                         </div>
                     </div>
                     
@@ -678,17 +695,19 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           </div>
       </div>
 
+      {/* ... Row 3, 4, 5 unchanged ... */}
+      {/* ... (Keeping the rest of the Dashboard component as provided previously, assuming standard structure) ... */}
       {/* --- Row 3: Charts --- */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Rating Line Chart (Span 8) */}
           <div className="lg:col-span-8 bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm">
                 <div className="flex justify-between items-center mb-6">
                      <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
                         <TrendingUp className="w-5 h-5 text-red-500" /> Rating 积分趋势
                     </h3>
-                    <div className="text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded">每日结算</div>
+                    <div className="text-[10px] text-gray-400 bg-gray-50 px-2 py-1 rounded flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" /> 触发：打卡或凌晨4点结算
+                    </div>
                 </div>
-               
                 <div className="h-64">
                     {ratingChartData.length > 1 ? (
                         <ResponsiveContainer width="100%" height="100%">
@@ -702,20 +721,8 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
                                 <XAxis dataKey="date" tick={{fontSize: 10, fill: '#9ca3af'}} tickLine={false} axisLine={false} minTickGap={30} />
                                 <YAxis domain={['auto', 'auto']} tick={{fontSize: 10, fill: '#9ca3af'}} tickLine={false} axisLine={false} />
-                                <Tooltip 
-                                    contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
-                                    itemStyle={{color: '#ef4444', fontWeight: 'bold'}}
-                                />
-                                <Area 
-                                    type="monotone" 
-                                    dataKey="rating" 
-                                    stroke="#ef4444" 
-                                    strokeWidth={3}
-                                    fillOpacity={1} 
-                                    fill="url(#colorRating)"
-                                    dot={{r: 3, fill: '#ef4444', strokeWidth: 2, stroke: '#fff'}} 
-                                    activeDot={{r: 6}} 
-                                />
+                                <Tooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} itemStyle={{color: '#ef4444', fontWeight: 'bold'}} />
+                                <Area type="monotone" dataKey="rating" stroke="#ef4444" strokeWidth={3} fillOpacity={1} fill="url(#colorRating)" dot={{r: 3, fill: '#ef4444', strokeWidth: 2, stroke: '#fff'}} activeDot={{r: 6}} />
                             </AreaChart>
                         </ResponsiveContainer>
                     ) : (
@@ -726,8 +733,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                     )}
                 </div>
           </div>
-
-          {/* Subject Distribution Pie (Span 4) */}
           <div className="lg:col-span-4 bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm flex flex-col">
                 <div className="mb-6">
                     <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
@@ -737,22 +742,11 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                         {stats.targetDateForPie === formatDateKey(new Date()) ? '今日' : stats.targetDateForPie} 数据
                     </p>
                 </div>
-                
                 <div className="flex-1 min-h-[200px] relative">
                     {stats.pieData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
-                            <Pie 
-                                data={stats.pieData} 
-                                cx="50%" 
-                                cy="50%" 
-                                innerRadius={60} 
-                                outerRadius={80} 
-                                paddingAngle={5} 
-                                dataKey="value" 
-                                label={false}
-                                stroke="none"
-                            >
+                            <Pie data={stats.pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" label={false} stroke="none">
                             {stats.pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
                             </Pie>
                             <Tooltip formatter={(value: number) => `${Math.floor(value/60)}h ${value%60}m`} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
@@ -776,9 +770,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           </div>
       </div>
 
-      {/* --- Row 4: Daily Stats & Calendar --- */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Daily Bar Chart (Span 8) */}
           <div className="lg:col-span-8 bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm h-80">
                 <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2 text-sm">
                     <Clock className="w-5 h-5 text-blue-500" /> 每日学习时长 (小时)
@@ -802,8 +794,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                     )}
                 </div>
           </div>
-
-          {/* Calendar (Span 4) */}
           <div className="lg:col-span-4 bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm">
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
@@ -818,7 +808,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                         <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all"><ChevronRight className="w-4 h-4" /></button>
                     </div>
                 </div>
-                
                 <div className="grid grid-cols-7 gap-2">
                     {['日', '一', '二', '三', '四', '五', '六'].map(d => (
                         <div key={d} className="text-center text-[10px] text-gray-400 font-bold py-1 uppercase">{d}</div>
@@ -832,7 +821,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           </div>
       </div>
 
-      {/* --- Row 5: Check-in List --- */}
       <div className="bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm">
              <div className="flex justify-between items-center mb-6">
                 <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
@@ -848,7 +836,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                     </button>
                 )}
              </div>
-             
              <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
                  {displayedCheckIns.length > 0 ? (
                     displayedCheckIns.map(checkIn => (

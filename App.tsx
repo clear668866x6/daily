@@ -217,6 +217,17 @@ const App: React.FC = () => {
       setUser(updatedUser);
   };
 
+  const handleUpdateCheckIn = async (id: string, newContent: string) => {
+    setCheckIns(prev => prev.map(c => c.id === id ? { ...c, content: newContent } : c));
+    try {
+        await storage.updateCheckIn(id, newContent);
+        showToast("已更新", 'success');
+    } catch (e) {
+        showToast("更新失败", 'error');
+        refreshData();
+    }
+  }
+
   const handleAddCheckIn = async (newCheckIn: CheckIn) => {
     if (user?.role === 'guest') {
       showToast("访客模式无法发布打卡", 'error');
@@ -291,7 +302,7 @@ const App: React.FC = () => {
     await storage.toggleLike(checkInId, user.id);
   };
 
-  const handleAutoCheckIn = (subject: SubjectCategory, content: string) => {
+  const handleAutoCheckIn = (subject: SubjectCategory, content: string, duration?: number) => {
     if (!user) return;
     if (user.role === 'guest') {
       showToast("访客模式无法自动打卡", 'error');
@@ -306,6 +317,7 @@ const App: React.FC = () => {
       userRole: user.role,
       subject,
       content,
+      duration: duration || 0,
       timestamp: Date.now(),
       likedBy: []
     };
@@ -363,6 +375,7 @@ const App: React.FC = () => {
                 currentUser={user} 
                 onUpdateUser={handleUpdateUser} 
                 onShowToast={showToast}
+                onUpdateCheckIn={handleUpdateCheckIn}
               />
             </div>
           )}
@@ -382,6 +395,7 @@ const App: React.FC = () => {
                 onAddCheckIn={handleAddCheckIn}
                 onDeleteCheckIn={handleDeleteCheckInTrigger}
                 onLike={handleLike}
+                onUpdateCheckIn={handleUpdateCheckIn}
               />
             </div>
           )}

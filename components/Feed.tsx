@@ -2,7 +2,8 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { CheckIn, SubjectCategory, User, getUserStyle } from '../types'; 
 import { MarkdownText } from './MarkdownText';
-import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Calculator, BookOpen, ScrollText, Cpu, Code2, Sparkles, Trash2, Pin } from 'lucide-react';
+import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Calculator, BookOpen, ScrollText, Cpu, Code2, Sparkles, Trash2, Pin, Save, Columns } from 'lucide-react';
+import { FullScreenEditor } from './FullScreenEditor';
 
 interface Props {
   checkIns: CheckIn[];
@@ -10,6 +11,7 @@ interface Props {
   onAddCheckIn: (checkIn: CheckIn) => void;
   onLike: (id: string) => void;
   onDeleteCheckIn: (id: string) => void;
+  onUpdateCheckIn: (id: string, content: string) => void;
 }
 
 // 1. 智能筛选配置
@@ -23,14 +25,17 @@ const FILTER_GROUPS = [
     { id: 'ALGORITHM', label: '算法训练', icon: Code2, subjects: [SubjectCategory.ALGORITHM], color: 'text-amber-500' },
 ];
 
-export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, onDeleteCheckIn }) => {
+export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, onDeleteCheckIn, onUpdateCheckIn }) => {
   const [content, setContent] = useState('');
   const [subject, setSubject] = useState<SubjectCategory>(SubjectCategory.MATH);
   const [image, setImage] = useState<string | null>(null);
   const [isPreview, setIsPreview] = useState(false);
-  const [isAnnouncement, setIsAnnouncement] = useState(false); // 新增：是否为公告
+  const [isAnnouncement, setIsAnnouncement] = useState(false); 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeFilterId, setActiveFilterId] = useState('ALL');
+
+  // Edit State
+  const [editingCheckIn, setEditingCheckIn] = useState<CheckIn | null>(null);
 
   const isGuest = user.role === 'guest';
   const isAdmin = user.role === 'admin';
@@ -85,6 +90,13 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const handleSaveEdit = (newContent: string) => {
+      if (editingCheckIn) {
+          onUpdateCheckIn(editingCheckIn.id, newContent);
+          setEditingCheckIn(null);
+      }
+  }
+
   // 3. 筛选逻辑：分离公告和普通动态
   const { announcements, regularPosts } = useMemo(() => {
     // 强制类型转换以确保 bool
@@ -114,6 +126,7 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
     const isOfficial = checkIn.userRole === 'admin';
     const isOwner = user.id === checkIn.userId;
     const canDelete = isOwner || isAdmin;
+    const canEdit = isOwner || isAdmin;
 
     const nameStyle = getUserStyle(checkIn.userRole || 'user', checkIn.userRating || 1200);
     const subjectTheme = getSubjectTheme(checkIn.subject);
@@ -173,7 +186,7 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                     </div>
                 </div>
                 
-                {/* Subject Badge (Only for regular posts or if relevant) */}
+                {/* Subject Badge */}
                 {!isPinned && (
                     <div className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border ${subjectTheme} flex items-center gap-1.5`}>
                         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50"></span>
@@ -182,7 +195,6 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                 )}
             </div>
 
-            {/* Content */}
             <div className={`mb-4 text-sm leading-relaxed relative z-10 pl-1 ${isPinned ? 'text-gray-900 font-medium' : 'text-gray-800'}`}>
                 <MarkdownText content={checkIn.content} />
             </div>
@@ -201,35 +213,59 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
             {/* Footer Actions */}
             <div className={`flex items-center gap-6 pt-4 border-t ${isPinned ? 'border-indigo-100' : 'border-gray-50'} relative z-10`}>
                 <button 
-                  onClick={() => onLike(checkIn.id)}
-                  disabled={isGuest}
-                  className={`flex items-center gap-2 text-sm font-medium transition-all group/btn ${
-                      isLiked ? 'text-rose-500' : 'text-gray-400 hover:text-gray-600'
-                  } ${isGuest ? 'cursor-not-allowed opacity-50' : ''}`}
+                onClick={() => onLike(checkIn.id)}
+                disabled={isGuest}
+                className={`flex items-center gap-2 text-sm font-medium transition-all group/btn ${
+                    isLiked ? 'text-rose-500' : 'text-gray-400 hover:text-gray-600'
+                } ${isGuest ? 'cursor-not-allowed opacity-50' : ''}`}
                 >
                     <div className={`p-1.5 rounded-full transition-colors ${isLiked ? 'bg-rose-50' : 'group-hover/btn:bg-gray-100'}`}>
-                      <ThumbsUp className={`w-4 h-4 ${isLiked ? 'fill-current' : ''}`} />
+                    <ThumbsUp className={`w-4 h-4 ${isLiked ? 'fill-current' : ''}`} />
                     </div>
                     <span>{likeCount || '赞'}</span>
                 </button>
-
-                 {canDelete && (
-                     <button 
-                        onClick={() => onDeleteCheckIn(checkIn.id)}
-                        className="text-gray-300 hover:text-red-500 ml-auto transition-colors p-1.5 rounded-full hover:bg-red-50"
-                        title="删除这条动态"
-                     >
-                          <Trash2 className="w-4 h-4" />
-                     </button>
-                 )}
+                
+                <div className="ml-auto flex items-center gap-2">
+                    {canEdit && (
+                        <button 
+                            onClick={() => setEditingCheckIn(checkIn)}
+                            className="text-gray-300 hover:text-brand-500 transition-colors p-1.5 rounded-full hover:bg-brand-50"
+                            title="编辑"
+                        >
+                            <Edit2 className="w-4 h-4" />
+                        </button>
+                    )}
+                    {canDelete && (
+                        <button 
+                            onClick={() => onDeleteCheckIn(checkIn.id)}
+                            className="text-gray-300 hover:text-red-500 transition-colors p-1.5 rounded-full hover:bg-red-50"
+                            title="删除"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                        </button>
+                    )}
+                </div>
             </div>
         </div>
     );
   };
 
   return (
-    <div className="max-w-3xl mx-auto pb-20">
+    <div className="max-w-3xl mx-auto pb-20 relative">
       
+      {/* Edit Modal / Full Screen */}
+      <FullScreenEditor 
+          isOpen={!!editingCheckIn}
+          onClose={() => setEditingCheckIn(null)}
+          initialContent={editingCheckIn?.content || ''}
+          initialSubject={editingCheckIn?.subject}
+          initialDuration={editingCheckIn?.duration || 0}
+          allowDurationEdit={false} // Duration immutable
+          onSave={handleSaveEdit}
+          title="修改打卡日志"
+          submitLabel="保存修改"
+      />
+
       {/* 4. 发布区域 */}
       <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-1 mb-8">
         {isGuest ? (

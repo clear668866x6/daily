@@ -2,14 +2,14 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { User, AlgorithmTask, AlgorithmSubmission, SubjectCategory } from '../types';
 import * as storage from '../services/storageService';
-import { Code, CheckCircle, Send, Play, Lock, FileCode, Loader2, ChevronDown, ChevronLeft, ChevronRight, Megaphone, PlusCircle, Terminal, Zap, Trophy, Layout, Cpu, Award, X, Moon, Star, Flame } from 'lucide-react';
+import { Code, CheckCircle, Send, Play, Lock, FileCode, Loader2, ChevronDown, ChevronLeft, ChevronRight, Megaphone, PlusCircle, Terminal, Zap, Trophy, Layout, Cpu, Award, X, Moon, Star, Flame, Clock } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { ToastType } from './Toast';
 import { Fireworks } from './Fireworks'; 
 
 interface Props {
   user: User;
-  onCheckIn: (subject: SubjectCategory, content: string) => void;
+  onCheckIn: (subject: SubjectCategory, content: string, duration?: number) => void;
   onShowToast: (message: string, type: ToastType) => void;
 }
 
@@ -69,7 +69,7 @@ const ACHIEVEMENTS: Achievement[] = [
         description: '在深夜 (23:00 - 04:00) 提交并通过代码',
         icon: Moon,
         color: 'text-indigo-600 bg-indigo-100',
-        condition: (s) => false // Dynamic check handled in submission logic
+        condition: (s) => false 
     }
 ];
 
@@ -81,13 +81,11 @@ const highlightCode = (code: string) => {
     const types = /\b(Solution|vector|map|set|List|ArrayList|String|Array|Object)\b/g;
     
     return code.split('\n').map((line, i) => {
-        // 1. Escape HTML entities first
         let processed = line
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;");
 
-        // 2. Separate Comments from Code to avoid overlapping replacements
         const commentMatch = processed.match(/(\/\/|#)/);
         let commentIndex = commentMatch ? commentMatch.index : -1;
         
@@ -99,17 +97,14 @@ const highlightCode = (code: string) => {
             commentPart = processed.substring(commentIndex);
         }
 
-        // 3. Highlight Keywords/Types only in the code part
         codePart = codePart
-            .replace(keywords, '<span class="text-purple-600 font-bold">$&</span>')
-            .replace(types, '<span class="text-yellow-600">$&</span>');
+            .replace(keywords, '<span class="text-purple-400 font-bold">$&</span>')
+            .replace(types, '<span class="text-yellow-400">$&</span>');
 
-        // 4. Highlight Comment part
         if (commentPart) {
-            commentPart = `<span class="text-gray-400 italic">${commentPart}</span>`;
+            commentPart = `<span class="text-gray-500 italic">${commentPart}</span>`;
         }
 
-        // Recombine
         const finalHtml = codePart + commentPart;
 
         return <div key={i} className="whitespace-pre min-h-[1.5rem]" dangerouslySetInnerHTML={{__html: finalHtml || ' '}} />;
@@ -137,6 +132,10 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   const [showFireworks, setShowFireworks] = useState(false); 
   const [showAchievementModal, setShowAchievementModal] = useState(false);
   const [newlyUnlocked, setNewlyUnlocked] = useState<Achievement | null>(null);
+
+  // Check-in Duration Modal State
+  const [showCheckInModal, setShowCheckInModal] = useState(false);
+  const [checkInDuration, setCheckInDuration] = useState<number>(30);
 
   // Admin State
   const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -185,12 +184,10 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   const handleEditorScroll = () => {
       if (editorRef.current) {
           const { scrollTop, scrollLeft } = editorRef.current;
-          // Sync Highlighter
           if (highlighterRef.current) {
               highlighterRef.current.scrollTop = scrollTop;
               highlighterRef.current.scrollLeft = scrollLeft;
           }
-          // Sync Line Numbers
           if (lineNumbersRef.current) {
               lineNumbersRef.current.scrollTop = scrollTop;
           }
@@ -301,7 +298,6 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       
       // Trigger Fireworks
       setShowFireworks(true);
-      // Auto close after 6 seconds if no interaction
       setTimeout(() => setShowFireworks(false), 6000);
 
       // Check achievements
@@ -348,13 +344,17 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       return uniqueSolvedTaskIds.size;
   }, [submissions]);
 
-  const handleDailyCheckIn = () => {
-    if (isGuest) return;
-    if (!isSelectedDateToday) return;
-    if (!isSelectedDateAllDone) return;
-    
-    const content = `## 每日算法打卡 💻\n\n**今日成就：**\n我完成了 ${selectedDate} 的 ${selectedDateTasks.length} 道算法挑战！使用语言：${LANGUAGES[language].name}\n\n**题目列表：**\n${selectedDateTasks.map(t => `- [AC] ${t.title}`).join('\n')}\n\n代码已提交通过，坚持就是胜利！🚀`;
-    onCheckIn(SubjectCategory.ALGORITHM, content);
+  const handleOpenCheckInModal = () => {
+      if (isGuest) return;
+      if (!isSelectedDateToday) return;
+      if (!isSelectedDateAllDone) return;
+      setShowCheckInModal(true);
+  }
+
+  const confirmCheckIn = () => {
+    const content = `## 每日算法打卡 💻\n\n**今日成就：**\n我完成了 ${selectedDate} 的 ${selectedDateTasks.length} 道算法挑战！使用语言：${LANGUAGES[language].name}\n\n**题目列表：**\n${selectedDateTasks.map(t => `- [AC] ${t.title}`).join('\n')}\n\n**耗时：** ${checkInDuration} 分钟\n\n代码已提交通过，坚持就是胜利！🚀`;
+    onCheckIn(SubjectCategory.ALGORITHM, content, checkInDuration);
+    setShowCheckInModal(false);
   };
 
   const renderCalendar = () => {
@@ -408,16 +408,16 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
             <div className="flex justify-between items-center relative z-10">
                 <span className={`font-bold text-sm truncate pr-2 ${isActive ? 'text-indigo-900' : 'text-gray-700'}`}>{task.title}</span>
                 {isDone ? (
-                    <CheckCircle className="w-4 h-4 text-green-500 fill-green-100" />
+                    <div className="bg-green-100 text-green-700 p-0.5 rounded-full"><CheckCircle className="w-3.5 h-3.5" /></div>
                 ) : (
                     <div className="w-4 h-4 rounded-full border-2 border-gray-200 group-hover:border-indigo-200 transition-colors"></div>
                 )}
             </div>
             <div className="flex justify-between items-center mt-2">
-                <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${
-                    task.difficulty === 'Easy' ? 'bg-green-100 text-green-700' :
-                    task.difficulty === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
-                    'bg-red-100 text-red-700'
+                <span className={`text-[10px] px-2 py-0.5 rounded font-medium border ${
+                    task.difficulty === 'Easy' ? 'bg-green-50 text-green-600 border-green-100' :
+                    task.difficulty === 'Medium' ? 'bg-yellow-50 text-yellow-600 border-yellow-100' :
+                    'bg-red-50 text-red-600 border-red-100'
                 }`}>
                     {task.difficulty}
                 </span>
@@ -447,6 +447,41 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                       <div className="text-yellow-500 font-black text-xs uppercase tracking-[0.2em] mb-1">New Achievement</div>
                       <div className="font-bold text-2xl text-gray-800">{newlyUnlocked.title}</div>
                       <div className="text-sm text-gray-500 mt-1 font-medium">{newlyUnlocked.description}</div>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Time Input Modal */}
+      {showCheckInModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 transform scale-100 transition-all">
+                  <div className="text-center mb-6">
+                      <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                          <Clock className="w-6 h-6 text-green-600" />
+                      </div>
+                      <h3 className="text-lg font-bold text-gray-800">恭喜全部 AC！</h3>
+                      <p className="text-gray-500 text-sm mt-1">记录一下今天攻克这些难题花了多久吧</p>
+                  </div>
+                  
+                  <div className="flex items-center justify-center gap-2 mb-6">
+                      <input 
+                          type="number" 
+                          value={checkInDuration} 
+                          onChange={(e) => setCheckInDuration(parseInt(e.target.value) || 0)}
+                          className="w-24 text-center text-2xl font-bold border-b-2 border-indigo-200 focus:border-indigo-500 focus:outline-none text-indigo-600"
+                          autoFocus
+                      />
+                      <span className="text-gray-400 font-bold">分钟</span>
+                  </div>
+
+                  <div className="flex gap-3">
+                      <button onClick={() => setShowCheckInModal(false)} className="flex-1 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors">
+                          稍后
+                      </button>
+                      <button onClick={confirmCheckIn} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">
+                          确认打卡
+                      </button>
                   </div>
               </div>
           </div>
@@ -572,7 +607,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                     </span>
                 </div>
                 
-                <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
+                <div className="flex-1 overflow-y-auto p-3 custom-scrollbar bg-gray-50/30">
                     {isLoading ? (
                         <div className="flex justify-center p-10"><Loader2 className="animate-spin text-indigo-400"/></div> 
                     ) : (
@@ -591,10 +626,10 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
 
                 {/* Check-in Action */}
                 {isSelectedDateToday && selectedDateTasks.length > 0 && (
-                    <div className="p-3 border-t border-gray-100">
+                    <div className="p-3 border-t border-gray-100 bg-white">
                         <button
                             disabled={!isSelectedDateAllDone || isGuest}
-                            onClick={handleDailyCheckIn}
+                            onClick={handleOpenCheckInModal}
                             className={`w-full py-3 rounded-xl font-bold text-sm flex justify-center items-center gap-2 transition-all shadow-sm ${
                                 isSelectedDateAllDone && !isGuest 
                                 ? 'bg-green-600 text-white hover:bg-green-700 shadow-green-200' 
@@ -639,20 +674,20 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                     </div>
                 </div>
                 
-                {/* Code Editor Panel */}
-                <div className="flex-1 flex flex-col relative bg-white min-h-0">
-                    <div className="h-8 bg-gray-50 border-b border-gray-200 flex items-center px-4 gap-4 text-xs text-gray-500 select-none">
-                        <span className="flex items-center gap-1.5"><FileCode className="w-3 h-3"/> main.{language === 'python' ? 'py' : language === 'javascript' ? 'js' : language === 'java' ? 'java' : 'cpp'}</span>
-                        <span className="text-gray-300">|</span>
-                        <span>UTF-8</span>
-                        <span className="ml-auto text-green-600 flex items-center gap-1"><Zap className="w-3 h-3"/> Auto-saved</span>
+                {/* Code Editor Panel - Dark Mode IDE Style */}
+                <div className="flex-1 flex flex-col relative bg-[#1e1e1e] min-h-0 text-gray-300">
+                    <div className="h-8 bg-[#252526] border-b border-[#3e3e42] flex items-center px-4 gap-4 text-xs select-none">
+                        <span className="flex items-center gap-1.5 text-blue-400"><FileCode className="w-3 h-3"/> main.{language === 'python' ? 'py' : language === 'javascript' ? 'js' : language === 'java' ? 'java' : 'cpp'}</span>
+                        <span className="text-gray-600">|</span>
+                        <span className="text-gray-500">UTF-8</span>
+                        <span className="ml-auto text-green-500 flex items-center gap-1"><Zap className="w-3 h-3"/> Auto-saved</span>
                     </div>
 
                     <div className="flex-1 relative overflow-hidden flex text-sm font-mono group min-h-0">
                         {/* Line Numbers */}
                         <div 
                             ref={lineNumbersRef}
-                            className="w-10 bg-gray-50/50 border-r border-gray-100 text-gray-400 text-right py-4 pr-2 select-none shrink-0 leading-6 z-10 overflow-hidden"
+                            className="w-10 bg-[#1e1e1e] border-r border-[#3e3e42] text-gray-600 text-right py-4 pr-2 select-none shrink-0 leading-6 z-10 overflow-hidden"
                         >
                             {(code || '').split('\n').map((_, i) => (
                                 <div key={i}>{i + 1}</div>
@@ -664,7 +699,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                             {/* Highlight Layer */}
                             <div 
                                 ref={highlighterRef}
-                                className="absolute inset-0 p-4 pointer-events-none whitespace-pre overflow-hidden text-gray-800 leading-6" 
+                                className="absolute inset-0 p-4 pointer-events-none whitespace-pre overflow-hidden text-gray-100 leading-6" 
                                 aria-hidden="true"
                                 style={{ fontFamily: 'Menlo, Monaco, Consolas, "Courier New", monospace' }}
                             >
@@ -680,15 +715,15 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                                 readOnly={isGuest}
                                 spellCheck={false}
                                 placeholder="// Write your solution here..."
-                                className={`absolute inset-0 w-full h-full p-4 bg-transparent text-transparent caret-indigo-600 resize-none focus:outline-none whitespace-pre overflow-auto leading-6 selection:bg-indigo-100/50 ${isGuest ? 'cursor-not-allowed opacity-50' : ''}`}
+                                className={`absolute inset-0 w-full h-full p-4 bg-transparent text-transparent caret-white resize-none focus:outline-none whitespace-pre overflow-auto leading-6 selection:bg-blue-500/30 ${isGuest ? 'cursor-not-allowed opacity-50' : ''}`}
                                 style={{ fontFamily: 'Menlo, Monaco, Consolas, "Courier New", monospace' }}
                             />
                         </div>
 
                         {isGuest && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[2px] z-20">
-                                <div className="bg-white px-6 py-4 rounded-xl border border-gray-200 shadow-xl flex flex-col items-center text-gray-500">
-                                    <Lock className="w-8 h-8 mb-2 text-gray-300" />
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-[1px] z-20">
+                                <div className="bg-[#252526] px-6 py-4 rounded-xl border border-[#3e3e42] shadow-xl flex flex-col items-center text-gray-400">
+                                    <Lock className="w-8 h-8 mb-2 text-gray-500" />
                                     <p className="font-bold text-sm">访客模式不可编辑</p>
                                 </div>
                             </div>

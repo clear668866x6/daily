@@ -296,6 +296,15 @@ export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
   }
 };
 
+export const updateCheckIn = async (checkInId: string, content: string): Promise<void> => {
+    const { error } = await supabase
+        .from('checkins')
+        .update({ content })
+        .eq('id', checkInId);
+
+    if (error) throw error;
+};
+
 export const deleteCheckIn = async (checkInId: string): Promise<number> => {
     const { data: checkIn, error: fetchError } = await supabase
         .from('checkins')
