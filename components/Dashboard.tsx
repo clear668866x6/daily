@@ -3,7 +3,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { CheckIn, User, Goal, SubjectCategory, RatingHistory, getUserStyle, getTitleName } from '../types';
 import * as storage from '../services/storageService';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, AreaChart, Area } from 'recharts';
-import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, EyeOff, BrainCircuit, ChevronDown, UserCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, CalendarCheck, Flag, Sparkles, Activity, Maximize2 } from 'lucide-react';
+import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, EyeOff, BrainCircuit, ChevronDown, UserCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, CalendarCheck, Flag, Sparkles, Activity, Maximize2, Filter, X } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { ToastType } from './Toast';
 import { FullScreenEditor } from './FullScreenEditor';
@@ -52,6 +52,10 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   // Calendar State
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  // List Filters State
+  const [listFilterSubject, setListFilterSubject] = useState<string>('ALL');
+  const [listFilterDate, setListFilterDate] = useState<string>('');
 
   // Exam Date State
   const defaultTarget = "2025-12-20"; 
@@ -292,14 +296,23 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
 
   const displayedCheckIns = useMemo(() => {
       let list = selectedUserCheckIns;
+      
+      // Filter by Calendar Click (Overrides other date filter if set)
       if (selectedDate) {
-          list = list.filter(c => {
-              const checkInDate = formatDateKey(c.timestamp);
-              return checkInDate === selectedDate;
-          });
+          list = list.filter(c => formatDateKey(c.timestamp) === selectedDate);
+      } 
+      // Filter by Log List Date Picker
+      else if (listFilterDate) {
+          list = list.filter(c => formatDateKey(c.timestamp) === listFilterDate);
       }
-      return list.sort((a, b) => b.timestamp - a.timestamp).slice(0, 20); 
-  }, [selectedUserCheckIns, selectedDate]);
+
+      // Filter by Subject
+      if (listFilterSubject !== 'ALL') {
+          list = list.filter(c => c.subject === listFilterSubject);
+      }
+
+      return list.sort((a, b) => b.timestamp - a.timestamp).slice(0, 50); // Increased limit slightly
+  }, [selectedUserCheckIns, selectedDate, listFilterSubject, listFilterDate]);
 
   const renderCalendar = () => {
     const { daysInMonth, firstDayOfWeek, year, month } = getDaysInMonth(currentMonth);
@@ -319,7 +332,13 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
         cells.push(
             <button
                 key={dateStr}
-                onClick={() => setSelectedDate(isSelected ? null : dateStr)}
+                onClick={() => {
+                    setSelectedDate(isSelected ? null : dateStr);
+                    // Clear list filters when using calendar for clarity
+                    if (!isSelected) {
+                        setListFilterDate('');
+                    }
+                }}
                 className={`h-9 w-9 rounded-xl flex flex-col items-center justify-center text-xs relative transition-all group
                     ${isSelected ? 'bg-brand-600 text-white shadow-lg shadow-brand-200 scale-105 z-10' : 'text-gray-700 hover:bg-white hover:shadow-sm'}
                     ${isToday && !isSelected ? 'text-brand-600 font-bold border border-brand-200 bg-brand-50' : ''}
@@ -340,12 +359,45 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const ratingColorClass = getUserStyle(selectedUser.role, selectedUser.rating ?? 1200);
   const titleName = getTitleName(selectedUser.role, selectedUser.rating ?? 1200);
 
-  // Admin View: Leaderboard
-  if (isAdmin) {
-      const leaderboardUsers = [...allUsers].sort((a, b) => (b.rating ?? 1200) - (a.rating ?? 1200));
-
-      return (
+  // Admin View: Leaderboard (Keep code same as provided context)
+  if (isAdmin && !isViewingSelf && selectedUserId === 'admin-001') {
+      // ... (Rest of Admin leaderboard code)
+      // NOTE: Logic adjusted: Admin *can* view user profiles. 
+      // If selectedUserId is admin's own ID, show dashboard.
+      // If admin selects another user, show their dashboard. 
+      // Leaderboard is strictly when Admin is "viewing" Admin self? 
+      // Let's assume Admin always sees dashboard unless they specifically want leaderboard.
+      // Current implementation shows Leaderboard if `isAdmin` is true. 
+      // We should probably allow Admin to see their OWN stats or OTHERS.
+      // Let's modify the condition: If Admin selects 'admin-001' (Self), show Leaderboard? 
+      // Or make Leaderboard a separate tab?
+      // For now, preserving original logic: If Admin, show Leaderboard.
+      // BUT this conflicts with "Admin viewing user profile".
+      // Fix: Only show Leaderboard if `isAdmin` AND `selectedUserId === currentUser.id`.
+  }
+  
+  if (isAdmin && selectedUserId === currentUser.id) {
+        const leaderboardUsers = [...allUsers].sort((a, b) => (b.rating ?? 1200) - (a.rating ?? 1200));
+        return (
           <div className="space-y-6 animate-fade-in pb-20">
+              {/* User Switcher even on Leaderboard */}
+               <div className="flex justify-end">
+                   <div className="relative">
+                       <select 
+                           value={selectedUserId}
+                           onChange={(e) => setSelectedUserId(e.target.value)}
+                           className="appearance-none bg-white border border-gray-200 text-gray-600 py-2 pl-4 pr-10 rounded-full text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer hover:bg-gray-50 transition-colors shadow-sm"
+                       >
+                           {allUsers.map(u => (
+                               <option key={u.id} value={u.id}>
+                                   {u.id === currentUser.id ? '🏆 排行榜 (管理员)' : `👀 ${u.name}`}
+                               </option>
+                           ))}
+                       </select>
+                       <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                   </div>
+               </div>
+
               <div className="bg-white rounded-[2rem] p-8 border border-gray-100 shadow-sm">
                   <h2 className="text-2xl font-black text-gray-800 mb-6 flex items-center gap-2">
                       <Trophy className="w-6 h-6 text-yellow-500" /> 全员 Rating 排行榜
@@ -654,7 +706,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
             ) : (
                 <div className="bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm h-full flex flex-col items-center justify-center text-gray-400 bg-gray-50/50">
                     <UserCircle className="w-12 h-12 mb-3 opacity-20" />
-                    <p className="font-medium">你正在查看他人的主页</p>
+                    <p className="font-medium">你正在查看 {selectedUser.name} 的主页</p>
                     <p className="text-xs mt-1">仅本人可发布学习记录</p>
                 </div>
             )}
@@ -834,20 +886,55 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       </div>
 
       <div className="bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm">
-             <div className="flex justify-between items-center mb-6">
+             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                 <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
                     <ListTodo className="w-5 h-5 text-brand-600" /> 
                     {selectedDate ? `${selectedDate} 的记录` : '最近动态'}
                 </h3>
-                {selectedDate && (
-                    <button 
-                        onClick={() => setSelectedDate(null)} 
-                        className="text-xs bg-brand-50 text-brand-600 px-3 py-1.5 rounded-lg font-bold hover:bg-brand-100 transition-colors"
-                    >
-                        查看全部
-                    </button>
-                )}
+                
+                {/* Filters */}
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                    {/* Subject Filter */}
+                    <div className="relative">
+                        <Filter className="w-3 h-3 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <select 
+                            value={listFilterSubject}
+                            onChange={(e) => setListFilterSubject(e.target.value)}
+                            className="pl-8 pr-4 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-bold text-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500 appearance-none hover:bg-gray-100 cursor-pointer"
+                        >
+                            <option value="ALL">全部科目</option>
+                            {Object.values(SubjectCategory).map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                    </div>
+
+                    {/* Date Filter */}
+                    <div className="relative">
+                        <input 
+                            type="date"
+                            value={listFilterDate}
+                            onChange={(e) => {
+                                setListFilterDate(e.target.value);
+                                if (e.target.value) setSelectedDate(null); // Clear calendar selection if manual date used
+                            }}
+                            className="px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-bold text-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500 hover:bg-gray-100"
+                        />
+                    </div>
+
+                    {(selectedDate || listFilterDate || listFilterSubject !== 'ALL') && (
+                        <button 
+                            onClick={() => {
+                                setSelectedDate(null);
+                                setListFilterDate('');
+                                setListFilterSubject('ALL');
+                            }}
+                            className="text-xs bg-red-50 text-red-500 px-3 py-1.5 rounded-lg font-bold hover:bg-red-100 transition-colors flex items-center gap-1"
+                        >
+                            <X className="w-3 h-3" /> 重置
+                        </button>
+                    )}
+                </div>
              </div>
+
              <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
                  {displayedCheckIns.length > 0 ? (
                     displayedCheckIns.map(checkIn => (
@@ -877,9 +964,9 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                      <div className="text-center py-12 text-gray-400 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200">
                          <UserCircle className="w-10 h-10 mx-auto mb-3 opacity-20" />
                          <p className="text-sm">
-                            {selectedDate 
-                                ? `在 ${selectedDate} 这一天，${isViewingSelf ? '你' : 'TA'}似乎在休息` 
-                                : '暂无打卡记录，快去发布一条吧！'}
+                            {selectedDate || listFilterDate 
+                                ? `在该日期，${isViewingSelf ? '你' : 'TA'}似乎在休息` 
+                                : '暂无符合条件的打卡记录'}
                          </p>
                      </div>
                  )}

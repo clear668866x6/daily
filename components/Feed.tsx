@@ -2,7 +2,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { CheckIn, SubjectCategory, User, getUserStyle } from '../types'; 
 import { MarkdownText } from './MarkdownText';
-import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Calculator, BookOpen, ScrollText, Cpu, Code2, Sparkles, Trash2, Pin, Save, Columns, Clock } from 'lucide-react';
+import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Calculator, BookOpen, ScrollText, Cpu, Code2, Sparkles, Trash2, Pin, Save, Columns, Clock, Network, Database, HardDrive, LayoutGrid, Search, User as UserIcon, Calendar as CalendarIcon, ArrowLeft } from 'lucide-react';
 import { FullScreenEditor } from './FullScreenEditor';
 
 interface Props {
@@ -12,20 +12,24 @@ interface Props {
   onLike: (id: string) => void;
   onDeleteCheckIn: (id: string) => void;
   onUpdateCheckIn: (id: string, content: string) => void;
+  onViewUserProfile: (userId: string) => void;
 }
 
 // 1. 智能筛选配置
 const FILTER_GROUPS = [
-    { id: 'ALL', label: '全部动态', icon: Sparkles, color: 'text-brand-500' },
+    { id: 'ALL', label: '全部', icon: Sparkles, color: 'text-brand-500' },
     { id: 'ANNOUNCEMENT', label: '公告', icon: Megaphone, color: 'text-red-500' },
     { id: 'MATH', label: '数学', icon: Calculator, subjects: [SubjectCategory.MATH], color: 'text-blue-500' },
     { id: 'ENGLISH', label: '英语', icon: BookOpen, subjects: [SubjectCategory.ENGLISH], color: 'text-violet-500' },
     { id: 'POLITICS', label: '政治', icon: ScrollText, subjects: [SubjectCategory.POLITICS], color: 'text-rose-500' },
-    { id: 'CS_408', label: '专业课 408', icon: Cpu, subjects: [SubjectCategory.CS_DS, SubjectCategory.CS_CO, SubjectCategory.CS_OS, SubjectCategory.CS_CN], color: 'text-emerald-500' },
-    { id: 'ALGORITHM', label: '算法训练', icon: Code2, subjects: [SubjectCategory.ALGORITHM], color: 'text-amber-500' },
+    { id: 'CS_DS', label: 'DS', icon: LayoutGrid, subjects: [SubjectCategory.CS_DS], color: 'text-emerald-500' },
+    { id: 'CS_CO', label: 'CO', icon: Cpu, subjects: [SubjectCategory.CS_CO], color: 'text-emerald-600' },
+    { id: 'CS_OS', label: 'OS', icon: HardDrive, subjects: [SubjectCategory.CS_OS], color: 'text-emerald-700' },
+    { id: 'CS_CN', label: 'CN', icon: Network, subjects: [SubjectCategory.CS_CN], color: 'text-emerald-800' },
+    { id: 'ALGORITHM', label: '算法', icon: Code2, subjects: [SubjectCategory.ALGORITHM], color: 'text-amber-500' },
 ];
 
-export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, onDeleteCheckIn, onUpdateCheckIn }) => {
+export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, onDeleteCheckIn, onUpdateCheckIn, onViewUserProfile }) => {
   const [content, setContent] = useState('');
   const [subject, setSubject] = useState<SubjectCategory>(SubjectCategory.MATH);
   const [image, setImage] = useState<string | null>(null);
@@ -34,13 +38,18 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeFilterId, setActiveFilterId] = useState('ALL');
 
+  // Advanced Search State
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchUser, setSearchUser] = useState('');
+  const [searchDate, setSearchDate] = useState('');
+  const [searchSubject, setSearchSubject] = useState<string>('ALL');
+
   // Edit State
   const [editingCheckIn, setEditingCheckIn] = useState<CheckIn | null>(null);
 
   const isGuest = user.role === 'guest';
   const isAdmin = user.role === 'admin';
 
-  // 2. 辅助函数：根据科目获取主题色样式
   const getSubjectTheme = (sub: string) => {
     if (sub === SubjectCategory.MATH) return 'bg-blue-50 text-blue-700 border-blue-200';
     if (sub === SubjectCategory.ENGLISH) return 'bg-violet-50 text-violet-700 border-violet-200';
@@ -77,7 +86,7 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
       subject,
       content,
       imageUrl: image || undefined,
-      isAnnouncement: isAdmin && isAnnouncement, // 仅管理员可发公告
+      isAnnouncement: isAdmin && isAnnouncement, 
       timestamp: Date.now(),
       likedBy: []
     };
@@ -97,18 +106,15 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
       }
   }
 
-  // 3. 筛选逻辑：分离公告和普通动态
+  // Regular Feed Filtering
   const { announcements, regularPosts } = useMemo(() => {
-    // 强制类型转换以确保 bool
     const pinned = checkIns.filter(c => !!c.isAnnouncement);
     const regular = checkIns.filter(c => !c.isAnnouncement);
     
-    // 如果选择了“公告”筛选，则将所有公告放入列表显示，隐藏置顶区域
     if (activeFilterId === 'ANNOUNCEMENT') {
         return { announcements: [], regularPosts: pinned };
     }
 
-    // 只有普通动态受筛选器影响，公告始终显示
     let filteredRegular = regular;
     if (activeFilterId !== 'ALL') {
         const group = FILTER_GROUPS.find(g => g.id === activeFilterId);
@@ -119,6 +125,30 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
     
     return { announcements: pinned, regularPosts: filteredRegular };
   }, [activeFilterId, checkIns]);
+
+  // Advanced Search Filtering
+  const searchResults = useMemo(() => {
+      if (!isSearchOpen) return [];
+      
+      return checkIns.filter(c => {
+          let matchUser = true;
+          let matchDate = true;
+          let matchSubject = true;
+
+          if (searchUser) {
+              matchUser = c.userName.toLowerCase().includes(searchUser.toLowerCase());
+          }
+          if (searchDate) {
+              const dateStr = new Date(c.timestamp).toISOString().split('T')[0];
+              matchDate = dateStr === searchDate;
+          }
+          if (searchSubject !== 'ALL') {
+              matchSubject = c.subject === searchSubject;
+          }
+
+          return matchUser && matchDate && matchSubject;
+      }).sort((a, b) => b.timestamp - a.timestamp);
+  }, [checkIns, isSearchOpen, searchUser, searchDate, searchSubject]);
 
   const renderCard = (checkIn: CheckIn, isPinned: boolean = false) => {
     const isLiked = checkIn.likedBy.includes(user.id);
@@ -141,7 +171,6 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
               }
           `}
         >
-            {/* Pinned Icon / Background Decor */}
             {isPinned && (
                 <>
                     <div className="absolute top-0 right-0 p-3 z-20">
@@ -153,14 +182,13 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                 </>
             )}
 
-            {/* Card Header */}
             <div className="flex justify-between items-start mb-4 relative z-10">
                 <div className="flex items-center gap-3">
-                    <div className="relative">
+                    <div className="relative cursor-pointer group/avatar" onClick={() => onViewUserProfile(checkIn.userId)}>
                         <img 
                           src={checkIn.userAvatar || 'https://api.dicebear.com/7.x/notionists/svg?seed=Unknown'} 
                           alt={checkIn.userName || 'User'} 
-                          className={`w-11 h-11 rounded-full bg-gray-50 object-cover border-2 ${isOfficial ? 'border-indigo-200' : 'border-white shadow-sm'}`} 
+                          className={`w-11 h-11 rounded-full bg-gray-50 object-cover border-2 transition-transform group-hover/avatar:scale-110 ${isOfficial ? 'border-indigo-200' : 'border-white shadow-sm'}`} 
                         />
                         {isOfficial && (
                           <div className="absolute -bottom-1 -right-1 bg-indigo-600 text-white rounded-full p-0.5 border-2 border-white">
@@ -170,7 +198,12 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                     </div>
                     <div>
                         <div className="flex items-center gap-2">
-                            <h3 className={`text-base ${nameStyle}`}>{checkIn.userName || '未知研友'}</h3>
+                            <button 
+                                onClick={() => onViewUserProfile(checkIn.userId)}
+                                className={`text-base font-bold hover:underline cursor-pointer ${nameStyle}`}
+                            >
+                                {checkIn.userName || '未知研友'}
+                            </button>
                             {isOfficial && (
                                 <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-1.5 py-0.5 rounded">官方</span>
                             )}
@@ -191,7 +224,6 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                     </div>
                 </div>
                 
-                {/* Subject Badge */}
                 {!isPinned && (
                     <div className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border ${subjectTheme} flex items-center gap-1.5`}>
                         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50"></span>
@@ -204,7 +236,6 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                 <MarkdownText content={checkIn.content} />
             </div>
 
-            {/* Image */}
             {checkIn.imageUrl && (
                 <div className="mb-5 relative z-10 rounded-2xl overflow-hidden border border-gray-100 max-w-sm">
                     <img 
@@ -215,7 +246,6 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                 </div>
             )}
 
-            {/* Footer Actions */}
             <div className={`flex items-center gap-6 pt-4 border-t ${isPinned ? 'border-indigo-100' : 'border-gray-50'} relative z-10`}>
                 <button 
                 onClick={() => onLike(checkIn.id)}
@@ -255,23 +285,90 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
     );
   };
 
+  // Full Screen Search Modal Content
+  if (isSearchOpen) {
+      return (
+          <div className="fixed inset-0 z-50 bg-gray-50 flex flex-col animate-fade-in overflow-hidden">
+              {/* Search Header */}
+              <div className="bg-white border-b border-gray-200 p-4 shadow-sm flex flex-col gap-4 sticky top-0 z-20">
+                  <div className="flex items-center gap-3">
+                      <button onClick={() => setIsSearchOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                          <ArrowLeft className="w-6 h-6 text-gray-600" />
+                      </button>
+                      <h2 className="text-xl font-bold text-gray-800">全站日志检索</h2>
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-3">
+                      <div className="flex-1 min-w-[150px] relative">
+                          <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                          <input 
+                              placeholder="搜索用户名..." 
+                              value={searchUser}
+                              onChange={e => setSearchUser(e.target.value)}
+                              className="w-full pl-9 pr-4 py-2.5 bg-gray-100 border-0 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm font-medium"
+                          />
+                      </div>
+                      <div className="relative">
+                          <CalendarIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                          <input 
+                              type="date"
+                              value={searchDate}
+                              onChange={e => setSearchDate(e.target.value)}
+                              className="pl-9 pr-4 py-2.5 bg-gray-100 border-0 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm font-medium text-gray-600"
+                          />
+                      </div>
+                      <select 
+                          value={searchSubject}
+                          onChange={e => setSearchSubject(e.target.value)}
+                          className="px-4 py-2.5 bg-gray-100 border-0 rounded-xl focus:ring-2 focus:ring-brand-500 text-sm font-medium text-gray-600"
+                      >
+                          <option value="ALL">全部科目</option>
+                          {Object.values(SubjectCategory).map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                  </div>
+              </div>
+
+              {/* Results List */}
+              <div className="flex-1 overflow-y-auto p-4 max-w-3xl mx-auto w-full space-y-4 pb-20 custom-scrollbar">
+                  <div className="flex justify-between items-center text-xs text-gray-400 px-2">
+                      <span>搜索结果: {searchResults.length} 条</span>
+                      {(searchUser || searchDate || searchSubject !== 'ALL') && (
+                          <button 
+                            onClick={() => { setSearchUser(''); setSearchDate(''); setSearchSubject('ALL'); }}
+                            className="text-brand-600 font-bold hover:underline"
+                          >
+                              重置筛选
+                          </button>
+                      )}
+                  </div>
+                  {searchResults.length > 0 ? (
+                      searchResults.map(c => renderCard(c))
+                  ) : (
+                      <div className="flex flex-col items-center justify-center py-20 text-gray-400 opacity-60">
+                          <Search className="w-16 h-16 mb-4" />
+                          <p>暂无符合条件的记录</p>
+                      </div>
+                  )}
+              </div>
+          </div>
+      );
+  }
+
   return (
     <div className="max-w-3xl mx-auto pb-20 relative">
       
-      {/* Edit Modal / Full Screen */}
       <FullScreenEditor 
           isOpen={!!editingCheckIn}
           onClose={() => setEditingCheckIn(null)}
           initialContent={editingCheckIn?.content || ''}
           initialSubject={editingCheckIn?.subject}
           initialDuration={editingCheckIn?.duration || 0}
-          allowDurationEdit={false} // Duration immutable
+          allowDurationEdit={false}
           onSave={handleSaveEdit}
           title="修改打卡日志"
           submitLabel="保存修改"
       />
 
-      {/* 4. 发布区域 */}
       <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-1 mb-8">
         {isGuest ? (
             <div className="py-8 flex flex-col items-center justify-center text-center text-gray-400">
@@ -281,7 +378,6 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
             </div>
         ) : (
             <div className="p-4 md:p-6">
-                 {/* Header */}
                  <div className="flex justify-between items-center mb-4">
                      <div className="flex items-center gap-3">
                          <img src={user.avatar} className="w-10 h-10 rounded-full bg-gray-100 border border-gray-100" alt="Avatar"/>
@@ -298,7 +394,6 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                      </button>
                  </div>
 
-                 {/* Subject Select */}
                  <div className="mb-4">
                      <select 
                         value={subject} 
@@ -323,7 +418,6 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                      </select>
                  </div>
 
-                 {/* Text Area */}
                  {isPreview ? (
                      <div className="w-full p-4 bg-gray-50 rounded-xl min-h-[120px] prose prose-sm max-w-none border border-transparent">
                         {content ? <MarkdownText content={content} /> : <span className="text-gray-400 italic">暂无内容...</span>}
@@ -337,7 +431,6 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                      />
                  )}
 
-                 {/* Image Preview */}
                  {image && (
                     <div className="relative mt-4 group w-fit">
                         <img src={image} alt="Preview" className="h-40 rounded-xl object-cover border border-gray-100 shadow-sm" />
@@ -350,7 +443,6 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                     </div>
                  )}
                  
-                 {/* Admin Options */}
                  {isAdmin && (
                      <div className="mt-4 flex items-center">
                          <label className="flex items-center space-x-2 text-sm text-indigo-700 font-bold cursor-pointer bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 hover:bg-indigo-100 transition-colors">
@@ -365,7 +457,6 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                      </div>
                  )}
 
-                 {/* Footer Actions */}
                  <div className="flex justify-between items-center mt-4 pt-2 border-t border-gray-50">
                     <div className="flex space-x-2">
                         <button 
@@ -390,34 +481,45 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
         )}
       </div>
 
-      {/* 5. 筛选栏 (Sticky & Glassmorphism) */}
+      {/* 5. 筛选栏 (Fixed Layout: Wrap for better accessibility + Search Button) */}
       <div className="sticky top-0 z-20 mb-6 -mx-4 px-4 md:mx-0 md:px-0">
-          <div className="bg-white/80 backdrop-blur-md border border-white/40 shadow-sm rounded-2xl p-2 flex items-center gap-1 overflow-x-auto scrollbar-hide">
-              {FILTER_GROUPS.map(group => {
-                  const isActive = activeFilterId === group.id;
-                  const Icon = group.icon;
-                  return (
-                      <button
-                        key={group.id}
-                        onClick={() => setActiveFilterId(group.id)}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all select-none
-                            ${isActive 
-                                ? 'bg-gray-900 text-white shadow-md transform scale-105' 
-                                : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700 bg-transparent'
-                            }
-                        `}
-                      >
-                          <Icon className={`w-4 h-4 ${isActive ? 'text-white' : group.color}`} />
-                          <span>{group.label}</span>
-                      </button>
-                  );
-              })}
+          <div className="bg-white/90 backdrop-blur-md border border-white/40 shadow-sm rounded-2xl p-3 flex justify-between items-start gap-2">
+              {/* Filter Chips - Use Flex Wrap to avoid hidden overflow issues on small screens */}
+              <div className="flex flex-wrap gap-2 flex-1">
+                  {FILTER_GROUPS.map(group => {
+                      const isActive = activeFilterId === group.id;
+                      const Icon = group.icon;
+                      return (
+                          <button
+                            key={group.id}
+                            onClick={() => setActiveFilterId(group.id)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all select-none
+                                ${isActive 
+                                    ? 'bg-gray-900 text-white shadow-md' 
+                                    : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700 bg-transparent border border-transparent'
+                                }
+                            `}
+                          >
+                              <Icon className={`w-3 h-3 ${isActive ? 'text-white' : group.color}`} />
+                              <span>{group.label}</span>
+                          </button>
+                      );
+                  })}
+              </div>
+              
+              {/* Advanced Search Button */}
+              <button 
+                onClick={() => setIsSearchOpen(true)}
+                className="bg-brand-50 text-brand-600 p-2 rounded-xl hover:bg-brand-100 transition-colors shadow-sm border border-brand-100 shrink-0"
+                title="高级筛选"
+              >
+                  <Search className="w-5 h-5" />
+              </button>
           </div>
       </div>
 
       {/* 6. Feed List */}
       <div className="space-y-6">
-          {/* Section: Announcements */}
           {announcements.length > 0 && (
               <div className="space-y-4 mb-8">
                   {announcements.map(checkIn => renderCard(checkIn, true))}
@@ -429,7 +531,6 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
               </div>
           )}
 
-          {/* Section: Regular Posts */}
           {regularPosts.length > 0 ? (
               regularPosts.map(checkIn => renderCard(checkIn, checkIn.isAnnouncement))
           ) : (

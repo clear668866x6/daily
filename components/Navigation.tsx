@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { LayoutDashboard, BookOpen, Users, LogOut, GraduationCap, Cpu, Info, ChevronLeft, ChevronRight, Shield } from 'lucide-react';
+import { LayoutDashboard, BookOpen, Users, LogOut, GraduationCap, Cpu, Info, ChevronLeft, ChevronRight, Shield, UserCircle } from 'lucide-react';
 import { User, getUserStyle } from '../types';
 
 interface Props {
@@ -15,7 +15,8 @@ export const Navigation: React.FC<Props> = ({ activeTab, onTabChange, onLogout, 
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const navItems = [
-    { id: 'dashboard', label: '总览', icon: LayoutDashboard }, 
+    { id: 'dashboard', label: '打卡首页', icon: LayoutDashboard }, 
+    { id: 'profile', label: '我的主页', icon: UserCircle }, // New Profile Item
     { id: 'feed', label: '研友圈', icon: Users },
     { id: 'algorithm', label: '算法训练', icon: Cpu },
     { id: 'english', label: 'AI英语', icon: BookOpen },
@@ -88,8 +89,12 @@ export const Navigation: React.FC<Props> = ({ activeTab, onTabChange, onLogout, 
       <div className="p-4 border-t border-gray-100 space-y-2">
         {/* User Info Widget (Visible only when expanded) */}
         {!isCollapsed && currentUser && (
-            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 mb-2">
-                <div className={`text-sm font-bold truncate ${getUserStyle(currentUser.role, currentUser.rating)}`}>
+            <div 
+                className="bg-gray-50 rounded-xl p-3 border border-gray-100 mb-2 cursor-pointer hover:bg-gray-100 transition-colors group"
+                onClick={() => onTabChange('profile')} // Navigate to Profile specifically
+                title="点击前往我的主页"
+            >
+                <div className={`text-sm font-bold truncate group-hover:text-brand-600 transition-colors ${getUserStyle(currentUser.role, currentUser.rating)}`}>
                     {currentUser.name}
                 </div>
                 <div className="text-xs text-gray-400 mt-1 font-mono font-medium flex justify-between items-center">

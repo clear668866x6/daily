@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Navigation } from './components/Navigation';
 import { Dashboard } from './components/Dashboard';
+import { Profile } from './components/Profile'; // Import Profile
 import { Feed } from './components/Feed';
 import { EnglishTutor } from './components/EnglishTutor';
 import { AlgorithmTutor } from './components/AlgorithmTutor';
@@ -13,30 +14,30 @@ import { AdminUserModal } from './components/AdminUserModal';
 import { CheckIn, SubjectCategory, User, AlgorithmTask } from './types';
 import * as storage from './services/storageService';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
-import { Fireworks } from './components/Fireworks'; // Import Fireworks
-import { X, CalendarOff, Flame, Trophy } from 'lucide-react'; // Icons
+import { Fireworks } from './components/Fireworks'; 
+import { X, CalendarOff, Flame, Trophy } from 'lucide-react'; 
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('kaoyan_active_tab') || 'dashboard');
   
   const [user, setUser] = useState<User | null>(null);
+  // Separate state for the user currently being viewed in the Profile tab
+  const [visitedProfileUser, setVisitedProfileUser] = useState<User | null>(null);
+
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
   const [algoTasks, setAlgoTasks] = useState<AlgorithmTask[]>([]);
   const [isInitializing, setIsInitializing] = useState(true);
   
-  // Modal State
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [checkInToDelete, setCheckInToDelete] = useState<string | null>(null);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
 
-  // Dashboard Target User (for Admin View)
-  const [dashboardTargetId, setDashboardTargetId] = useState<string | null>(null);
+  // For Admin view of other users in Profile/Dashboard context (optional reuse)
+  const [targetProfileId, setTargetProfileId] = useState<string | null>(null);
 
-  // New Full Screen Modals State
   const [penaltyModalData, setPenaltyModalData] = useState<{count: number, date: string} | null>(null);
   const [streakModalData, setStreakModalData] = useState<number | null>(null);
 
-  // Toast State
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const showToast = (message: string, type: ToastType = 'success') => {
@@ -75,20 +76,16 @@ const App: React.FC = () => {
     }
   };
 
-  // Helper: Get the "Business Day" date string (Switch over at 4:00 AM)
   const getBusinessDate = (date: Date): string => {
       const adjustedDate = new Date(date);
-      // If before 4 AM, count as previous day
       if (adjustedDate.getHours() < 4) {
           adjustedDate.setDate(adjustedDate.getDate() - 1);
       }
       return adjustedDate.toISOString().split('T')[0];
   };
 
-  // Helper: Calculate Streak
   const calculateStreak = async (userId: string): Promise<number> => {
       const userCheckIns = await storage.getUserCheckIns(userId);
-      // Filter out penalties
       const validDates = userCheckIns
           .filter(c => !c.isPenalty)
           .map(c => getBusinessDate(new Date(c.timestamp)));
@@ -98,8 +95,6 @@ const App: React.FC = () => {
       if (uniqueDates.length === 0) return 0;
 
       const today = getBusinessDate(new Date());
-      // Logic: If the latest check-in is today or yesterday (since today might not be over), start counting
-      // If latest is older than yesterday, streak is broken (0).
       
       const latest = uniqueDates[0];
       const yesterday = new Date();
@@ -112,7 +107,6 @@ const App: React.FC = () => {
       }
 
       let streak = 1;
-      // Start checking from the gap between 0 and 1
       for (let i = 0; i < uniqueDates.length - 1; i++) {
           const curr = new Date(uniqueDates[i]);
           const prev = new Date(uniqueDates[i+1]);
@@ -130,24 +124,17 @@ const App: React.FC = () => {
 
   const checkDailyPenalties = async (currentUser: User) => {
       if (currentUser.role === 'guest') return currentUser;
-      
-      // ADMIN IMMUNITY: Admins do not get penalties
       if (currentUser.role === 'admin') return currentUser;
 
       const lastCheckedDate = localStorage.getItem(`last_penalty_check_${currentUser.id}`);
       
-      // Safety: Only check penalties if it's past 4:05 AM to avoid race conditions with midnight logic
       const now = new Date();
       if (now.getHours() < 4) return currentUser;
 
       const todayBusinessDate = getBusinessDate(now);
 
-      // If we haven't checked for today's logical date yet
-      // Note: "Today's Business Day" checking actually means verifying "Yesterday" was completed.
-      // We run this once per Business Day (e.g., sometime on Dec 15 after 4am).
       if (lastCheckedDate && lastCheckedDate !== todayBusinessDate) {
           
-          // Determine the "Yesterday Business Day"
           const yesterday = new Date();
           if (yesterday.getHours() < 4) {
              yesterday.setDate(yesterday.getDate() - 2); 
@@ -156,7 +143,6 @@ const App: React.FC = () => {
           }
           const yesterdayStr = yesterday.toISOString().split('T')[0];
           
-          // Only run if the last check was strictly before yesterday (avoid double penalty)
           if (lastCheckedDate < yesterdayStr || lastCheckedDate === yesterdayStr) { 
               console.log(`Running Penalty Check for Business Day: ${yesterdayStr}...`);
               
@@ -167,34 +153,24 @@ const App: React.FC = () => {
                   return cBusinessDate === yesterdayStr && !c.isPenalty;
               });
 
-              // Penalty 1: No check-in at all
               if (!hasCheckInYesterday) {
                   const penaltyRating = -50;
                   const newRating = (currentUser.rating || 1200) + penaltyRating;
                   
-                  // Update Rating
                   await storage.updateRating(currentUser.id, newRating, `缺勤惩罚 (${yesterdayStr})`);
                   
-                  // Track cumulative missed count locally
                   const missedKey = `kaoyan_missed_count_${currentUser.id}`;
                   const currentMissed = parseInt(localStorage.getItem(missedKey) || '0') + 1;
                   localStorage.setItem(missedKey, currentMissed.toString());
 
-                  // Show Full Screen Alert
                   setPenaltyModalData({ count: currentMissed, date: yesterdayStr });
-                  
-                  // Update local user object immediately
                   currentUser.rating = newRating; 
               }
 
-              // Penalty 2: Algorithm Task Missed
               const tasks = await storage.getAlgorithmTasks();
               const taskYesterday = tasks.find(t => t.date === yesterdayStr);
               
-              // New Logic: Only penalize if assigned explicitly
               if (taskYesterday) {
-                  // If assignedTo is missing or empty, assume it's optional or open to all (no penalty for now based on request "if not selected, don't count")
-                  // Logic: If assignedTo exists AND includes current user ID -> Mandatory.
                   const isAssignedToUser = taskYesterday.assignedTo && taskYesterday.assignedTo.includes(currentUser.id);
 
                   if (isAssignedToUser) {
@@ -212,7 +188,6 @@ const App: React.FC = () => {
           }
       }
 
-      // Update the check date to today
       localStorage.setItem(`last_penalty_check_${currentUser.id}`, todayBusinessDate);
       return currentUser;
   };
@@ -222,10 +197,8 @@ const App: React.FC = () => {
       let currentUser = storage.getCurrentUser();
       
       if (currentUser) {
-        // Run Penalty Check logic on load
         currentUser = await checkDailyPenalties(currentUser) || currentUser;
         setUser(currentUser);
-        // Sync back to local storage in case rating changed
         storage.updateUserLocal(currentUser);
       }
       
@@ -239,7 +212,6 @@ const App: React.FC = () => {
   }, []);
 
   const handleLogin = async (loggedInUser: User) => {
-    // Check penalties immediately on login
     const updatedUser = await checkDailyPenalties(loggedInUser) || loggedInUser;
     setUser(updatedUser);
     storage.updateUserLocal(updatedUser);
@@ -281,14 +253,8 @@ const App: React.FC = () => {
       showToast("打卡发布成功！", 'success');
       await refreshData();
 
-      // Check for Streak Achievements
-      // Need a small delay or refetch to ensure the calculation includes the just-added one
-      // Since we added it to local state `prev => [newCheckIn, ...prev]`, local calc might miss it if we rely on storage
-      // Let's rely on calculating manually or waiting a bit.
-      // Better: Update calculation to include the new one implicitly or fetch fresh.
       setTimeout(async () => {
           const streak = await calculateStreak(user.id);
-          // Trigger on multiples of 7
           if (streak > 0 && streak % 7 === 0) {
               setStreakModalData(streak);
           }
@@ -308,7 +274,6 @@ const App: React.FC = () => {
       
       const id = checkInToDelete;
       
-      // Optimistic update
       setCheckIns(prev => prev.filter(c => c.id !== id));
 
       try {
@@ -326,7 +291,7 @@ const App: React.FC = () => {
       } catch(e) {
           console.error(e);
           showToast("删除失败，请重试", 'error');
-          refreshData(); // Revert
+          refreshData(); 
       }
   };
 
@@ -380,11 +345,42 @@ const App: React.FC = () => {
     handleAddCheckIn(newCheckIn);
   };
 
-  const handleAdminViewUser = (userId: string) => {
-      setIsAdminModalOpen(false);
-      setDashboardTargetId(userId);
-      setActiveTab('dashboard');
+  // Switch to Profile Tab and view a specific user
+  const handleViewUser = async (userId: string) => {
+      if (!user) return;
+      
+      // If viewing self
+      if (userId === user.id) {
+          setVisitedProfileUser(null);
+          setActiveTab('profile');
+      } else {
+          // If viewing others, fetch their details to show in Profile
+          try {
+              const u = await storage.getUserById(userId);
+              if (u) {
+                  setVisitedProfileUser(u);
+                  setActiveTab('profile');
+              }
+          } catch(e) {
+              console.error("User not found", e);
+          }
+      }
+  }
+
+  const handleTabChange = (tab: string) => {
+      if (tab === 'dashboard') {
+          setTargetProfileId(user?.id || null);
+      }
+      if (tab === 'profile') {
+          setVisitedProfileUser(null); // Reset to self when clicking nav manually
+      }
+      setActiveTab(tab);
   };
+
+  const handleProfileBack = () => {
+      // Go back to self profile
+      setVisitedProfileUser(null);
+  }
 
   if (isInitializing) {
     return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-400">正在连接数据库...</div>;
@@ -402,7 +398,6 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row font-sans relative">
       
-      {/* --- Full Screen Penalty Modal --- */}
       {penaltyModalData && (
           <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-red-600/95 backdrop-blur-md animate-fade-in text-white p-8 text-center">
               <div className="bg-white/20 p-6 rounded-full mb-6 animate-bounce">
@@ -430,7 +425,6 @@ const App: React.FC = () => {
           </div>
       )}
 
-      {/* --- Full Screen Streak Achievement Modal --- */}
       {streakModalData && (
           <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-gradient-to-br from-indigo-900 to-purple-900 animate-fade-in text-white p-8 text-center cursor-pointer" onClick={() => setStreakModalData(null)}>
               <Fireworks active={true} onClose={() => setStreakModalData(null)} />
@@ -459,7 +453,7 @@ const App: React.FC = () => {
 
       <Navigation 
         activeTab={activeTab} 
-        onTabChange={setActiveTab} 
+        onTabChange={handleTabChange} 
         onLogout={handleLogout}
         currentUser={user}
         onOpenAdmin={() => setIsAdminModalOpen(true)}
@@ -475,14 +469,17 @@ const App: React.FC = () => {
             onNavigate={setActiveTab} 
           />
 
+          {/* CHECK-IN HOME (Dashboard) */}
           {activeTab === 'dashboard' && (
             <div className="animate-fade-in">
               <div className="mb-6 flex justify-between items-end">
                 <div>
                   <h1 className="text-2xl font-black text-gray-900 tracking-tight">
-                    早安，{user.name} {user.role === 'guest' && '(访客)'} 👋
+                    {targetProfileId && targetProfileId !== user.id ? '研友主页' : `早安，${user.name} ${user.role === 'guest' ? '(访客)' : ''} 👋`}
                   </h1>
-                  <p className="text-gray-500 font-medium text-sm mt-1">距离考研还有一段时间，今天也要加油！</p>
+                  <p className="text-gray-500 font-medium text-sm mt-1">
+                      {targetProfileId && targetProfileId !== user.id ? '查看他人的学习进度与打卡日志' : '距离考研还有一段时间，今天也要加油！'}
+                  </p>
                 </div>
                 <button onClick={refreshData} className="text-xs bg-white border border-gray-200 px-3 py-1.5 rounded-lg text-gray-500 hover:text-brand-600 hover:border-brand-200 transition-all font-bold shadow-sm">
                   刷新数据
@@ -494,9 +491,22 @@ const App: React.FC = () => {
                 onUpdateUser={handleUpdateUser} 
                 onShowToast={showToast}
                 onUpdateCheckIn={handleUpdateCheckIn}
-                initialSelectedUserId={dashboardTargetId}
+                initialSelectedUserId={targetProfileId}
               />
             </div>
+          )}
+
+          {/* PROFILE PAGE (New) */}
+          {activeTab === 'profile' && (
+              <Profile 
+                user={visitedProfileUser || user} 
+                currentUser={user}
+                checkIns={checkIns} 
+                onSearchUser={handleViewUser}
+                onBack={handleProfileBack}
+                onDeleteCheckIn={handleDeleteCheckInTrigger}
+                onUpdateCheckIn={handleUpdateCheckIn}
+              />
           )}
 
           {activeTab === 'feed' && (
@@ -515,6 +525,7 @@ const App: React.FC = () => {
                 onDeleteCheckIn={handleDeleteCheckInTrigger}
                 onLike={handleLike}
                 onUpdateCheckIn={handleUpdateCheckIn}
+                onViewUserProfile={handleViewUser}
               />
             </div>
           )}
@@ -562,7 +573,10 @@ const App: React.FC = () => {
           onClose={() => setIsAdminModalOpen(false)}
           currentUser={user}
           onShowToast={showToast}
-          onViewUser={handleAdminViewUser}
+          onViewUser={(userId) => {
+              setIsAdminModalOpen(false);
+              handleViewUser(userId);
+          }}
       />
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
