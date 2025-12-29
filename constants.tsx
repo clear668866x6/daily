@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { SubjectCategory, AlgorithmSubmission, AlgorithmTask } from './types';
-import { Zap, Star, Flame, Trophy, Moon, Sparkles, Megaphone, Calculator, BookOpen, ScrollText, LayoutGrid, Cpu, HardDrive, Network, Code2, Coffee } from 'lucide-react';
+import { Zap, Star, Flame, Trophy, Moon, Sparkles, Megaphone, Calculator, BookOpen, ScrollText, LayoutGrid, Cpu, HardDrive, Network, Code2, Coffee, Layers, Clock, Calendar } from 'lucide-react';
 
 export interface Achievement {
     id: string;
@@ -9,10 +9,11 @@ export interface Achievement {
     description: string;
     icon: React.ElementType;
     color: string;
-    condition: (submissions: AlgorithmSubmission[], tasks: AlgorithmTask[]) => boolean;
+    condition: (submissions: AlgorithmSubmission[], tasks: AlgorithmTask[], checkIns?: any[]) => boolean;
 }
 
 export const ACHIEVEMENTS: Achievement[] = [
+    // Algorithm Achievements
     {
         id: 'first_blood',
         title: '初出茅庐',
@@ -52,6 +53,49 @@ export const ACHIEVEMENTS: Achievement[] = [
         icon: Moon,
         color: 'text-indigo-600 bg-indigo-100',
         condition: (s) => false 
+    },
+    
+    // Study Habit Achievements (New)
+    {
+        id: 'streak_7',
+        title: '一周全勤',
+        description: '连续打卡达到 7 天',
+        icon: Calendar,
+        color: 'text-green-600 bg-green-100',
+        condition: (s, t, checkIns) => {
+            // Logic handled in App.tsx mainly, simplified check here if possible or just rely on manual trigger
+            return false; // Complex logic, placeholder
+        }
+    },
+    {
+        id: 'volume_100h',
+        title: '百炼成钢',
+        description: '累计学习时长超过 100 小时',
+        icon: Clock,
+        color: 'text-pink-600 bg-pink-100',
+        condition: (s, t, checkIns) => {
+            if(!checkIns) return false;
+            const totalMin = checkIns.reduce((acc, c) => acc + (c.isPenalty ? 0 : (c.duration || 0)), 0);
+            return totalMin >= 6000;
+        }
+    },
+    {
+        id: 'polymath',
+        title: '博学家',
+        description: '单日学习超过 3 个不同科目',
+        icon: Layers,
+        color: 'text-cyan-600 bg-cyan-100',
+        condition: (s, t, checkIns) => {
+            if(!checkIns) return false;
+            const dateMap: Record<string, Set<string>> = {};
+            checkIns.forEach(c => {
+                if(c.isPenalty) return;
+                const d = new Date(c.timestamp).toDateString();
+                if(!dateMap[d]) dateMap[d] = new Set();
+                dateMap[d].add(c.subject);
+            });
+            return Object.values(dateMap).some(set => set.size >= 3);
+        }
     }
 ];
 

@@ -32,7 +32,8 @@ export interface CheckIn {
   userRole?: UserRole;
   subject: SubjectCategory;
   content: string; 
-  imageUrl?: string;
+  imageUrl?: string; // Legacy support
+  images?: string[]; // New: Multiple images
   duration?: number; // 学习时长(分钟)
   isPenalty?: boolean; // 是否为惩罚/摸鱼记录
   isAnnouncement?: boolean; // 新增：是否为置顶公告

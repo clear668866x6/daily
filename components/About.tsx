@@ -3,8 +3,21 @@ import React from 'react';
 import { Rocket, Zap, Bug, GitBranch, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export const About: React.FC = () => {
-  const version = "1.6.0";
+  const version = "1.7.0";
   const changelogs = [
+    {
+        version: "1.7.0",
+        date: "2025-12-25",
+        title: "视觉盛宴与数据洞察",
+        features: [
+            "🖼️ 图片浏览升级：支持全屏查看打卡图片，支持手势缩放与多图切换。",
+            "🔥 年度热力图：Dashboard 新增 Github 风格学习热力图，点亮你的每一天。",
+            "📊 数据透视 Pro：科目分布支持按日/月/年筛选，每日时长支持自定义日期范围。",
+            "🏆 成就系统扩容：新增连续打卡、累计时长等重磅成就。",
+            "📜 算法历史：算法训练营新增“我的提交记录”面板，支持日期筛选与代码回溯。",
+            "🛡️ 智能免打扰：管理员与非指定人员不再收到不必要的打卡/算法提醒。"
+        ]
+    },
     {
         version: "1.6.0",
         date: "2025-12-15",
@@ -12,8 +25,6 @@ export const About: React.FC = () => {
         features: [
             "🏆 连续打卡成就：连续打卡 7/14/21 天将触发全屏庆祝动画，保持 Momentum！",
             "🛑 私密缺勤提醒：未打卡不再公开发布，改为全屏强提醒，保护隐私同时拒绝摆烂。",
-            "🛡️ 管理员豁免：管理员账号不再受扣分逻辑影响。",
-            "💅 UI 细节优化：侧边栏显示当前 Rating 与昵称，Dashboard 新增总打卡次数统计。",
             "📝 全屏编辑器重构：算法训练与打卡日志均支持沉浸式全屏编辑。"
         ]
     },
@@ -22,58 +33,14 @@ export const About: React.FC = () => {
         date: "2025-12-10",
         title: "AI 智能进化与管理增强",
         features: [
-            "🧠 AI 英语去重：生成文章时会自动避让用户近期已背诵的单词，记忆效率翻倍。",
-            "🎨 更多文章风格：新增【科技前沿】、【经典文学】、【日常对话】等多种题材。",
-            "👁️ 沉浸式背词：单词释义默认模糊，鼠标悬停时才清晰显示，强化主动回忆。",
-            "📊 精准数据：Dashboard 的科目分布图现在专注于展示【今日】的学习情况。",
+            "🧠 AI 英语去重：生成文章时会自动避让用户近期已背诵的单词。",
             "🛡️ 超级管理员：后台支持直接创建新用户与删除违规用户。"
-        ]
-    },
-    {
-        version: "1.4.0",
-        date: "2025-12-05",
-        title: "交互体验优化与删除回滚",
-        features: [
-            "✨ Dashboard 布局重构：将【学习记录】与【To-Do List】置顶，操作更顺手。",
-            "🔙 Rating 智能回滚：删除打卡记录时，会自动撤销当时产生的 Rating 变化。",
-            "🗑️ 安全删除：新增删除确认弹窗，防止手滑误删。",
-            "📝 Markdown 预览：学习记录输入框现已支持即时 Markdown 预览。"
-        ]
-    },
-    {
-        version: "1.3.0",
-        date: "2025-12",
-        title: "考研冲刺与 UI 重构",
-        features: [
-            "🎨 Dashboard 全新改版：采用 Bento Grid 风格，视觉更清爽，数据更直观。",
-            "⏳ 考研倒计时：主页新增倒计时组件，时刻提醒自己珍惜时间。",
-            "📚 AI 英语升级：新增词书选择（考研/四级/六级/雅思）。"
-        ]
-    },
-    {
-        version: "1.2.0",
-        date: "2024-03-20",
-        title: "数据透视与扣分机制上线",
-        features: [
-            "🔥 新增【摸鱼扣分】机制：记录无效时长并反向扣除 Rating。",
-            "👀 研友透视：Dashboard 支持切换查看他人的详细数据面板。"
-        ]
-    },
-    {
-        version: "1.0.0",
-        date: "2024-03-01",
-        title: "KaoyanMate 诞生",
-        features: [
-            "✅ 基础打卡功能：支持数学、408、英语等科目。",
-            "🧠 集成 DeepSeek AI：生成每日英语阅读。"
         ]
     }
   ];
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-fade-in pb-10">
-      
-      {/* Header */}
       <div className="bg-gradient-to-br from-brand-600 to-brand-800 rounded-3xl p-8 text-white shadow-xl relative overflow-hidden">
         <div className="relative z-10">
             <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
@@ -87,26 +54,6 @@ export const About: React.FC = () => {
         <Rocket className="absolute -bottom-6 -right-6 w-40 h-40 text-white opacity-10 rotate-12" />
       </div>
 
-      {/* Current Version Highlights */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center text-center">
-              <div className="bg-green-100 p-3 rounded-full mb-4"><Zap className="w-6 h-6 text-green-600"/></div>
-              <h3 className="font-bold text-gray-800">极速响应</h3>
-              <p className="text-sm text-gray-500 mt-2">基于 Supabase 的实时数据库，打卡数据毫秒级同步。</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center text-center">
-              <div className="bg-blue-100 p-3 rounded-full mb-4"><GitBranch className="w-6 h-6 text-blue-600"/></div>
-              <h3 className="font-bold text-gray-800">开源共建</h3>
-              <p className="text-sm text-gray-500 mt-2">代码完全开源，欢迎提交 PR 贡献新功能。</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center text-center">
-              <div className="bg-purple-100 p-3 rounded-full mb-4"><AlertCircle className="w-6 h-6 text-purple-600"/></div>
-              <h3 className="font-bold text-gray-800">摸鱼预警</h3>
-              <p className="text-sm text-gray-500 mt-2">独创的【扣分模式】，让你直面时间黑洞。</p>
-          </div>
-      </div>
-
-      {/* Changelog */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="p-6 border-b border-gray-100 bg-gray-50">
               <h2 className="text-xl font-bold text-gray-800">更新日志</h2>
@@ -135,7 +82,6 @@ export const About: React.FC = () => {
               ))}
           </div>
       </div>
-      
       <div className="text-center text-gray-400 text-sm">
         <p>Built with React, Supabase & Love by 考研人</p>
       </div>

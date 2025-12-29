@@ -12,7 +12,8 @@ interface Props {
 }
 
 export const Navigation: React.FC<Props> = ({ activeTab, onTabChange, onLogout, currentUser, onOpenAdmin }) => {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  // Default to collapsed
+  const [isCollapsed, setIsCollapsed] = useState(true);
 
   const navItems = [
     { id: 'dashboard', label: '打卡首页', icon: LayoutDashboard }, 
@@ -20,8 +21,8 @@ export const Navigation: React.FC<Props> = ({ activeTab, onTabChange, onLogout, 
     { id: 'feed', label: '研友圈', icon: Users },
     { id: 'algorithm', label: '算法训练', icon: Cpu },
     { id: 'english', label: 'AI英语', icon: BookOpen },
-    { id: 'achievements', label: '成就历史', icon: Award }, // New
-    { id: 'pk', label: 'PK竞技', icon: Swords }, // New
+    { id: 'achievements', label: '成就历史', icon: Award }, 
+    { id: 'pk', label: 'PK竞技', icon: Swords }, 
     { id: 'about', label: '关于', icon: Info },
   ];
 

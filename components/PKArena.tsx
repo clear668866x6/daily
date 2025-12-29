@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, CheckIn } from '../types';
 import * as storage from '../services/storageService';
-import { Swords, Trophy, Clock, Zap, Target, User as UserIcon, Search } from 'lucide-react';
+import { Swords, Trophy, Clock, Zap, Target, User as UserIcon, Search, Percent } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend } from 'recharts';
 
 interface Props {
@@ -41,6 +41,14 @@ export const PKArena: React.FC<Props> = ({ currentUser, checkIns }) => {
   const myStats = getStats(currentUser.id);
   const oppStats = opponent ? getStats(opponent.id) : null;
 
+  // Simple Win Rate Mock based on Rating difference
+  const winRate = useMemo(() => {
+      if(!opponent) return 50;
+      const diff = (currentUser.rating || 1200) - (opponent.rating || 1200);
+      const prob = 1 / (1 + Math.pow(10, -diff / 400));
+      return Math.round(prob * 100);
+  }, [currentUser, opponent]);
+
   const comparisonData = opponent ? [
       { name: 'Rating', me: currentUser.rating || 1200, opp: opponent.rating || 1200 },
       { name: '总时长(h)', me: Math.round(myStats.totalTime/60), opp: Math.round(oppStats!.totalTime/60) },
@@ -48,7 +56,6 @@ export const PKArena: React.FC<Props> = ({ currentUser, checkIns }) => {
       { name: '今日(min)', me: myStats.todayTime, opp: oppStats!.todayTime },
   ] : [];
 
-  // Prepare Radar Data (Top 5 subjects combined)
   const radarData = useMemo(() => {
       if (!opponent) return [];
       const allSubs = new Set([...Object.keys(myStats.subMap), ...Object.keys(oppStats!.subMap)]);
@@ -56,7 +63,7 @@ export const PKArena: React.FC<Props> = ({ currentUser, checkIns }) => {
           subject: sub,
           me: myStats.subMap[sub] || 0,
           opp: oppStats!.subMap[sub] || 0,
-      })).slice(0, 6); // Limit to 6 for clean radar
+      })).slice(0, 6);
   }, [opponent, myStats, oppStats]);
 
   return (
@@ -66,7 +73,7 @@ export const PKArena: React.FC<Props> = ({ currentUser, checkIns }) => {
                 <h1 className="text-3xl font-black mb-2 flex items-center gap-3">
                     <Swords className="w-8 h-8" /> PK 竞技场
                 </h1>
-                <p className="text-indigo-100">选择一名研友，进行全方位数据对决！</p>
+                <p className="text-indigo-100">狭路相逢勇者胜，选择对手一决高下！</p>
             </div>
             <Target className="absolute -right-6 -bottom-6 w-40 h-40 text-white opacity-10 rotate-45" />
         </div>
@@ -110,31 +117,34 @@ export const PKArena: React.FC<Props> = ({ currentUser, checkIns }) => {
                 {opponent ? (
                     <>
                         {/* Head to Head Header */}
-                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex justify-between items-center relative overflow-hidden">
-                            <div className="text-center z-10">
+                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col md:flex-row justify-between items-center relative overflow-hidden gap-6">
+                            <div className="text-center z-10 flex-1">
                                 <img src={currentUser.avatar} className="w-20 h-20 rounded-full border-4 border-indigo-100 mx-auto mb-2" />
                                 <h3 className="font-black text-gray-800">{currentUser.name}</h3>
                                 <div className="text-indigo-600 font-bold text-lg">{currentUser.rating || 1200}</div>
                             </div>
                             
-                            <div className="text-center z-10">
-                                <div className="text-4xl font-black text-gray-200 italic">VS</div>
+                            <div className="text-center z-10 flex flex-col items-center">
+                                <div className="text-4xl font-black text-gray-200 italic mb-2">VS</div>
+                                <div className="bg-indigo-50 px-3 py-1 rounded-full text-indigo-600 text-xs font-bold flex items-center gap-1">
+                                    <Percent className="w-3 h-3"/> 胜率预测: {winRate}%
+                                </div>
                             </div>
 
-                            <div className="text-center z-10">
+                            <div className="text-center z-10 flex-1">
                                 <img src={opponent.avatar} className="w-20 h-20 rounded-full border-4 border-rose-100 mx-auto mb-2" />
                                 <h3 className="font-black text-gray-800">{opponent.name}</h3>
                                 <div className="text-rose-600 font-bold text-lg">{opponent.rating || 1200}</div>
                             </div>
                             
                             {/* Bg Decoration */}
-                            <div className="absolute top-0 left-0 w-1/2 h-full bg-indigo-50/30 skew-x-12 -ml-10"></div>
-                            <div className="absolute top-0 right-0 w-1/2 h-full bg-rose-50/30 -skew-x-12 -mr-10"></div>
+                            <div className="absolute top-0 left-0 w-1/2 h-full bg-indigo-50/20 skew-x-12 -ml-16 pointer-events-none"></div>
+                            <div className="absolute top-0 right-0 w-1/2 h-full bg-rose-50/20 -skew-x-12 -mr-16 pointer-events-none"></div>
                         </div>
 
                         {/* Bar Chart Comparison */}
                         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                            <h4 className="font-bold text-gray-700 mb-6 flex items-center gap-2"><Trophy className="w-4 h-4" /> 数据对比</h4>
+                            <h4 className="font-bold text-gray-700 mb-6 flex items-center gap-2"><Trophy className="w-4 h-4" /> 核心数据对比</h4>
                             <div className="h-64">
                                 <ResponsiveContainer width="100%" height="100%">
                                     <BarChart data={comparisonData} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
@@ -154,7 +164,7 @@ export const PKArena: React.FC<Props> = ({ currentUser, checkIns }) => {
 
                         {/* Radar Chart Preference */}
                         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                            <h4 className="font-bold text-gray-700 mb-4 flex items-center gap-2"><Zap className="w-4 h-4" /> 科目偏好 (时长)</h4>
+                            <h4 className="font-bold text-gray-700 mb-4 flex items-center gap-2"><Zap className="w-4 h-4" /> 科目偏好 (累计时长)</h4>
                             <div className="h-72">
                                 <ResponsiveContainer width="100%" height="100%">
                                     <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
