@@ -1,12 +1,13 @@
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { CheckIn, User, Goal, SubjectCategory, RatingHistory, getUserStyle, getTitleName } from '../types';
 import * as storage from '../services/storageService';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, EyeOff, BrainCircuit, ChevronDown, UserCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, CalendarCheck, Flag, Sparkles, Activity, Maximize2, Filter, X, Grid3X3 } from 'lucide-react';
+import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, EyeOff, BrainCircuit, ChevronDown, UserCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, CalendarCheck, Flag, Sparkles, Activity, Maximize2, Filter, X, Grid3X3, Medal } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { ToastType } from './Toast';
 import { FullScreenEditor } from './FullScreenEditor';
+import { ImageViewer } from './ImageViewer';
 
 interface Props {
   checkIns: CheckIn[];
@@ -49,7 +50,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const [logPreview, setLogPreview] = useState(false); 
   const [isFullScreen, setIsFullScreen] = useState(false);
 
-  // Calendar State
+  // Calendar State (Bottom Section)
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
@@ -58,16 +59,32 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const [listFilterDate, setListFilterDate] = useState<string>('');
 
   // Chart Filters
-  const [pieFilterType, setPieFilterType] = useState<'today' | 'month' | 'year'>('today');
+  const [pieFilterType, setPieFilterType] = useState<'day' | 'month' | 'year'>('day');
+  const [pieDate, setPieDate] = useState(formatDateKey(new Date()));
+  const [pieMonth, setPieMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [pieYear, setPieYear] = useState(new Date().getFullYear().toString());
+
+  // Pie Chart Custom Date Picker State
+  const [showPieDatePicker, setShowPieDatePicker] = useState(false);
+  const [piePickerMonth, setPiePickerMonth] = useState(new Date());
+  const pieDatePickerRef = useRef<HTMLDivElement>(null);
+
   const [barDateRange, setBarDateRange] = useState<{start: string, end: string}>({
       start: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
       end: new Date().toISOString().split('T')[0]
   });
 
+  // Heatmap State
+  const [heatmapYear, setHeatmapYear] = useState<number>(new Date().getFullYear());
+
   // Exam Date State
   const defaultTarget = "2025-12-20"; 
   const [targetDateStr, setTargetDateStr] = useState(() => localStorage.getItem('kaoyan_target_date') || defaultTarget);
   const [isEditingTarget, setIsEditingTarget] = useState(false);
+
+  // Image Viewer
+  const [viewerImages, setViewerImages] = useState<string[]>([]);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
 
   const isAdmin = currentUser.role === 'admin';
   const isViewingSelf = selectedUserId === currentUser.id;
@@ -78,6 +95,17 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           setSelectedUserId(initialSelectedUserId);
       }
   }, [initialSelectedUserId]);
+
+  // Click outside handler for Pie Date Picker
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        if (pieDatePickerRef.current && !pieDatePickerRef.current.contains(event.target as Node)) {
+            setShowPieDatePicker(false);
+        }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Load Users - Updated to refresh when checkIns change (for rating sync)
   useEffect(() => {
@@ -137,9 +165,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
     let totalPenaltyMinutes = 0;
     
     const sortedCheckIns = [...selectedUserCheckIns].sort((a, b) => a.timestamp - b.timestamp);
-    const todayStr = formatDateKey(new Date());
-    const currentMonthStr = new Date().toISOString().slice(0, 7); // YYYY-MM
-    const currentYearStr = new Date().getFullYear().toString();
 
     sortedCheckIns.forEach(c => {
       const dateKey = formatDateKey(c.timestamp);
@@ -150,9 +175,9 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       } else {
           // Pie Chart Logic
           let includeInPie = false;
-          if (pieFilterType === 'today' && dateKey === todayStr) includeInPie = true;
-          if (pieFilterType === 'month' && dateKey.startsWith(currentMonthStr)) includeInPie = true;
-          if (pieFilterType === 'year' && dateKey.startsWith(currentYearStr)) includeInPie = true;
+          if (pieFilterType === 'day' && dateKey === pieDate) includeInPie = true;
+          if (pieFilterType === 'month' && dateKey.startsWith(pieMonth)) includeInPie = true;
+          if (pieFilterType === 'year' && dateKey.startsWith(pieYear)) includeInPie = true;
 
           if (includeInPie) {
              subjectDuration[c.subject] = (subjectDuration[c.subject] || 0) + duration;
@@ -180,8 +205,9 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
     }));
 
     return { pieData, durationData, totalStudyMinutes, totalPenaltyMinutes };
-  }, [selectedUserCheckIns, pieFilterType, barDateRange]);
+  }, [selectedUserCheckIns, pieFilterType, pieDate, pieMonth, pieYear, barDateRange]);
 
+  // --- Heatmap Logic (Updated for Year Selection) ---
   const heatmapData = useMemo(() => {
       const data: Record<string, number> = {};
       selectedUserCheckIns.filter(c => !c.isPenalty).forEach(c => {
@@ -325,12 +351,28 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
 
   const displayedCheckIns = useMemo(() => {
       let list = selectedUserCheckIns;
-      if (selectedDate) list = list.filter(c => formatDateKey(c.timestamp) === selectedDate);
-      else if (listFilterDate) list = list.filter(c => formatDateKey(c.timestamp) === listFilterDate);
+      
+      // Default behavior: Show only today's check-ins if no date is selected
+      const todayStr = formatDateKey(new Date());
+
+      if (selectedDate) {
+          list = list.filter(c => formatDateKey(c.timestamp) === selectedDate);
+      } else if (listFilterDate) {
+          list = list.filter(c => formatDateKey(c.timestamp) === listFilterDate);
+      } else {
+          // Default: Today only
+          list = list.filter(c => formatDateKey(c.timestamp) === todayStr);
+      }
+
       if (listFilterSubject !== 'ALL') list = list.filter(c => c.subject === listFilterSubject);
-      return list.sort((a, b) => b.timestamp - a.timestamp).slice(0, 50);
+      
+      // Limit results for "Recent Activity" (Partial view)
+      return list.sort((a, b) => b.timestamp - a.timestamp).slice(0, 10);
   }, [selectedUserCheckIns, selectedDate, listFilterSubject, listFilterDate]);
 
+  // --- Calendar Renderers ---
+
+  // 1. Dashboard Main Calendar
   const renderCalendar = () => {
     const { daysInMonth, firstDayOfWeek, year, month } = getDaysInMonth(currentMonth);
     const cells = [];
@@ -363,25 +405,64 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
     return cells;
   };
 
-  // Heatmap Renderer
+  // 2. Pie Chart Popup Calendar
+  const renderPiePickerCalendar = () => {
+      const { daysInMonth, firstDayOfWeek, year, month } = getDaysInMonth(piePickerMonth);
+      const cells = [];
+      const monthStr = String(month + 1).padStart(2, '0');
+
+      for (let i = 0; i < firstDayOfWeek; i++) {
+          cells.push(<div key={`empty-${i}`} className="h-7 w-7"></div>);
+      }
+
+      for (let d = 1; d <= daysInMonth; d++) {
+          const dayStr = String(d).padStart(2, '0');
+          const dateStr = `${year}-${monthStr}-${dayStr}`;
+          const hasCheckIn = dailyStatusMap[dateStr];
+          const isSelected = pieDate === dateStr;
+          const isToday = dateStr === formatDateKey(new Date());
+
+          cells.push(
+              <button
+                  key={dateStr}
+                  onClick={() => {
+                      setPieDate(dateStr);
+                      setShowPieDatePicker(false);
+                  }}
+                  className={`h-7 w-7 rounded-full flex flex-col items-center justify-center text-[10px] relative transition-all
+                      ${isSelected ? 'bg-brand-600 text-white shadow-md' : 'text-gray-700 hover:bg-brand-50'}
+                      ${isToday && !isSelected ? 'text-brand-600 font-bold border border-brand-200' : ''}
+                  `}
+              >
+                  {d}
+                  {hasCheckIn && !isSelected && (
+                      <div className="w-1 h-1 rounded-full bg-green-500 mt-0.5"></div>
+                  )}
+              </button>
+          );
+      }
+      return cells;
+  };
+
+  // 3. Heatmap Renderer (Yearly)
   const renderHeatmap = () => {
-      const today = new Date();
-      const startDate = new Date();
-      startDate.setDate(today.getDate() - 364); // Last year roughly
+      // Calculate start and end date of the selected heatmap year
+      const startDate = new Date(heatmapYear, 0, 1);
+      const endDate = new Date(heatmapYear, 11, 31);
       
       const weeks = [];
       let currentWeek = [];
       
-      // Pad beginning
-      const startDay = startDate.getDay(); // 0 is Sunday
+      // Pad beginning based on day of week (0 is Sunday)
+      const startDay = startDate.getDay(); 
       for(let i=0; i<startDay; i++) {
           currentWeek.push({ date: null, count: 0 });
       }
 
-      for (let d = 0; d < 365; d++) {
-          const currentDate = new Date(startDate);
-          currentDate.setDate(startDate.getDate() + d);
-          const dateStr = formatDateKey(currentDate);
+      // Loop through all days of the year
+      const d = new Date(startDate);
+      while (d <= endDate) {
+          const dateStr = formatDateKey(d);
           const count = heatmapData[dateStr] || 0;
           
           currentWeek.push({ date: dateStr, count });
@@ -390,8 +471,17 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
               weeks.push(currentWeek);
               currentWeek = [];
           }
+          
+          d.setDate(d.getDate() + 1);
       }
-      if(currentWeek.length > 0) weeks.push(currentWeek);
+      
+      // Pad end if week is incomplete
+      if(currentWeek.length > 0) {
+          while (currentWeek.length < 7) {
+              currentWeek.push({ date: null, count: 0 });
+          }
+          weeks.push(currentWeek);
+      }
 
       return (
           <div className="flex gap-1 overflow-x-auto custom-scrollbar pb-2">
@@ -418,12 +508,13 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const ratingColorClass = getUserStyle(selectedUser.role, selectedUser.rating ?? 1200);
   const titleName = getTitleName(selectedUser.role, selectedUser.rating ?? 1200);
 
+  // Admin View
   if (isAdmin && selectedUserId === currentUser.id) {
-        // Admin Leaderboard (Keep existing logic...)
         const leaderboardUsers = [...allUsers].sort((a, b) => (b.rating ?? 1200) - (a.rating ?? 1200));
         return (
           <div className="space-y-6 animate-fade-in pb-20">
-               <div className="flex justify-end">
+               <div className="flex justify-between items-center mb-4">
+                   <h1 className="text-2xl font-bold text-gray-800">管理后台看板</h1>
                    <div className="relative">
                        <select 
                            value={selectedUserId}
@@ -439,12 +530,42 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                        <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                    </div>
                </div>
-              <div className="bg-white rounded-[2rem] p-8 border border-gray-100 shadow-sm">
+              <div className="bg-white rounded-[2rem] p-8 border border-gray-100 shadow-sm overflow-hidden">
                   <h2 className="text-2xl font-black text-gray-800 mb-6 flex items-center gap-2">
                       <Trophy className="w-6 h-6 text-yellow-500" /> 全员 Rating 排行榜
                   </h2>
-                  {/* ... Table content same as before ... */}
-                  <div className="text-center text-gray-400 p-10">（排行榜内容保持不变）</div>
+                  <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                          <thead>
+                              <tr className="text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100">
+                                  <th className="pb-3 pl-2">排名</th>
+                                  <th className="pb-3">用户</th>
+                                  <th className="pb-3">头衔</th>
+                                  <th className="pb-3 text-right">Rating</th>
+                              </tr>
+                          </thead>
+                          <tbody className="text-sm">
+                              {leaderboardUsers.map((u, idx) => (
+                                  <tr key={u.id} className="group hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0">
+                                      <td className="py-3 pl-2 font-mono text-gray-500 w-12">
+                                          {idx < 3 ? <Medal className={`w-5 h-5 ${idx===0?'text-yellow-500':idx===1?'text-gray-400':'text-orange-600'}`} /> : idx + 1}
+                                      </td>
+                                      <td className="py-3 flex items-center gap-3">
+                                          <img src={u.avatar} className="w-8 h-8 rounded-full bg-gray-100" />
+                                          <span className={`font-bold ${getUserStyle(u.role, u.rating)}`}>{u.name}</span>
+                                          {u.role === 'admin' && <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 rounded">Admin</span>}
+                                      </td>
+                                      <td className="py-3 text-gray-500 text-xs font-medium">
+                                          {getTitleName(u.role, u.rating)}
+                                      </td>
+                                      <td className="py-3 text-right font-black text-gray-800 font-mono">
+                                          {u.rating || 1200}
+                                      </td>
+                                  </tr>
+                              ))}
+                          </tbody>
+                      </table>
+                  </div>
               </div>
           </div>
       );
@@ -461,6 +582,38 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           initialDuration={logDuration}
           onSave={executeLogStudy}
       />
+
+      <ImageViewer 
+          isOpen={isViewerOpen}
+          onClose={() => setIsViewerOpen(false)}
+          images={viewerImages}
+          initialIndex={0}
+      />
+
+      {/* Greeting Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-2">
+        <div>
+            <h1 className="text-3xl font-black text-gray-800">
+                {(() => {
+                    const h = new Date().getHours();
+                    if(h<5) return '深夜好';
+                    if(h<11) return '早上好';
+                    if(h<13) return '中午好';
+                    if(h<18) return '下午好';
+                    return '晚上好';
+                })()}，<span className="text-brand-600">{currentUser.name}</span>
+            </h1>
+            <p className="text-gray-500 font-medium mt-1 flex items-center gap-2">
+                今天也要加油呀！✨
+            </p>
+        </div>
+        <div className="hidden md:block text-right">
+             <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">Today</div>
+             <div className="text-xl font-bold text-gray-700 font-mono">
+                 {new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })}
+             </div>
+        </div>
+      </div>
       
       {/* --- Row 1: Profile & Key Stats --- */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -590,11 +743,28 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
            </div>
       </div>
 
-      {/* --- Row 1.5: Contribution Heatmap --- */}
+      {/* --- Row 1.5: Contribution Heatmap (Yearly) --- */}
       <div className="bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm overflow-hidden">
-          <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 text-sm">
-              <Grid3X3 className="w-5 h-5 text-green-600" /> 年度学习热力图
-          </h3>
+          <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
+                  <Grid3X3 className="w-5 h-5 text-green-600" /> 年度学习热力图
+              </h3>
+              <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-1">
+                  <button 
+                    onClick={() => setHeatmapYear(y => y - 1)} 
+                    className="p-1 hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all"
+                  >
+                      <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="text-xs font-bold text-gray-700 w-12 text-center select-none">{heatmapYear}</span>
+                  <button 
+                    onClick={() => setHeatmapYear(y => y + 1)} 
+                    className="p-1 hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all"
+                  >
+                      <ChevronRight className="w-4 h-4" />
+                  </button>
+              </div>
+          </div>
           {renderHeatmap()}
           <div className="flex items-center gap-2 justify-end text-[10px] text-gray-400 mt-2">
               <span>Less</span>
@@ -607,7 +777,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       </div>
 
       {/* --- Row 2: Actions --- */}
-      {/* ... Logger and ToDo (Same as before) ... */}
+      {/* ... Logger and ToDo ... */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-8">
             {isViewingSelf ? (
@@ -706,11 +876,43 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                 <div className="mb-6 flex flex-col gap-2">
                     <div className="flex justify-between items-center">
                         <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm"><BrainCircuit className="w-5 h-5 text-orange-500" /> 科目时长</h3>
-                        <div className="bg-gray-100 p-1 rounded-lg flex text-[10px] font-bold">
-                            <button onClick={() => setPieFilterType('today')} className={`px-2 py-1 rounded-md transition-all ${pieFilterType === 'today' ? 'bg-white text-orange-500 shadow-sm' : 'text-gray-500'}`}>日</button>
-                            <button onClick={() => setPieFilterType('month')} className={`px-2 py-1 rounded-md transition-all ${pieFilterType === 'month' ? 'bg-white text-orange-500 shadow-sm' : 'text-gray-500'}`}>月</button>
-                            <button onClick={() => setPieFilterType('year')} className={`px-2 py-1 rounded-md transition-all ${pieFilterType === 'year' ? 'bg-white text-orange-500 shadow-sm' : 'text-gray-500'}`}>年</button>
+                    </div>
+                    {/* Improved Filter Controls */}
+                    <div className="bg-gray-100 p-1.5 rounded-xl flex flex-col gap-1">
+                        <div className="flex text-[10px] font-bold">
+                            <button onClick={() => setPieFilterType('day')} className={`flex-1 py-1 rounded-md transition-all ${pieFilterType === 'day' ? 'bg-white text-orange-500 shadow-sm' : 'text-gray-500'}`}>日</button>
+                            <button onClick={() => setPieFilterType('month')} className={`flex-1 py-1 rounded-md transition-all ${pieFilterType === 'month' ? 'bg-white text-orange-500 shadow-sm' : 'text-gray-500'}`}>月</button>
+                            <button onClick={() => setPieFilterType('year')} className={`flex-1 py-1 rounded-md transition-all ${pieFilterType === 'year' ? 'bg-white text-orange-500 shadow-sm' : 'text-gray-500'}`}>年</button>
                         </div>
+                        {pieFilterType === 'day' && (
+                            <div className="relative" ref={pieDatePickerRef}>
+                                <button 
+                                    onClick={() => setShowPieDatePicker(!showPieDatePicker)}
+                                    className="w-full text-xs bg-white rounded-md px-2 py-1 text-center font-mono text-gray-600 font-bold flex items-center justify-center gap-1 shadow-sm border border-transparent hover:border-orange-200"
+                                >
+                                    {pieDate} <ChevronDown className="w-3 h-3 text-gray-400"/>
+                                </button>
+                                {showPieDatePicker && (
+                                    <div className="absolute top-full left-0 mt-2 bg-white border border-gray-100 rounded-xl shadow-xl z-20 p-3 w-56 animate-fade-in">
+                                         <div className="flex justify-between items-center mb-2">
+                                             <button onClick={() => setPiePickerMonth(new Date(piePickerMonth.getFullYear(), piePickerMonth.getMonth() - 1, 1))} className="p-1 hover:bg-gray-100 rounded text-gray-400"><ChevronLeft className="w-3 h-3" /></button>
+                                             <span className="text-xs font-bold text-gray-700">{piePickerMonth.getFullYear()}年 {piePickerMonth.getMonth() + 1}月</span>
+                                             <button onClick={() => setPiePickerMonth(new Date(piePickerMonth.getFullYear(), piePickerMonth.getMonth() + 1, 1))} className="p-1 hover:bg-gray-100 rounded text-gray-400"><ChevronRight className="w-3 h-3" /></button>
+                                         </div>
+                                         <div className="grid grid-cols-7 gap-1 place-items-center">
+                                             {['日', '一', '二', '三', '四', '五', '六'].map(d => <span key={d} className="text-[10px] text-gray-400">{d}</span>)}
+                                             {renderPiePickerCalendar()}
+                                         </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        {pieFilterType === 'month' && (
+                            <input type="month" value={pieMonth} onChange={e => setPieMonth(e.target.value)} className="w-full text-xs border-0 bg-white rounded-md px-2 py-1 text-center font-mono text-gray-600" />
+                        )}
+                        {pieFilterType === 'year' && (
+                            <div className="w-full text-xs bg-white rounded-md px-2 py-1 text-center font-mono text-gray-600 font-bold">{pieYear}</div>
+                        )}
                     </div>
                 </div>
                 <div className="flex-1 min-h-[200px] relative">
@@ -724,7 +926,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                         </PieChart>
                         </ResponsiveContainer>
                     ) : (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 text-xs bg-gray-50/50 rounded-2xl border border-dashed border-gray-100"><Activity className="w-8 h-8 mb-2 opacity-20" /><p>暂无记录</p></div>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 text-xs bg-gray-50/50 rounded-2xl border border-dashed border-gray-100"><Activity className="w-8 h-8 mb-2 opacity-20" /><p>该时间段无记录</p></div>
                     )}
                 </div>
                 <div className="flex flex-wrap gap-2 justify-center mt-4">
@@ -800,12 +1002,24 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                                     </div>
                                     <div className="mt-3 flex items-center gap-3 text-xs">
                                         <span className={`flex items-center gap-1.5 font-bold px-2 py-1 rounded-md ${checkIn.isPenalty ? 'bg-white text-red-500 shadow-sm' : 'bg-gray-50 text-blue-600'}`}><Clock className="w-3 h-3" /> {checkIn.isPenalty ? '摸鱼/惩罚' : '学习'} {checkIn.duration} min</span>
+                                        {checkIn.imageUrl && (
+                                            <button onClick={(e) => {e.stopPropagation(); setViewerImages([checkIn.imageUrl || '']); setIsViewerOpen(true);}} className="text-indigo-600 hover:underline flex items-center gap-1">
+                                                <Eye className="w-3 h-3" /> 查看图片
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             </div>
                         ))
                  ) : (
-                     <div className="text-center py-12 text-gray-400 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200"><UserCircle className="w-10 h-10 mx-auto mb-3 opacity-20" /><p className="text-sm">{selectedDate || listFilterDate ? `在该日期，${isViewingSelf ? '你' : 'TA'}似乎在休息` : '暂无符合条件的打卡记录'}</p></div>
+                     <div className="text-center py-12 text-gray-400 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200">
+                        <UserCircle className="w-10 h-10 mx-auto mb-3 opacity-20" />
+                        <p className="text-sm">
+                            {selectedDate || listFilterDate 
+                                ? `在该日期，${isViewingSelf ? '你' : 'TA'}似乎在休息` 
+                                : `今天暂无动态，${isViewingSelf ? '加油！' : 'TA在潜水？'}`}
+                        </p>
+                     </div>
                  )}
              </div>
        </div>

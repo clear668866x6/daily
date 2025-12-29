@@ -2,10 +2,11 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { CheckIn, SubjectCategory, User, getUserStyle } from '../types'; 
 import { MarkdownText } from './MarkdownText';
-import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Clock, Search, User as UserIcon, Calendar as CalendarIcon, ArrowLeft, Pin, Trash2 } from 'lucide-react';
+import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Clock, Search, User as UserIcon, Calendar as CalendarIcon, ArrowLeft, Pin, Trash2, Users } from 'lucide-react';
 import { FullScreenEditor } from './FullScreenEditor';
 import { FILTER_GROUPS } from '../constants';
 import { compressImage } from '../services/imageUtils';
+import { ImageViewer } from './ImageViewer';
 
 interface Props {
   checkIns: CheckIn[];
@@ -34,6 +35,10 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
 
   // Edit State
   const [editingCheckIn, setEditingCheckIn] = useState<CheckIn | null>(null);
+
+  // Viewer State
+  const [viewerImages, setViewerImages] = useState<string[]>([]);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
 
   const isGuest = user.role === 'guest';
   const isAdmin = user.role === 'admin';
@@ -95,6 +100,11 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
           onUpdateCheckIn(editingCheckIn.id, newContent);
           setEditingCheckIn(null);
       }
+  }
+
+  const openImageViewer = (imgUrl: string) => {
+      setViewerImages([imgUrl]);
+      setIsViewerOpen(true);
   }
 
   // Regular Feed Filtering
@@ -228,12 +238,17 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
             </div>
 
             {checkIn.imageUrl && (
-                <div className="mb-5 relative z-10 rounded-2xl overflow-hidden border border-gray-100 max-w-sm">
+                <div className="mb-5 relative z-10 rounded-2xl overflow-hidden border border-gray-100 max-w-sm cursor-zoom-in group/image" onClick={() => openImageViewer(checkIn.imageUrl || '')}>
                     <img 
                       src={checkIn.imageUrl} 
                       alt="Post" 
-                      className="w-full h-auto object-cover transition-transform duration-500 group-hover:scale-105" 
+                      className="w-full h-auto object-cover transition-transform duration-500 group-hover/image:scale-105" 
                     />
+                    <div className="absolute inset-0 bg-black/0 group-hover/image:bg-black/10 transition-colors flex items-center justify-center">
+                        <div className="bg-black/50 p-2 rounded-full text-white opacity-0 group-hover/image:opacity-100 transition-opacity backdrop-blur-sm">
+                            <Maximize2 className="w-5 h-5" />
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -348,6 +363,13 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
   return (
     <div className="max-w-3xl mx-auto pb-20 relative">
       
+      <ImageViewer 
+          isOpen={isViewerOpen}
+          onClose={() => setIsViewerOpen(false)}
+          images={viewerImages}
+          initialIndex={0}
+      />
+
       <FullScreenEditor 
           isOpen={!!editingCheckIn}
           onClose={() => setEditingCheckIn(null)}
@@ -359,6 +381,17 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
           title="修改打卡日志"
           submitLabel="保存修改"
       />
+
+      {/* Page Header */}
+      <div className="mb-6 flex items-center gap-3">
+          <div className="bg-gradient-to-br from-brand-500 to-indigo-600 p-2.5 rounded-xl shadow-lg shadow-brand-200 text-white">
+              <Users className="w-6 h-6" />
+          </div>
+          <div>
+              <h1 className="text-2xl font-black text-gray-800">研友圈</h1>
+              <p className="text-xs text-gray-500 font-medium">交流心得，共同进步</p>
+          </div>
+      </div>
 
       <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-1 mb-8">
         {isGuest ? (
