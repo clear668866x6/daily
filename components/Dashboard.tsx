@@ -325,23 +325,10 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
 
   const displayedCheckIns = useMemo(() => {
       let list = selectedUserCheckIns;
-      
-      // Default behavior: Show only today's check-ins if no date is selected
-      const todayStr = formatDateKey(new Date());
-
-      if (selectedDate) {
-          list = list.filter(c => formatDateKey(c.timestamp) === selectedDate);
-      } else if (listFilterDate) {
-          list = list.filter(c => formatDateKey(c.timestamp) === listFilterDate);
-      } else {
-          // Default: Today only
-          list = list.filter(c => formatDateKey(c.timestamp) === todayStr);
-      }
-
+      if (selectedDate) list = list.filter(c => formatDateKey(c.timestamp) === selectedDate);
+      else if (listFilterDate) list = list.filter(c => formatDateKey(c.timestamp) === listFilterDate);
       if (listFilterSubject !== 'ALL') list = list.filter(c => c.subject === listFilterSubject);
-      
-      // Limit results for "Recent Activity" (Partial view)
-      return list.sort((a, b) => b.timestamp - a.timestamp).slice(0, 10);
+      return list.sort((a, b) => b.timestamp - a.timestamp).slice(0, 50);
   }, [selectedUserCheckIns, selectedDate, listFilterSubject, listFilterDate]);
 
   const renderCalendar = () => {
@@ -694,6 +681,61 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
 
       {/* --- Row 3: Charts --- */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="lg:col-span-8 bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm">
+                <div className="flex justify-between items-center mb-6">
+                     <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm"><TrendingUp className="w-5 h-5 text-red-500" /> Rating 积分趋势</h3>
+                </div>
+                <div className="h-64">
+                    {ratingChartData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={ratingChartData}>
+                                <defs><linearGradient id="colorRating" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/><stop offset="95%" stopColor="#ef4444" stopOpacity={0}/></linearGradient></defs>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                                <XAxis dataKey="date" tick={{fontSize: 10, fill: '#9ca3af'}} tickLine={false} axisLine={false} minTickGap={30} />
+                                <YAxis domain={['auto', 'auto']} tick={{fontSize: 10, fill: '#9ca3af'}} tickLine={false} axisLine={false} />
+                                <Tooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} itemStyle={{color: '#ef4444', fontWeight: 'bold'}} />
+                                <Area type="monotone" dataKey="rating" stroke="#ef4444" strokeWidth={3} fillOpacity={1} fill="url(#colorRating)" dot={{r: 3, fill: '#ef4444', strokeWidth: 2, stroke: '#fff'}} activeDot={{r: 6}} />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div className="h-full flex flex-col items-center justify-center text-gray-400 text-xs bg-gray-50/50 rounded-2xl border border-dashed border-gray-100"><TrendingUp className="w-8 h-8 mb-2 opacity-20" /><p>坚持打卡，让曲线飙升！</p></div>
+                    )}
+                </div>
+          </div>
+          <div className="lg:col-span-4 bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm flex flex-col">
+                <div className="mb-6 flex flex-col gap-2">
+                    <div className="flex justify-between items-center">
+                        <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm"><BrainCircuit className="w-5 h-5 text-orange-500" /> 科目时长</h3>
+                        <div className="bg-gray-100 p-1 rounded-lg flex text-[10px] font-bold">
+                            <button onClick={() => setPieFilterType('today')} className={`px-2 py-1 rounded-md transition-all ${pieFilterType === 'today' ? 'bg-white text-orange-500 shadow-sm' : 'text-gray-500'}`}>日</button>
+                            <button onClick={() => setPieFilterType('month')} className={`px-2 py-1 rounded-md transition-all ${pieFilterType === 'month' ? 'bg-white text-orange-500 shadow-sm' : 'text-gray-500'}`}>月</button>
+                            <button onClick={() => setPieFilterType('year')} className={`px-2 py-1 rounded-md transition-all ${pieFilterType === 'year' ? 'bg-white text-orange-500 shadow-sm' : 'text-gray-500'}`}>年</button>
+                        </div>
+                    </div>
+                </div>
+                <div className="flex-1 min-h-[200px] relative">
+                    {stats.pieData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                            <Pie data={stats.pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" label={false} stroke="none">
+                            {stats.pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                            </Pie>
+                            <Tooltip formatter={(value: number) => `${Math.floor(value/60)}h ${value%60}m`} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
+                        </PieChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 text-xs bg-gray-50/50 rounded-2xl border border-dashed border-gray-100"><Activity className="w-8 h-8 mb-2 opacity-20" /><p>暂无记录</p></div>
+                    )}
+                </div>
+                <div className="flex flex-wrap gap-2 justify-center mt-4">
+                    {stats.pieData.slice(0, 4).map((entry, index) => (
+                        <div key={index} className="flex items-center gap-1 text-[10px] text-gray-500 bg-gray-50 px-2 py-1 rounded-full"><div className="w-2 h-2 rounded-full" style={{backgroundColor: COLORS[index % COLORS.length]}}></div>{entry.name}</div>
+                    ))}
+                </div>
+          </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-8 bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm h-80">
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
@@ -763,14 +805,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                             </div>
                         ))
                  ) : (
-                     <div className="text-center py-12 text-gray-400 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200">
-                        <UserCircle className="w-10 h-10 mx-auto mb-3 opacity-20" />
-                        <p className="text-sm">
-                            {selectedDate || listFilterDate 
-                                ? `在该日期，${isViewingSelf ? '你' : 'TA'}似乎在休息` 
-                                : `今天暂无动态，${isViewingSelf ? '加油！' : 'TA在潜水？'}`}
-                        </p>
-                     </div>
+                     <div className="text-center py-12 text-gray-400 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200"><UserCircle className="w-10 h-10 mx-auto mb-3 opacity-20" /><p className="text-sm">{selectedDate || listFilterDate ? `在该日期，${isViewingSelf ? '你' : 'TA'}似乎在休息` : '暂无符合条件的打卡记录'}</p></div>
                  )}
              </div>
        </div>
