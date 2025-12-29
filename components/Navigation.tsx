@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { LayoutDashboard, BookOpen, Users, LogOut, GraduationCap, Cpu, Info, ChevronLeft, ChevronRight, Shield, UserCircle } from 'lucide-react';
+import { LayoutDashboard, BookOpen, Users, LogOut, GraduationCap, Cpu, Info, ChevronLeft, ChevronRight, Shield, UserCircle, Award, Swords } from 'lucide-react';
 import { User, getUserStyle } from '../types';
 
 interface Props {
@@ -16,10 +16,12 @@ export const Navigation: React.FC<Props> = ({ activeTab, onTabChange, onLogout, 
 
   const navItems = [
     { id: 'dashboard', label: '打卡首页', icon: LayoutDashboard }, 
-    { id: 'profile', label: '我的主页', icon: UserCircle }, // New Profile Item
+    { id: 'profile', label: '我的主页', icon: UserCircle }, 
     { id: 'feed', label: '研友圈', icon: Users },
     { id: 'algorithm', label: '算法训练', icon: Cpu },
     { id: 'english', label: 'AI英语', icon: BookOpen },
+    { id: 'achievements', label: '成就历史', icon: Award }, // New
+    { id: 'pk', label: 'PK竞技', icon: Swords }, // New
     { id: 'about', label: '关于', icon: Info },
   ];
 
@@ -44,13 +46,13 @@ export const Navigation: React.FC<Props> = ({ activeTab, onTabChange, onLogout, 
         </div>
         {!isCollapsed && (
             <h1 className="text-xl font-bold text-gray-800 truncate transition-opacity duration-300">
-                KaoyanMate
+                KYtracker
             </h1>
         )}
       </div>
 
       {/* Nav Items */}
-      <nav className="flex-1 p-3 space-y-2 overflow-y-auto overflow-x-hidden">
+      <nav className="flex-1 p-3 space-y-2 overflow-y-auto overflow-x-hidden custom-scrollbar">
         {navItems.map((item) => {
           const isActive = activeTab === item.id;
           return (
@@ -67,66 +69,53 @@ export const Navigation: React.FC<Props> = ({ activeTab, onTabChange, onLogout, 
               }`}
             >
               <item.icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-brand-600' : 'text-gray-400 group-hover:text-gray-600'}`} />
-              
-              {!isCollapsed && (
-                  <span className="whitespace-nowrap transition-opacity duration-200">
-                      {item.label}
-                  </span>
-              )}
-
-              {/* Tooltip for collapsed mode */}
-              {isCollapsed && (
-                  <div className="absolute left-full ml-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
-                      {item.label}
-                  </div>
+              {!isCollapsed && <span className="text-sm font-medium">{item.label}</span>}
+              {isCollapsed && isActive && (
+                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-brand-600 rounded-r-full"></div>
               )}
             </button>
           );
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="p-4 border-t border-gray-100 space-y-2">
-        {/* User Info Widget (Visible only when expanded) */}
-        {!isCollapsed && currentUser && (
-            <div 
-                className="bg-gray-50 rounded-xl p-3 border border-gray-100 mb-2 cursor-pointer hover:bg-gray-100 transition-colors group"
-                onClick={() => onTabChange('profile')} // Navigate to Profile specifically
-                title="点击前往我的主页"
-            >
-                <div className={`text-sm font-bold truncate group-hover:text-brand-600 transition-colors ${getUserStyle(currentUser.role, currentUser.rating)}`}>
-                    {currentUser.name}
-                </div>
-                <div className="text-xs text-gray-400 mt-1 font-mono font-medium flex justify-between items-center">
-                    <span>Rating:</span>
-                    <span className="text-gray-600">{currentUser.rating ?? 1200}</span>
-                </div>
+      {/* Footer / User Info */}
+      <div className="p-4 border-t border-gray-100 bg-gray-50/50">
+        {currentUser && (
+            <div className={`flex items-center mb-4 ${isCollapsed ? 'justify-center' : 'space-x-3'}`}>
+                <img 
+                    src={currentUser.avatar} 
+                    alt={currentUser.name} 
+                    className="w-9 h-9 rounded-full bg-gray-200 border border-white shadow-sm"
+                />
+                {!isCollapsed && (
+                    <div className="overflow-hidden">
+                        <div className={`text-sm font-bold truncate ${getUserStyle(currentUser.role, currentUser.rating)}`}>{currentUser.name}</div>
+                        <div className="text-xs text-gray-400 truncate">Rating: {currentUser.rating || 1200}</div>
+                    </div>
+                )}
             </div>
         )}
-
-        {currentUser?.role === 'admin' && (
+        
+        <div className={`flex gap-2 ${isCollapsed ? 'flex-col items-center' : ''}`}>
+             {currentUser?.role === 'admin' && (
+                <button 
+                    onClick={onOpenAdmin}
+                    className={`flex items-center justify-center p-2 rounded-lg text-indigo-600 hover:bg-indigo-50 transition-colors flex-1 border border-indigo-100 ${isCollapsed ? 'w-full' : ''}`}
+                    title="管理后台"
+                >
+                    <Shield className="w-5 h-5" />
+                    {!isCollapsed && <span className="ml-2 text-xs font-bold">后台</span>}
+                </button>
+             )}
             <button 
-                onClick={onOpenAdmin}
-                title={isCollapsed ? '后台管理' : ''}
-                className={`flex items-center rounded-xl px-4 py-2 text-indigo-500 hover:bg-indigo-50 hover:text-indigo-700 w-full transition-colors ${
-                    isCollapsed ? 'justify-center' : 'space-x-3'
-                }`}
+                onClick={onLogout}
+                className={`flex items-center justify-center p-2 rounded-lg text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors flex-1 border border-transparent hover:border-red-100 ${isCollapsed ? 'w-full' : ''}`}
+                title="退出登录"
             >
-                <Shield className="w-5 h-5 shrink-0" />
-                {!isCollapsed && <span className="text-sm font-bold">后台管理</span>}
+                <LogOut className="w-5 h-5" />
+                {!isCollapsed && <span className="ml-2 text-xs font-bold">退出</span>}
             </button>
-        )}
-
-        <button 
-          onClick={onLogout}
-          title={isCollapsed ? '退出登录' : ''}
-          className={`flex items-center rounded-xl px-4 py-2 text-gray-400 hover:text-red-500 w-full transition-colors ${
-              isCollapsed ? 'justify-center' : 'space-x-3'
-          }`}
-        >
-          <LogOut className="w-5 h-5 shrink-0" />
-          {!isCollapsed && <span className="text-sm">退出登录</span>}
-        </button>
+        </div>
       </div>
     </div>
   );

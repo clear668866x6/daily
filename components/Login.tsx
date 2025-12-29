@@ -61,7 +61,7 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
           <div className="bg-white/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
             <GraduationCap className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white mb-2">KaoyanMate</h1>
+          <h1 className="text-2xl font-bold text-white mb-2">KYtracker</h1>
           <p className="text-brand-100">记录考研每一天，上岸终有时</p>
         </div>
 

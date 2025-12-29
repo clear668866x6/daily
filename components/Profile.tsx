@@ -1,8 +1,8 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { User, CheckIn, SubjectCategory, getUserStyle, getTitleName, RatingHistory } from '../types';
 import { MarkdownText } from './MarkdownText';
-import { Calendar, Filter, Clock, MapPin, X, Search, User as UserIcon, TrendingUp, ChevronLeft, ArrowLeft, History, Trash2, Edit2, Sparkles } from 'lucide-react';
+import { Calendar, Filter, Clock, MapPin, X, Search, User as UserIcon, TrendingUp, ChevronLeft, ArrowLeft, History, Trash2, Edit2, Sparkles, ChevronRight, ChevronDown } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import * as storage from '../services/storageService';
 import { FullScreenEditor } from './FullScreenEditor';
@@ -13,8 +13,8 @@ interface Props {
   checkIns: CheckIn[];
   onSearchUser?: (userId: string) => void; 
   onBack?: () => void; 
-  onDeleteCheckIn: (id: string) => void; // New prop
-  onUpdateCheckIn: (id: string, content: string) => void; // New prop
+  onDeleteCheckIn: (id: string) => void; 
+  onUpdateCheckIn: (id: string, content: string) => void; 
 }
 
 export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearchUser, onBack, onDeleteCheckIn, onUpdateCheckIn }) => {
@@ -22,6 +22,11 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
   const [filterDate, setFilterDate] = useState<string>('');
   const [ratingHistory, setRatingHistory] = useState<RatingHistory[]>([]);
   
+  // UI States for Popups
+  const [showSubjectMenu, setShowSubjectMenu] = useState(false);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
+
   // Search State
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -30,6 +35,25 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
 
   // Edit State
   const [editingCheckIn, setEditingCheckIn] = useState<CheckIn | null>(null);
+
+  const subjectButtonRef = useRef<HTMLButtonElement>(null);
+  const calendarButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Close popups on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        if (subjectButtonRef.current && !subjectButtonRef.current.contains(event.target as Node)) {
+            setShowSubjectMenu(false);
+        }
+        if (calendarButtonRef.current && !calendarButtonRef.current.contains(event.target as Node)) {
+             // Don't close if clicking inside the calendar itself (which is rendered usually nearby or via portal, but here inline)
+             // Simplified: just close if not clicking button, but we need to handle clicks inside calendar div.
+             // We'll wrap calendar in a ref container to be safe, or just use simpler logic.
+        }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Load Data
   useEffect(() => {
@@ -105,16 +129,70 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
       }));
   }, [ratingHistory]);
 
-  // Filter users for search list
   const displaySearchUsers = useMemo(() => {
       if (!searchQuery.trim()) {
-          // If empty query, show "Recommended" (random subset of all users excluding history)
-          // For simplicity, just show top 10 rated users
           const historyIds = new Set(searchHistory.map(u => u.id));
           return allUsers.filter(u => !historyIds.has(u.id)).slice(0, 10);
       }
       return allUsers.filter(u => u.name.toLowerCase().includes(searchQuery.toLowerCase()));
   }, [allUsers, searchQuery, searchHistory]);
+
+  // Calendar Helpers
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDayOfWeek = new Date(year, month, 1).getDay();
+    return { daysInMonth, firstDayOfWeek, year, month };
+  };
+
+  const dailyStatusMap = useMemo(() => {
+    const map: Record<string, boolean> = {};
+    myCheckIns.forEach(c => {
+        const key = new Date(c.timestamp).toISOString().split('T')[0];
+        map[key] = true;
+    });
+    return map;
+  }, [myCheckIns]);
+
+  const renderCalendar = () => {
+    const { daysInMonth, firstDayOfWeek, year, month } = getDaysInMonth(calendarMonth);
+    const cells = [];
+    const monthStr = String(month + 1).padStart(2, '0');
+
+    for (let i = 0; i < firstDayOfWeek; i++) {
+        cells.push(<div key={`empty-${i}`} className="h-8 w-8"></div>);
+    }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+        const dayStr = String(d).padStart(2, '0');
+        const dateStr = `${year}-${monthStr}-${dayStr}`;
+        const hasCheckIn = dailyStatusMap[dateStr];
+        const isSelected = filterDate === dateStr;
+        const isToday = dateStr === new Date().toISOString().split('T')[0];
+
+        cells.push(
+            <button
+                key={dateStr}
+                onClick={() => {
+                    setFilterDate(isSelected ? '' : dateStr);
+                    if (!isSelected) setShowCalendar(false);
+                }}
+                className={`h-8 w-8 rounded-full flex flex-col items-center justify-center text-xs relative transition-all
+                    ${isSelected ? 'bg-brand-600 text-white shadow-lg' : 'text-gray-700 hover:bg-brand-50'}
+                    ${isToday && !isSelected ? 'text-brand-600 font-bold border border-brand-200' : ''}
+                `}
+            >
+                {d}
+                {hasCheckIn && !isSelected && (
+                    <div className="w-1 h-1 rounded-full bg-brand-500 mt-0.5"></div>
+                )}
+            </button>
+        );
+    }
+    return cells;
+  };
+
 
   return (
     <div className="min-h-full bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden animate-slide-up relative">
@@ -126,7 +204,7 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
             initialContent={editingCheckIn?.content || ''}
             initialSubject={editingCheckIn?.subject}
             initialDuration={editingCheckIn?.duration || 0}
-            allowDurationEdit={false} // Duration immutable in edit mode usually
+            allowDurationEdit={false} 
             onSave={handleSaveEdit}
             title="修改打卡日志"
             submitLabel="保存修改"
@@ -150,7 +228,6 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
                 </div>
                 
                 <div className="flex-1 overflow-y-auto custom-scrollbar space-y-6">
-                    {/* Search History Section */}
                     {!searchQuery && searchHistory.length > 0 && (
                         <div>
                             <div className="flex justify-between items-center px-2 mb-2">
@@ -176,7 +253,6 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
                         </div>
                     )}
 
-                    {/* Main User List */}
                     <div>
                         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider px-2 mb-2 flex items-center gap-1">
                             {!searchQuery ? <><Sparkles className="w-3 h-3"/> 活跃研友</> : '搜索结果'}
@@ -207,8 +283,6 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
         {/* Header Background */}
         <div className="h-48 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 relative">
             <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
-            
-            {/* Top Actions */}
             <div className="absolute top-6 left-6 z-10">
                 {onBack && user.id !== currentUser.id && (
                     <button 
@@ -228,7 +302,6 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
                     <Search className="w-5 h-5" />
                 </button>
             </div>
-
             <div className="absolute -bottom-16 left-8">
                 <img 
                     src={user.avatar} 
@@ -260,7 +333,6 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
                     </div>
                 </div>
                 
-                {/* Stat Cards */}
                 <div className="flex gap-3 w-full md:w-auto">
                     <div className="flex-1 md:flex-none text-center p-3 bg-gray-50 rounded-2xl min-w-[80px] border border-gray-100">
                         <div className="text-2xl font-black text-gray-800">{totalDays}</div>
@@ -335,20 +407,70 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
             <div className="flex items-center gap-2 text-gray-500 font-bold text-sm mr-2">
                 <Filter className="w-4 h-4" /> 筛选日志
             </div>
-            <select 
-                value={filterSubject}
-                onChange={e => setFilterSubject(e.target.value)}
-                className="bg-white border border-gray-200 rounded-xl px-3 py-1.5 text-xs font-bold text-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500 shadow-sm"
-            >
-                <option value="ALL">全部科目</option>
-                {Object.values(SubjectCategory).map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <input 
-                type="date" 
-                value={filterDate}
-                onChange={e => setFilterDate(e.target.value)}
-                className="bg-white border border-gray-200 rounded-xl px-3 py-1.5 text-xs font-bold text-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500 shadow-sm"
-            />
+            
+            {/* Subject Popup Menu */}
+            <div className="relative">
+                <button 
+                    ref={subjectButtonRef}
+                    onClick={() => setShowSubjectMenu(!showSubjectMenu)}
+                    className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50 transition-colors shadow-sm"
+                >
+                    {filterSubject === 'ALL' ? '全部科目' : filterSubject}
+                    <ChevronDown className="w-3 h-3" />
+                </button>
+                
+                {showSubjectMenu && (
+                    <div className="absolute top-full left-0 mt-2 w-40 bg-white border border-gray-100 rounded-xl shadow-xl z-30 overflow-hidden animate-fade-in flex flex-col">
+                         <button 
+                             onClick={() => { setFilterSubject('ALL'); setShowSubjectMenu(false); }}
+                             className={`px-4 py-2 text-left text-xs font-bold hover:bg-gray-50 ${filterSubject === 'ALL' ? 'text-brand-600 bg-brand-50' : 'text-gray-600'}`}
+                         >
+                             全部科目
+                         </button>
+                         {Object.values(SubjectCategory).map(cat => (
+                             <button 
+                                 key={cat}
+                                 onClick={() => { setFilterSubject(cat); setShowSubjectMenu(false); }}
+                                 className={`px-4 py-2 text-left text-xs font-bold hover:bg-gray-50 ${filterSubject === cat ? 'text-brand-600 bg-brand-50' : 'text-gray-600'}`}
+                             >
+                                 {cat}
+                             </button>
+                         ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Date Popup Calendar */}
+            <div className="relative">
+                <button 
+                    ref={calendarButtonRef}
+                    onClick={() => setShowCalendar(!showCalendar)}
+                    className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50 transition-colors shadow-sm"
+                >
+                    <Calendar className="w-3 h-3" />
+                    {filterDate || '全部日期'}
+                </button>
+
+                {showCalendar && (
+                    <div 
+                        className="absolute top-full left-0 mt-2 bg-white border border-gray-100 rounded-2xl shadow-xl z-30 p-4 w-64 animate-fade-in"
+                        onMouseDown={e => e.stopPropagation()} 
+                    >
+                        <div className="flex justify-between items-center mb-3">
+                             <button onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))} className="p-1 hover:bg-gray-100 rounded text-gray-400"><ChevronLeft className="w-4 h-4" /></button>
+                             <span className="text-sm font-bold text-gray-700">{calendarMonth.getFullYear()}年 {calendarMonth.getMonth() + 1}月</span>
+                             <button onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))} className="p-1 hover:bg-gray-100 rounded text-gray-400"><ChevronRight className="w-4 h-4" /></button>
+                        </div>
+                        <div className="grid grid-cols-7 gap-1 place-items-center mb-1">
+                             {['日', '一', '二', '三', '四', '五', '六'].map(d => <span key={d} className="text-[10px] text-gray-400">{d}</span>)}
+                        </div>
+                        <div className="grid grid-cols-7 gap-1 place-items-center">
+                            {renderCalendar()}
+                        </div>
+                    </div>
+                )}
+            </div>
+
             {(filterSubject !== 'ALL' || filterDate) && (
                 <button 
                     onClick={() => { setFilterSubject('ALL'); setFilterDate(''); }}

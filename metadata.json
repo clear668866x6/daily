@@ -1,5 +1,5 @@
 {
-  "name": "KaoyanMate 考研打卡",
-  "description": "一个基于 DeepSeek AI 的考研每日打卡与英语辅助学习应用。支持数学、408（四门细分）、英语等多科目打卡，具备AI生成每日英语阅读、多人打卡墙及数据可视化看板功能。",
+  "name": "KYtracker 考研记录",
+  "description": "一个基于 DeepSeek AI 的考研每日打卡与英语辅助学习应用。支持数学、408、英语、日常等多科目打卡，具备PK竞技、AI生成每日英语阅读及数据可视化看板功能。",
   "requestFramePermissions": []
 }

@@ -2,10 +2,12 @@
 import React, { useState, useEffect } from 'react';
 import { Navigation } from './components/Navigation';
 import { Dashboard } from './components/Dashboard';
-import { Profile } from './components/Profile'; // Import Profile
+import { Profile } from './components/Profile';
 import { Feed } from './components/Feed';
 import { EnglishTutor } from './components/EnglishTutor';
 import { AlgorithmTutor } from './components/AlgorithmTutor';
+import { AchievementsHistory } from './components/AchievementsHistory';
+import { PKArena } from './components/PKArena';
 import { About } from './components/About';
 import { Login } from './components/Login';
 import { GlobalAlerts } from './components/GlobalAlerts';
@@ -78,6 +80,7 @@ const App: React.FC = () => {
 
   const getBusinessDate = (date: Date): string => {
       const adjustedDate = new Date(date);
+      // If before 4 AM, it counts as previous day
       if (adjustedDate.getHours() < 4) {
           adjustedDate.setDate(adjustedDate.getDate() - 1);
       }
@@ -96,13 +99,21 @@ const App: React.FC = () => {
 
       const today = getBusinessDate(new Date());
       
-      const latest = uniqueDates[0];
-      const yesterday = new Date();
-      if (yesterday.getHours() < 4) yesterday.setDate(yesterday.getDate() - 2);
-      else yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
+      // Yesterday Business Date Calculation
+      const yesterdayDate = new Date();
+      if (yesterdayDate.getHours() < 4) {
+          // If it is 3 AM Tuesday, Business Today is Monday. Business Yesterday is Sunday.
+          yesterdayDate.setDate(yesterdayDate.getDate() - 2);
+      } else {
+          // If it is 5 AM Tuesday, Business Today is Tuesday. Business Yesterday is Monday.
+          yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+      }
+      const yesterday = getBusinessDate(yesterdayDate);
 
-      if (latest !== today && latest !== yesterdayStr) {
+      const latest = uniqueDates[0];
+
+      // Streak is valid if latest check-in is today OR yesterday
+      if (latest !== today && latest !== yesterday) {
           return 0; 
       }
 
@@ -129,21 +140,25 @@ const App: React.FC = () => {
       const lastCheckedDate = localStorage.getItem(`last_penalty_check_${currentUser.id}`);
       
       const now = new Date();
+      // Only run penalty check if the new business day has started (after 4 AM)
       if (now.getHours() < 4) return currentUser;
 
       const todayBusinessDate = getBusinessDate(now);
 
       if (lastCheckedDate && lastCheckedDate !== todayBusinessDate) {
           
-          const yesterday = new Date();
-          if (yesterday.getHours() < 4) {
-             yesterday.setDate(yesterday.getDate() - 2); 
-          } else {
-             yesterday.setDate(yesterday.getDate() - 1);
-          }
-          const yesterdayStr = yesterday.toISOString().split('T')[0];
+          // Calculate 'Yesterday' in business terms
+          const yesterdayDate = new Date(now); 
+          yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+          // Since now > 4 AM, yesterday same time is definitely yesterday business day
+          const yesterdayStr = getBusinessDate(yesterdayDate);
           
-          if (lastCheckedDate < yesterdayStr || lastCheckedDate === yesterdayStr) { 
+          // Ensure we haven't checked past yesterday (e.g. user offline for a week, we check last active day or just yesterday?)
+          // Current logic: Check specifically YESTERDAY. 
+          // If user offline for 3 days, they missed 3 days, but this simple logic checks "Did you miss yesterday?".
+          // If lastChecked was 3 days ago, and yesterday missed, we penalize once on next login.
+          
+          if (lastCheckedDate < yesterdayStr) { 
               console.log(`Running Penalty Check for Business Day: ${yesterdayStr}...`);
               
               const userCheckIns = await storage.getUserCheckIns(currentUser.id);
@@ -167,14 +182,18 @@ const App: React.FC = () => {
                   currentUser.rating = newRating; 
               }
 
+              // Algo Penalty Check
               const tasks = await storage.getAlgorithmTasks();
               const taskYesterday = tasks.find(t => t.date === yesterdayStr);
               
               if (taskYesterday) {
                   const isAssignedToUser = taskYesterday.assignedTo && taskYesterday.assignedTo.includes(currentUser.id);
 
+                  // If assigned specific user OR global task (no assignment) -> assume penalty applies?
+                  // Usually if 'assignedTo' is undefined, it's optional? Or everyone?
+                  // Let's assume strict mode only if EXPLICITLY assigned.
                   if (isAssignedToUser) {
-                      const subs = storage.getAlgorithmSubmissions(currentUser.id);
+                      const subs = await storage.getAlgorithmSubmissions(currentUser.id);
                       const isDone = subs.some(s => s.taskId === taskYesterday.id && s.status === 'Passed');
                       
                       if (!isDone) {
@@ -255,6 +274,7 @@ const App: React.FC = () => {
 
       setTimeout(async () => {
           const streak = await calculateStreak(user.id);
+          // Show celebration at 7, 14, 21...
           if (streak > 0 && streak % 7 === 0) {
               setStreakModalData(streak);
           }
@@ -548,6 +568,14 @@ const App: React.FC = () => {
                 onShowToast={showToast}
               />
             </div>
+          )}
+
+          {activeTab === 'achievements' && (
+             <AchievementsHistory user={user} />
+          )}
+
+          {activeTab === 'pk' && (
+             <PKArena currentUser={user} checkIns={checkIns} />
           )}
 
           {activeTab === 'about' && (

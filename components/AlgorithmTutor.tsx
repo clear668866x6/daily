@@ -5,7 +5,7 @@ import * as storage from '../services/storageService';
 import { Code, CheckCircle, Send, Play, Lock, FileCode, Loader2, ChevronDown, ChevronLeft, ChevronRight, Megaphone, PlusCircle, Terminal, Zap, Trophy, Layout, Cpu, Award, X, Moon, Star, Flame, Clock, Users, Trash2, Edit2, Save, Eye } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { ToastType } from './Toast';
-import { Fireworks } from './Fireworks'; 
+import { ACHIEVEMENTS } from '../constants';
 
 interface Props {
   user: User;
@@ -19,59 +19,6 @@ const LANGUAGES = {
     'python': { name: 'Python 3', template: '# Write your Python solution here\n\nclass Solution:\n    def solve(self):\n        pass' },
     'javascript': { name: 'JavaScript', template: '// Write your JavaScript solution here\n\n/**\n * @param {number[]} nums\n * @return {number}\n */\nvar solve = function(nums) {\n    \n};' }
 };
-
-// --- Achievement Config ---
-interface Achievement {
-    id: string;
-    title: string;
-    description: string;
-    icon: React.ElementType;
-    color: string;
-    condition: (submissions: AlgorithmSubmission[], tasks: AlgorithmTask[]) => boolean;
-}
-
-const ACHIEVEMENTS: Achievement[] = [
-    {
-        id: 'first_blood',
-        title: '初出茅庐',
-        description: '成功通过第 1 道算法题',
-        icon: Zap,
-        color: 'text-yellow-600 bg-yellow-100',
-        condition: (s) => s.filter(x => x.status === 'Passed').length >= 1
-    },
-    {
-        id: 'three_streak',
-        title: '持之以恒',
-        description: '累计 AC 题目达到 3 道',
-        icon: Star,
-        color: 'text-blue-600 bg-blue-100',
-        condition: (s) => new Set(s.filter(x => x.status === 'Passed').map(x => x.taskId)).size >= 3
-    },
-    {
-        id: 'five_kills',
-        title: '渐入佳境',
-        description: '累计 AC 题目达到 5 道',
-        icon: Flame,
-        color: 'text-orange-600 bg-orange-100',
-        condition: (s) => new Set(s.filter(x => x.status === 'Passed').map(x => x.taskId)).size >= 5
-    },
-    {
-        id: 'master',
-        title: '算法大师',
-        description: '累计 AC 题目达到 20 道',
-        icon: Trophy,
-        color: 'text-purple-600 bg-purple-100',
-        condition: (s) => new Set(s.filter(x => x.status === 'Passed').map(x => x.taskId)).size >= 20
-    },
-    {
-        id: 'night_owl',
-        title: '夜战考研人',
-        description: '在深夜 (23:00 - 04:00) 提交并通过代码',
-        icon: Moon,
-        color: 'text-indigo-600 bg-indigo-100',
-        condition: (s) => false 
-    }
-];
 
 // --- Improved Syntax Highlighter ---
 const highlightCode = (code: string) => {
@@ -137,9 +84,9 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   const [elapsedTime, setElapsedTime] = useState(0);
 
   // --- Effects State ---
-  const [showFireworks, setShowFireworks] = useState(false); 
+  const [showBossModal, setShowBossModal] = useState(false);
   const [showAchievementModal, setShowAchievementModal] = useState(false);
-  const [newlyUnlocked, setNewlyUnlocked] = useState<Achievement | null>(null);
+  const [newlyUnlocked, setNewlyUnlocked] = useState<any | null>(null); // Type 'any' for simplicity with imported const
 
   // Modals
   const [showCheckInModal, setShowCheckInModal] = useState(false);
@@ -354,15 +301,12 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
 
       try {
           await storage.submitAlgorithmCode(submission);
-          
           await refreshData(); // Refresh to get updated stats
           
           setIsRunning(false);
-          onShowToast(`✅ 提交成功！AC！耗时 ${duration} 分钟`, 'success');
           
-          // Trigger Fireworks
-          setShowFireworks(true);
-          setTimeout(() => setShowFireworks(false), 6000);
+          // Show "Boss" Modal
+          setShowBossModal(true);
 
           // Check achievements
           const updatedMySubs = [...mySubmissions, submission];
@@ -518,17 +462,26 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                         }`}>
                             {task.difficulty}
                         </span>
-                        {/* Solutions Count Badge */}
+                        {/* Solutions Count Badge (Anti-peek) */}
                         <button 
                             onClick={(e) => {
                                 e.stopPropagation();
-                                setSelectedTaskForSolutions(task);
-                                setShowSolutionsModal(true);
+                                if (isDone || isAdmin) {
+                                    setSelectedTaskForSolutions(task);
+                                    setShowSolutionsModal(true);
+                                } else {
+                                    onShowToast("🔒 完成题目后方可查看他人代码", 'info');
+                                }
                             }}
-                            className="flex items-center gap-1 text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 hover:bg-blue-100 transition-colors"
-                            title="查看通过记录"
+                            className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                                isDone || isAdmin 
+                                ? 'bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-100 cursor-pointer' 
+                                : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-70'
+                            }`}
+                            title={isDone ? "查看通过记录" : "完成题目后解锁"}
                         >
-                            <Users className="w-3 h-3" /> {uniquePassers}
+                            {isDone || isAdmin ? <Users className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                            {uniquePassers}
                         </button>
                     </div>
                 </div>
@@ -559,7 +512,18 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   return (
     <div className="flex flex-col gap-6 animate-fade-in pb-12 relative">
       
-      <Fireworks active={showFireworks} onClose={() => setShowFireworks(false)} />
+      {/* Boss Modal */}
+      {showBossModal && (
+          <div 
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black cursor-pointer animate-fade-in"
+            onClick={() => setShowBossModal(false)}
+          >
+              <div className="text-white text-center">
+                  <h1 className="text-8xl md:text-9xl font-black mb-4 tracking-tighter animate-bounce">你太强了</h1>
+                  <p className="text-gray-400 text-lg">点击任意处关闭</p>
+              </div>
+          </div>
+      )}
 
       {/* Solutions List Modal */}
       {showSolutionsModal && selectedTaskForSolutions && (
@@ -632,12 +596,88 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
           </div>
       )}
 
-      {/* ... (Previous Modals: Achievement, CheckIn) ... */}
-      {/* ... Rest of existing UI ... */}
-      
-      {/* (Only showing the modified parts for brevity where possible, but here is the main structure integration) */}
-      
-      {/* Header Bar - Updated with Timer Display */}
+      {/* Achievement Modal (Full Screen) */}
+      {showAchievementModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/95 backdrop-blur-md animate-fade-in p-6">
+              <div className="w-full max-w-5xl h-full flex flex-col">
+                  <div className="flex justify-between items-center mb-8">
+                      <div>
+                          <h2 className="text-4xl font-black text-white flex items-center gap-3">
+                              <Trophy className="w-10 h-10 text-yellow-500" /> 算法成就馆
+                          </h2>
+                          <p className="text-gray-400 mt-2">收集徽章，见证你的算法进阶之路</p>
+                      </div>
+                      <button onClick={() => setShowAchievementModal(false)} className="p-3 bg-white/10 rounded-full hover:bg-white/20 transition-colors text-white"><X className="w-6 h-6"/></button>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto pb-10 custom-scrollbar">
+                      {ACHIEVEMENTS.map(ach => {
+                          const unlocked = ach.id === 'night_owl' 
+                            ? !!localStorage.getItem(`ach_shown_${user.id}_night_owl`)
+                            : ach.condition(mySubmissions, tasks);
+
+                          return (
+                              <div key={ach.id} className={`p-6 rounded-3xl border-2 flex flex-col gap-4 transition-all relative overflow-hidden group ${
+                                  unlocked 
+                                  ? 'bg-white/10 border-white/20 shadow-2xl shadow-yellow-500/10' 
+                                  : 'bg-black/20 border-white/5 opacity-50 grayscale'
+                              }`}>
+                                  <div className={`p-4 rounded-full w-fit shrink-0 relative z-10 ${unlocked ? ach.color : 'bg-gray-800 text-gray-500'}`}>
+                                      <ach.icon className="w-8 h-8" />
+                                  </div>
+                                  <div className="relative z-10">
+                                      <h4 className="text-xl font-bold text-white mb-2">{ach.title}</h4>
+                                      <p className="text-gray-400 text-sm leading-relaxed">{ach.description}</p>
+                                      {unlocked && (
+                                          <div className="mt-4 inline-flex items-center gap-1 text-xs font-bold text-green-400 bg-green-900/30 px-3 py-1 rounded-full border border-green-800/50">
+                                              <CheckCircle className="w-3 h-3"/> 已解锁
+                                          </div>
+                                      )}
+                                  </div>
+                              </div>
+                          );
+                      })}
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Time Input Modal */}
+      {showCheckInModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 transform scale-100 transition-all">
+                  <div className="text-center mb-6">
+                      <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                          <Clock className="w-6 h-6 text-green-600" />
+                      </div>
+                      <h3 className="text-lg font-bold text-gray-800">恭喜全部 AC！</h3>
+                      <p className="text-gray-500 text-sm mt-1">记录一下今天攻克这些难题花了多久吧</p>
+                  </div>
+                  
+                  <div className="flex items-center justify-center gap-2 mb-6">
+                      <input 
+                          type="number" 
+                          value={checkInDuration} 
+                          onChange={(e) => setCheckInDuration(parseInt(e.target.value) || 0)}
+                          className="w-24 text-center text-2xl font-bold border-b-2 border-indigo-200 focus:border-indigo-500 focus:outline-none text-indigo-600"
+                          autoFocus
+                      />
+                      <span className="text-gray-400 font-bold">分钟</span>
+                  </div>
+
+                  <div className="flex gap-3">
+                      <button onClick={() => setShowCheckInModal(false)} className="flex-1 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors">
+                          稍后
+                      </button>
+                      <button onClick={confirmCheckIn} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">
+                          确认打卡
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Header Bar */}
       <div className="flex items-center justify-between bg-white rounded-2xl p-6 border border-gray-100 shadow-sm sticky top-0 z-40 backdrop-blur-md bg-white/90">
           <div className="flex items-center gap-4">
               <div className="bg-indigo-100 p-3 rounded-xl text-indigo-600 shadow-sm">
@@ -666,7 +706,6 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                   <span>成就馆</span>
               </button>
               
-              {/* ... Stats ... */}
               <div className="h-8 w-px bg-gray-100 hidden md:block"></div>
               
               <div className="text-right hidden md:block">
@@ -921,94 +960,6 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
             )}
         </div>
       </div>
-      
-      {/* ... Achievement Modal (Kept from existing) ... */}
-      {showAchievementModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
-              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden relative transform transition-all">
-                  <button onClick={() => setShowAchievementModal(false)} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors z-10"><X className="w-4 h-4 text-gray-500"/></button>
-                  <div className="p-8 pb-4 bg-gradient-to-r from-gray-50 to-white border-b border-gray-100">
-                      <div className="flex items-center gap-3 mb-2">
-                          <div className="bg-yellow-100 p-2 rounded-xl">
-                              <Award className="w-6 h-6 text-yellow-600" />
-                          </div>
-                          <h2 className="text-2xl font-black text-gray-800">算法成就馆</h2>
-                      </div>
-                      <p className="text-gray-500 text-sm">收集徽章，见证你的算法进阶之路</p>
-                  </div>
-                  <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto custom-scrollbar bg-white">
-                      {ACHIEVEMENTS.map(ach => {
-                          const unlocked = ach.id === 'night_owl' 
-                            ? !!localStorage.getItem(`ach_shown_${user.id}_night_owl`)
-                            : ach.condition(mySubmissions, tasks);
-
-                          return (
-                              <div key={ach.id} className={`p-4 rounded-2xl border flex items-center gap-4 transition-all relative overflow-hidden group ${
-                                  unlocked 
-                                  ? 'bg-white border-gray-200 shadow-sm opacity-100 hover:border-yellow-300 hover:shadow-md' 
-                                  : 'bg-gray-50 border-gray-100 opacity-60 grayscale'
-                              }`}>
-                                  <div className={`p-3 rounded-full shrink-0 relative z-10 ${unlocked ? ach.color : 'bg-gray-200 text-gray-400'}`}>
-                                      <ach.icon className="w-6 h-6" />
-                                  </div>
-                                  <div className="relative z-10">
-                                      <h4 className="font-bold text-gray-800">{ach.title}</h4>
-                                      <p className="text-xs text-gray-500 mt-0.5">{ach.description}</p>
-                                      {unlocked && <div className="mt-1 text-[10px] font-bold text-green-600 flex items-center gap-1"><CheckCircle className="w-3 h-3"/> 已解锁</div>}
-                                  </div>
-                              </div>
-                          );
-                      })}
-                  </div>
-              </div>
-          </div>
-      )}
-
-      {/* ... Time Input Modal (Kept) ... */}
-      {showCheckInModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
-              <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 transform scale-100 transition-all">
-                  <div className="text-center mb-6">
-                      <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                          <Clock className="w-6 h-6 text-green-600" />
-                      </div>
-                      <h3 className="text-lg font-bold text-gray-800">恭喜全部 AC！</h3>
-                      <p className="text-gray-500 text-sm mt-1">记录一下今天攻克这些难题花了多久吧</p>
-                  </div>
-                  
-                  <div className="flex items-center justify-center gap-2 mb-6">
-                      <input 
-                          type="number" 
-                          value={checkInDuration} 
-                          onChange={(e) => setCheckInDuration(parseInt(e.target.value) || 0)}
-                          className="w-24 text-center text-2xl font-bold border-b-2 border-indigo-200 focus:border-indigo-500 focus:outline-none text-indigo-600"
-                          autoFocus
-                      />
-                      <span className="text-gray-400 font-bold">分钟</span>
-                  </div>
-
-                  <div className="flex gap-3">
-                      <button onClick={() => setShowCheckInModal(false)} className="flex-1 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors">
-                          稍后
-                      </button>
-                      <button onClick={confirmCheckIn} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">
-                          确认打卡
-                      </button>
-                  </div>
-              </div>
-          </div>
-      )}
-
-      <style>{`
-        .animate-bounce-in {
-            animation: bounceIn 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55);
-        }
-        @keyframes bounceIn {
-            0% { transform: translate(-50%, -150%) scale(0.5); opacity: 0; }
-            60% { transform: translate(-50%, 10%) scale(1.05); opacity: 1; }
-            100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-        }
-      `}</style>
     </div>
   );
 };

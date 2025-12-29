@@ -8,6 +8,7 @@ export enum SubjectCategory {
   CS_OS = '408-操作系统',
   CS_CN = '408-计网',
   ALGORITHM = '算法训练',
+  DAILY = '日常',
   OTHER = '其他'
 }
 

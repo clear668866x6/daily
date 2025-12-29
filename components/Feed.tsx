@@ -2,8 +2,10 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { CheckIn, SubjectCategory, User, getUserStyle } from '../types'; 
 import { MarkdownText } from './MarkdownText';
-import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Calculator, BookOpen, ScrollText, Cpu, Code2, Sparkles, Trash2, Pin, Save, Columns, Clock, Network, Database, HardDrive, LayoutGrid, Search, User as UserIcon, Calendar as CalendarIcon, ArrowLeft } from 'lucide-react';
+import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Clock, Search, User as UserIcon, Calendar as CalendarIcon, ArrowLeft, Pin, Trash2 } from 'lucide-react';
 import { FullScreenEditor } from './FullScreenEditor';
+import { FILTER_GROUPS } from '../constants';
+import { compressImage } from '../services/imageUtils';
 
 interface Props {
   checkIns: CheckIn[];
@@ -14,20 +16,6 @@ interface Props {
   onUpdateCheckIn: (id: string, content: string) => void;
   onViewUserProfile: (userId: string) => void;
 }
-
-// 1. 智能筛选配置
-const FILTER_GROUPS = [
-    { id: 'ALL', label: '全部', icon: Sparkles, color: 'text-brand-500' },
-    { id: 'ANNOUNCEMENT', label: '公告', icon: Megaphone, color: 'text-red-500' },
-    { id: 'MATH', label: '数学', icon: Calculator, subjects: [SubjectCategory.MATH], color: 'text-blue-500' },
-    { id: 'ENGLISH', label: '英语', icon: BookOpen, subjects: [SubjectCategory.ENGLISH], color: 'text-violet-500' },
-    { id: 'POLITICS', label: '政治', icon: ScrollText, subjects: [SubjectCategory.POLITICS], color: 'text-rose-500' },
-    { id: 'CS_DS', label: 'DS', icon: LayoutGrid, subjects: [SubjectCategory.CS_DS], color: 'text-emerald-500' },
-    { id: 'CS_CO', label: 'CO', icon: Cpu, subjects: [SubjectCategory.CS_CO], color: 'text-emerald-600' },
-    { id: 'CS_OS', label: 'OS', icon: HardDrive, subjects: [SubjectCategory.CS_OS], color: 'text-emerald-700' },
-    { id: 'CS_CN', label: 'CN', icon: Network, subjects: [SubjectCategory.CS_CN], color: 'text-emerald-800' },
-    { id: 'ALGORITHM', label: '算法', icon: Code2, subjects: [SubjectCategory.ALGORITHM], color: 'text-amber-500' },
-];
 
 export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, onDeleteCheckIn, onUpdateCheckIn, onViewUserProfile }) => {
   const [content, setContent] = useState('');
@@ -55,20 +43,23 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
     if (sub === SubjectCategory.ENGLISH) return 'bg-violet-50 text-violet-700 border-violet-200';
     if (sub === SubjectCategory.POLITICS) return 'bg-rose-50 text-rose-700 border-rose-200';
     if (sub === SubjectCategory.ALGORITHM) return 'bg-amber-50 text-amber-700 border-amber-200';
+    if (sub === SubjectCategory.DAILY) return 'bg-slate-50 text-slate-700 border-slate-200';
     if ([SubjectCategory.CS_DS, SubjectCategory.CS_CO, SubjectCategory.CS_OS, SubjectCategory.CS_CN].includes(sub as any)) {
         return 'bg-emerald-50 text-emerald-700 border-emerald-200';
     }
     return 'bg-gray-50 text-gray-700 border-gray-200';
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+          const compressed = await compressImage(file);
+          setImage(compressed);
+      } catch (err) {
+          console.error("Compression failed", err);
+          // Fallback if needed, or show toast
+      }
     }
   };
 
@@ -413,7 +404,8 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                         </optgroup>
                         <optgroup label="其他">
                             <option value={SubjectCategory.ALGORITHM}>算法训练</option>
-                            <option value={SubjectCategory.OTHER}>其他日常</option>
+                            <option value={SubjectCategory.DAILY}>日常/生活</option>
+                            <option value={SubjectCategory.OTHER}>其他学习</option>
                         </optgroup>
                      </select>
                  </div>

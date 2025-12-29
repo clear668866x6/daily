@@ -1,9 +1,9 @@
 
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { CheckIn, User, Goal, SubjectCategory, RatingHistory, getUserStyle, getTitleName } from '../types';
 import * as storage from '../services/storageService';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, AreaChart, Area } from 'recharts';
-import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, EyeOff, BrainCircuit, ChevronDown, UserCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, CalendarCheck, Flag, Sparkles, Activity, Maximize2, Filter, X, Image as ImageIcon } from 'lucide-react';
+import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, EyeOff, BrainCircuit, ChevronDown, UserCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, CalendarCheck, Flag, Sparkles, Activity, Maximize2, Filter, X } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { ToastType } from './Toast';
 import { FullScreenEditor } from './FullScreenEditor';
@@ -44,12 +44,10 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const [logSubject, setLogSubject] = useState<SubjectCategory>(SubjectCategory.MATH);
   const [logContent, setLogContent] = useState('');
   const [logDuration, setLogDuration] = useState(45); 
-  const [logImage, setLogImage] = useState<string | null>(null);
   const [isLogging, setIsLogging] = useState(false);
   const [logMode, setLogMode] = useState<'study' | 'penalty'>('study');
   const [logPreview, setLogPreview] = useState(false); 
   const [isFullScreen, setIsFullScreen] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Calendar State
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
@@ -67,24 +65,24 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const isAdmin = currentUser.role === 'admin';
   const isViewingSelf = selectedUserId === currentUser.id;
 
-  // React to prop change for selected user
+  // React to prop change for selected user (e.g. from Admin Modal)
   useEffect(() => {
       if (initialSelectedUserId) {
           setSelectedUserId(initialSelectedUserId);
       }
   }, [initialSelectedUserId]);
 
-  // Load Users
+  // Load Users - Updated to refresh when checkIns change (for rating sync)
   useEffect(() => {
     storage.getAllUsers().then(users => {
         const sorted = users.sort((a, b) => {
-            if (a.role === 'admin') return -1; 
+            if (a.role === 'admin') return -1; // Admin top
             if (b.role === 'admin') return 1;
             return (b.rating ?? 0) - (a.rating ?? 0);
         });
         setAllUsers(sorted);
     });
-  }, [currentUser.id, checkIns]); 
+  }, [currentUser.id, checkIns]); // Added checkIns dependency
 
   // Load Data
   useEffect(() => {
@@ -209,34 +207,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
     onShowToast("目标已删除", 'info');
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setLogImage(reader.result as string);
-        };
-        reader.readAsDataURL(file);
-      }
-  };
-
-  const handlePaste = (e: React.ClipboardEvent) => {
-      const items = e.clipboardData.items;
-      for (const item of items) {
-          if (item.type.indexOf('image') !== -1) {
-              const file = item.getAsFile();
-              if (file) {
-                  const reader = new FileReader();
-                  reader.onload = (event) => {
-                      setLogImage(event.target?.result as string);
-                      onShowToast("图片已粘贴", 'success');
-                  };
-                  reader.readAsDataURL(file);
-              }
-          }
-      }
-  };
-
   const executeLogStudy = async (contentStr: string, subjectVal: SubjectCategory, durationVal: number) => {
     if (!contentStr.trim()) return;
     setIsLogging(true);
@@ -261,7 +231,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       userRole: currentUser.role,
       subject: logMode === 'study' ? subjectVal : SubjectCategory.OTHER,
       content: contentStr,
-      imageUrl: logImage || undefined,
       duration: durationVal,
       isPenalty: logMode === 'penalty',
       timestamp: Date.now(),
@@ -278,7 +247,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       storage.updateUserLocal(updatedUser);
       
       setLogContent('');
-      setLogImage(null);
       if (logMode === 'study') {
           onShowToast(`✅ 学习记录已提交！Rating +${ratingChange}`, 'success');
       } else {
@@ -328,16 +296,22 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
 
   const displayedCheckIns = useMemo(() => {
       let list = selectedUserCheckIns;
+      
+      // Filter by Calendar Click (Overrides other date filter if set)
       if (selectedDate) {
           list = list.filter(c => formatDateKey(c.timestamp) === selectedDate);
       } 
+      // Filter by Log List Date Picker
       else if (listFilterDate) {
           list = list.filter(c => formatDateKey(c.timestamp) === listFilterDate);
       }
+
+      // Filter by Subject
       if (listFilterSubject !== 'ALL') {
           list = list.filter(c => c.subject === listFilterSubject);
       }
-      return list.sort((a, b) => b.timestamp - a.timestamp).slice(0, 50); 
+
+      return list.sort((a, b) => b.timestamp - a.timestamp).slice(0, 50); // Increased limit slightly
   }, [selectedUserCheckIns, selectedDate, listFilterSubject, listFilterDate]);
 
   const renderCalendar = () => {
@@ -360,6 +334,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                 key={dateStr}
                 onClick={() => {
                     setSelectedDate(isSelected ? null : dateStr);
+                    // Clear list filters when using calendar for clarity
                     if (!isSelected) {
                         setListFilterDate('');
                     }
@@ -384,10 +359,28 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const ratingColorClass = getUserStyle(selectedUser.role, selectedUser.rating ?? 1200);
   const titleName = getTitleName(selectedUser.role, selectedUser.rating ?? 1200);
 
+  // Admin View: Leaderboard (Keep code same as provided context)
+  if (isAdmin && !isViewingSelf && selectedUserId === 'admin-001') {
+      // ... (Rest of Admin leaderboard code)
+      // NOTE: Logic adjusted: Admin *can* view user profiles. 
+      // If selectedUserId is admin's own ID, show dashboard.
+      // If admin selects another user, show their dashboard. 
+      // Leaderboard is strictly when Admin is "viewing" Admin self? 
+      // Let's assume Admin always sees dashboard unless they specifically want leaderboard.
+      // Current implementation shows Leaderboard if `isAdmin` is true. 
+      // We should probably allow Admin to see their OWN stats or OTHERS.
+      // Let's modify the condition: If Admin selects 'admin-001' (Self), show Leaderboard? 
+      // Or make Leaderboard a separate tab?
+      // For now, preserving original logic: If Admin, show Leaderboard.
+      // BUT this conflicts with "Admin viewing user profile".
+      // Fix: Only show Leaderboard if `isAdmin` AND `selectedUserId === currentUser.id`.
+  }
+  
   if (isAdmin && selectedUserId === currentUser.id) {
         const leaderboardUsers = [...allUsers].sort((a, b) => (b.rating ?? 1200) - (a.rating ?? 1200));
         return (
           <div className="space-y-6 animate-fade-in pb-20">
+              {/* User Switcher even on Leaderboard */}
                <div className="flex justify-end">
                    <div className="relative">
                        <select 
@@ -473,6 +466,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   return (
     <div className="space-y-6 pb-24 animate-fade-in relative">
       
+      {/* Full Screen Editor Portal */}
       <FullScreenEditor 
           isOpen={isFullScreen}
           onClose={() => setIsFullScreen(false)}
@@ -482,9 +476,11 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           onSave={executeLogStudy}
       />
       
-      {/* Row 1: Profile & Key Stats */}
+      {/* --- Row 1: Profile & Key Stats --- */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+           {/* ... Profile Card ... */}
            <div className="lg:col-span-6 bg-white/80 backdrop-blur-xl rounded-[2rem] p-6 border border-white shadow-xl shadow-gray-100/50 relative overflow-hidden flex flex-col justify-between group transition-all hover:shadow-2xl hover:shadow-brand-100/50">
+               {/* User Switcher */}
                <div className="absolute top-6 right-6 z-20">
                    <div className="relative">
                        <select 
@@ -550,7 +546,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-brand-50/50 to-purple-50/50 rounded-bl-[100px] -mr-10 -mt-10 -z-0"></div>
            </div>
 
-           {/* Countdown Card */}
+           {/* Countdown Card (Span 3) */}
            <div className="lg:col-span-3 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-[2rem] p-6 text-white shadow-xl shadow-indigo-200 relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
                <div className="relative z-10 h-full flex flex-col justify-between">
                    <div className="flex justify-between items-start">
@@ -588,7 +584,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                <CalendarCheck className="absolute -bottom-6 -right-6 w-32 h-32 text-white opacity-5 rotate-12 group-hover:rotate-0 transition-transform duration-500" />
            </div>
 
-           {/* Streak Card */}
+           {/* Streak Card (Span 3) */}
            <div className="lg:col-span-3 bg-gradient-to-br from-brand-500 to-cyan-500 rounded-[2rem] p-6 text-white shadow-xl shadow-blue-200 relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
                <div className="relative z-10 h-full flex flex-col justify-between">
                    <div className="w-fit bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-blue-100 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 border border-white/10">
@@ -606,9 +602,9 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
            </div>
       </div>
 
-      {/* Row 2: Actions (Logger & ToDo) */}
+      {/* --- Row 2: Actions (Logger & ToDo) --- */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Logger Card */}
+          {/* Logger Card (Span 8) */}
           <div className="lg:col-span-8">
             {isViewingSelf ? (
                 <div className={`bg-white rounded-[2rem] p-6 border shadow-lg flex flex-col transition-all duration-300 h-full ${logMode === 'penalty' ? 'border-red-100 shadow-red-50' : 'border-blue-100 shadow-blue-50'}`}>
@@ -618,6 +614,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                             {logMode === 'study' ? '记录学习成果' : '摸鱼忏悔室'}
                         </h3>
                         <div className="flex items-center gap-3">
+                            {/* Full Screen Toggle */}
                             <button 
                                 onClick={() => setIsFullScreen(true)}
                                 className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
@@ -679,9 +676,8 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                                 <textarea 
                                     value={logContent}
                                     onChange={e => setLogContent(e.target.value)}
-                                    onPaste={handlePaste}
                                     className="w-full h-32 bg-gray-50/50 border border-gray-100 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none placeholder-gray-400 leading-relaxed hover:bg-gray-50 transition-colors"
-                                    placeholder={logMode === 'study' ? "今天学了什么？(支持 Markdown 与图片粘贴)" : "坦白从宽，为什么摸鱼..."}
+                                    placeholder={logMode === 'study' ? "今天学了什么？(支持 Markdown)" : "坦白从宽，为什么摸鱼..."}
                                 />
                             )}
                             <button 
@@ -693,44 +689,18 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                             </button>
                         </div>
 
-                        <div className="flex gap-2">
-                             {/* Image Upload for Logger */}
-                             <div className="relative">
-                                 <button 
-                                    onClick={() => fileInputRef.current?.click()} 
-                                    className="h-full px-3 bg-gray-50 border border-gray-100 rounded-xl text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
-                                    title="上传图片"
-                                 >
-                                     <ImageIcon className="w-5 h-5" />
-                                 </button>
-                                 <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
-                             </div>
-
-                             <button 
-                                onClick={handleLogStudy}
-                                disabled={isLogging || !logContent.trim()}
-                                className={`flex-1 py-3.5 rounded-xl font-bold text-white shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 transition-all transform active:scale-[0.98] hover:-translate-y-0.5 ${
-                                    logMode === 'study' 
-                                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 shadow-blue-200 hover:shadow-blue-300' 
-                                    : 'bg-gradient-to-r from-red-500 to-pink-600 shadow-red-200 hover:shadow-red-300'
-                                }`}
-                            >
-                                {isLogging ? '...' : <Send className="w-4 h-4" />}
-                                {isLogging ? '提交中' : '立即记录'}
-                            </button>
-                        </div>
-                        
-                        {logImage && (
-                            <div className="relative group w-fit max-w-[100px]">
-                                <img src={logImage} alt="Preview" className="h-16 rounded-lg object-cover border border-gray-100" />
-                                <button 
-                                    onClick={() => setLogImage(null)}
-                                    className="absolute -top-1 -right-1 bg-white text-gray-500 rounded-full p-0.5 shadow-md border border-gray-100"
-                                >
-                                    <X className="w-3 h-3" />
-                                </button>
-                            </div>
-                        )}
+                        <button 
+                            onClick={handleLogStudy}
+                            disabled={isLogging || !logContent.trim()}
+                            className={`w-full py-3.5 rounded-xl font-bold text-white shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 transition-all transform active:scale-[0.98] hover:-translate-y-0.5 ${
+                                logMode === 'study' 
+                                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 shadow-blue-200 hover:shadow-blue-300' 
+                                : 'bg-gradient-to-r from-red-500 to-pink-600 shadow-red-200 hover:shadow-red-300'
+                            }`}
+                        >
+                            {isLogging ? '...' : <Send className="w-4 h-4" />}
+                            {isLogging ? '提交中' : '立即记录'}
+                        </button>
                     </div>
                 </div>
             ) : (
@@ -742,7 +712,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
             )}
           </div>
 
-          {/* To-Do List */}
+          {/* To-Do List (Span 4) */}
           <div className="lg:col-span-4">
             <div className="bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm h-full flex flex-col">
                 <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 text-sm">
@@ -791,7 +761,79 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           </div>
       </div>
 
-      {/* Row 3: Charts (unchanged logic, only rendering) */}
+      {/* --- Row 3: Charts --- */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="lg:col-span-8 bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm">
+                <div className="flex justify-between items-center mb-6">
+                     <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
+                        <TrendingUp className="w-5 h-5 text-red-500" /> Rating 积分趋势
+                    </h3>
+                    <div className="text-[10px] text-gray-400 bg-gray-50 px-2 py-1 rounded flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" /> 触发：打卡或凌晨4点结算
+                    </div>
+                </div>
+                <div className="h-64">
+                    {ratingChartData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={ratingChartData}>
+                                <defs>
+                                    <linearGradient id="colorRating" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
+                                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                                    </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                                <XAxis dataKey="date" tick={{fontSize: 10, fill: '#9ca3af'}} tickLine={false} axisLine={false} minTickGap={30} />
+                                <YAxis domain={['auto', 'auto']} tick={{fontSize: 10, fill: '#9ca3af'}} tickLine={false} axisLine={false} />
+                                <Tooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} itemStyle={{color: '#ef4444', fontWeight: 'bold'}} />
+                                <Area type="monotone" dataKey="rating" stroke="#ef4444" strokeWidth={3} fillOpacity={1} fill="url(#colorRating)" dot={{r: 3, fill: '#ef4444', strokeWidth: 2, stroke: '#fff'}} activeDot={{r: 6}} />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div className="h-full flex flex-col items-center justify-center text-gray-400 text-xs bg-gray-50/50 rounded-2xl border border-dashed border-gray-100">
+                            <TrendingUp className="w-8 h-8 mb-2 opacity-20" />
+                            <p>坚持打卡，让曲线飙升！</p>
+                        </div>
+                    )}
+                </div>
+          </div>
+          <div className="lg:col-span-4 bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm flex flex-col">
+                <div className="mb-6">
+                    <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
+                        <BrainCircuit className="w-5 h-5 text-orange-500" /> 科目时长分布
+                    </h3>
+                    <p className="text-[10px] text-gray-400 mt-1 ml-7">
+                        {stats.targetDateForPie === formatDateKey(new Date()) ? '今日' : stats.targetDateForPie} 数据
+                    </p>
+                </div>
+                <div className="flex-1 min-h-[200px] relative">
+                    {stats.pieData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                            <Pie data={stats.pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" label={false} stroke="none">
+                            {stats.pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                            </Pie>
+                            <Tooltip formatter={(value: number) => `${Math.floor(value/60)}h ${value%60}m`} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
+                        </PieChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 text-xs bg-gray-50/50 rounded-2xl border border-dashed border-gray-100">
+                             <Activity className="w-8 h-8 mb-2 opacity-20" />
+                             <p>该日暂无学习记录</p>
+                        </div>
+                    )}
+                </div>
+                <div className="flex flex-wrap gap-2 justify-center mt-4">
+                    {stats.pieData.slice(0, 4).map((entry, index) => (
+                        <div key={index} className="flex items-center gap-1 text-[10px] text-gray-500 bg-gray-50 px-2 py-1 rounded-full">
+                            <div className="w-2 h-2 rounded-full" style={{backgroundColor: COLORS[index % COLORS.length]}}></div>
+                            {entry.name}
+                        </div>
+                    ))}
+                </div>
+          </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-8 bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm h-80">
                 <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2 text-sm">
@@ -852,6 +894,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                 
                 {/* Filters */}
                 <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                    {/* Subject Filter */}
                     <div className="relative">
                         <Filter className="w-3 h-3 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <select 
@@ -864,13 +907,14 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                         </select>
                     </div>
 
+                    {/* Date Filter */}
                     <div className="relative">
                         <input 
                             type="date"
                             value={listFilterDate}
                             onChange={(e) => {
                                 setListFilterDate(e.target.value);
-                                if (e.target.value) setSelectedDate(null); 
+                                if (e.target.value) setSelectedDate(null); // Clear calendar selection if manual date used
                             }}
                             className="px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-bold text-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500 hover:bg-gray-100"
                         />
@@ -894,24 +938,19 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
              <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
                  {displayedCheckIns.length > 0 ? (
                     displayedCheckIns.map(checkIn => (
-                            <div key={checkIn.id} className={`p-4 rounded-2xl border flex flex-col md:flex-row gap-4 transition-all hover:shadow-md ${checkIn.isPenalty ? 'bg-red-50/30 border-red-100' : 'bg-white border-gray-100 hover:border-gray-200'}`}>
-                                <div className={`mt-1 font-bold text-[10px] px-2.5 py-1 rounded-lg h-fit shrink-0 w-fit ${checkIn.isPenalty ? 'bg-red-100 text-red-600' : 'bg-brand-50 text-brand-600'}`}>
+                            <div key={checkIn.id} className={`p-4 rounded-2xl border flex gap-4 transition-all hover:shadow-md ${checkIn.isPenalty ? 'bg-red-50/30 border-red-100' : 'bg-white border-gray-100 hover:border-gray-200'}`}>
+                                <div className={`mt-1 font-bold text-[10px] px-2.5 py-1 rounded-lg h-fit shrink-0 ${checkIn.isPenalty ? 'bg-red-100 text-red-600' : 'bg-brand-50 text-brand-600'}`}>
                                     {checkIn.subject}
                                 </div>
-                                <div className="flex-1 min-w-0">
+                                <div className="flex-1">
                                     <div className="flex justify-between items-start">
                                         <div className="text-gray-800 text-sm leading-relaxed line-clamp-3">
                                             <MarkdownText content={checkIn.content} />
                                         </div>
-                                        <span className="text-xs text-gray-400 whitespace-nowrap ml-4 font-mono shrink-0">
+                                        <span className="text-xs text-gray-400 whitespace-nowrap ml-4 font-mono">
                                             {new Date(checkIn.timestamp).toLocaleDateString()}
                                         </span>
                                     </div>
-                                    {checkIn.imageUrl && (
-                                        <div className="mt-2">
-                                            <img src={checkIn.imageUrl} alt="Attachment" className="h-16 w-16 object-cover rounded-lg border border-gray-100" />
-                                        </div>
-                                    )}
                                     <div className="mt-3 flex items-center gap-3 text-xs">
                                         <span className={`flex items-center gap-1.5 font-bold px-2 py-1 rounded-md ${checkIn.isPenalty ? 'bg-white text-red-500 shadow-sm' : 'bg-gray-50 text-blue-600'}`}>
                                             <Clock className="w-3 h-3" /> 
