@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { User, AlgorithmTask, AlgorithmSubmission, SubjectCategory } from '../types';
 import * as storage from '../services/storageService';
@@ -213,8 +214,6 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   };
 
   const handlePublishOrUpdate = async () => {
-    // ... (Same Admin Publish Logic)
-    // ... Simplified for brevity, assume same logic
     if (!newTaskTitle || !newTaskDesc) return;
     setIsPublishing(true);
     try {
@@ -251,7 +250,6 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
     }
   };
 
-  // ... (Other handlers like delete task, submit code etc - kept same)
   const handleSubmitCode = async () => {
     if (isGuest) return;
     if (!activeTask) return;
@@ -390,6 +388,29 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
             key={task.id}
             className={`w-full text-left rounded-xl transition-all border relative overflow-hidden group mb-2.5 flex flex-col ${isActive ? 'border-indigo-500 bg-indigo-50/50 shadow-sm' : 'border-gray-100 hover:border-indigo-200 hover:bg-white bg-white'}`}
         >
+            {isAdmin && (
+                <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 z-20">
+                    <button 
+                        onClick={(e) => { 
+                            e.stopPropagation(); 
+                            setEditingTaskId(task.id); 
+                            setNewTaskTitle(task.title); 
+                            setNewTaskDesc(task.description); 
+                            setAssignedUsers(task.assignedTo || []); 
+                            setShowAdminPanel(true); 
+                        }} 
+                        className="p-1.5 bg-white text-indigo-600 rounded-md shadow-sm border border-gray-200 hover:bg-indigo-50"
+                    >
+                        <Edit2 className="w-3 h-3" />
+                    </button>
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); if(confirm('确认删除?')) { storage.deleteAlgorithmTask(task.id).then(refreshData); } }} 
+                        className="p-1.5 bg-white text-red-500 rounded-md shadow-sm border border-gray-200 hover:bg-red-50"
+                    >
+                        <Trash2 className="w-3 h-3" />
+                    </button>
+                </div>
+            )}
             <div className="p-3 w-full text-left cursor-pointer" onClick={() => setActiveTask(task.id)}>
                 <div className="flex justify-between items-center relative z-10">
                     <span className={`font-bold text-sm truncate pr-2 ${isActive ? 'text-indigo-900' : 'text-gray-700'}`}>{task.title}</span>
@@ -410,7 +431,89 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   // ... (Render Main Component)
   return (
     <div className="flex flex-col gap-6 animate-fade-in pb-12 relative">
-      {/* ... Modals (Boss, Solution, CheckIn, Achievement, Viewer) ... */}
+      
+      {/* Admin Publish Modal */}
+      {showAdminPanel && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                  <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-indigo-50/50">
+                      <h3 className="font-bold text-indigo-900 flex items-center gap-2">
+                          <Megaphone className="w-5 h-5 text-indigo-600" /> 
+                          {editingTaskId ? '编辑题目' : '发布新题'}
+                      </h3>
+                      <button onClick={() => { setShowAdminPanel(false); setEditingTaskId(null); setNewTaskTitle(''); setNewTaskDesc(''); }} className="p-2 hover:bg-gray-100 rounded-full text-gray-500">
+                          <X className="w-5 h-5" />
+                      </button>
+                  </div>
+                  
+                  <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar">
+                      <div>
+                          <label className="block text-sm font-bold text-gray-700 mb-1">题目名称</label>
+                          <input 
+                              value={newTaskTitle}
+                              onChange={e => setNewTaskTitle(e.target.value)}
+                              className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-gray-800"
+                              placeholder="例如: 两数之和"
+                          />
+                      </div>
+                      
+                      <div>
+                          <label className="block text-sm font-bold text-gray-700 mb-1">题目描述 (Markdown)</label>
+                          <textarea 
+                              value={newTaskDesc}
+                              onChange={e => setNewTaskDesc(e.target.value)}
+                              className="w-full h-40 border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-mono leading-relaxed resize-none"
+                              placeholder="描述题目要求、输入输出样例..."
+                          />
+                      </div>
+
+                      <div>
+                          <label className="block text-sm font-bold text-gray-700 mb-2">指定人员 (选填，留空则全员可见)</label>
+                          <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto border border-gray-100 p-2 rounded-xl bg-gray-50">
+                              {allUsers.filter(u => u.role !== 'admin').map(u => (
+                                  <button
+                                      key={u.id}
+                                      onClick={() => {
+                                          if (assignedUsers.includes(u.id)) {
+                                              setAssignedUsers(assignedUsers.filter(id => id !== u.id));
+                                          } else {
+                                              setAssignedUsers([...assignedUsers, u.id]);
+                                          }
+                                      }}
+                                      className={`text-xs px-3 py-1.5 rounded-full border transition-all font-bold ${
+                                          assignedUsers.includes(u.id) 
+                                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' 
+                                          : 'bg-white text-gray-500 border-gray-200 hover:border-indigo-300'
+                                      }`}
+                                  >
+                                      {u.name}
+                                  </button>
+                              ))}
+                          </div>
+                      </div>
+                  </div>
+
+                  <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+                      <button 
+                          onClick={() => { setShowAdminPanel(false); setEditingTaskId(null); }}
+                          className="px-6 py-2.5 rounded-xl font-bold text-gray-500 hover:bg-gray-200 transition-colors"
+                      >
+                          取消
+                      </button>
+                      <button 
+                          onClick={handlePublishOrUpdate}
+                          disabled={isPublishing || !newTaskTitle.trim() || !newTaskDesc.trim()}
+                          className="px-6 py-2.5 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 disabled:opacity-50 transition-all flex items-center gap-2"
+                      >
+                          {isPublishing ? <Loader2 className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4" />}
+                          {editingTaskId ? '保存修改' : '立即发布'}
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* ... Other Modals (Boss, Solution, CheckIn, Achievement, Viewer) ... */}
       {showBossModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black cursor-pointer animate-fade-in" onClick={() => setShowBossModal(false)}>
               <div className="text-white text-center"><h1 className="text-8xl md:text-9xl font-black mb-4 tracking-tighter animate-bounce">你太强了</h1><p className="text-gray-400 text-lg">点击任意处关闭</p></div>
@@ -464,6 +567,11 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       <div className="flex items-center justify-between bg-white rounded-2xl p-6 border border-gray-100 shadow-sm sticky top-0 z-40 backdrop-blur-md bg-white/90">
           <div className="flex items-center gap-4"><div className="bg-indigo-100 p-3 rounded-xl text-indigo-600 shadow-sm"><Terminal className="w-6 h-6" /></div><div><h1 className="text-xl font-bold text-gray-800">算法训练营</h1><p className="text-xs text-gray-500 mt-0.5">LeetCode Style Practice</p></div></div>
           <div className="flex items-center gap-6">
+              {isAdmin && (
+                  <button onClick={() => { setShowAdminPanel(true); setEditingTaskId(null); setNewTaskTitle(''); setNewTaskDesc(''); }} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all font-bold text-sm active:scale-95">
+                      <PlusCircle className="w-4 h-4" /> <span>出题</span>
+                  </button>
+              )}
               {activeTask && !isGuest && <div className="hidden md:flex flex-col items-end"><span className="text-xs text-gray-400 font-bold uppercase tracking-wider">Time</span><span className={`font-mono font-bold text-lg ${elapsedTime > 60 ? 'text-red-500' : 'text-gray-700'}`}>{Math.floor(elapsedTime / 60).toString().padStart(2, '0')}:{Math.floor(elapsedTime % 60).toString().padStart(2, '0')}</span></div>}
               <button onClick={() => setShowAchievementModal(true)} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-yellow-50 to-orange-50 text-yellow-700 rounded-xl border border-yellow-200 hover:shadow-md transition-all font-bold text-sm group"><Award className="w-4 h-4 group-hover:scale-110 transition-transform" /><span>成就馆</span></button>
               <div className="h-8 w-px bg-gray-100 hidden md:block"></div>
