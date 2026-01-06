@@ -7,7 +7,7 @@ import { BookOpen, RefreshCw, Send, Loader2, Languages, Lock, Sparkles, Coffee, 
 
 interface Props {
   user: User;
-  onCheckIn: (subject: SubjectCategory, content: string) => void;
+  onCheckIn: (subject: SubjectCategory, content: string, duration?: number, wordCount?: number) => void;
 }
 
 export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
@@ -28,6 +28,7 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
   
   // Stats
   const [learnedWordsCount, setLearnedWordsCount] = useState(0);
+  const [lastCheckInWords, setLastCheckInWords] = useState(0);
 
   const isGuest = user.role === 'guest';
 
@@ -44,8 +45,23 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
           if (isGuest) return;
           const checkIns = await getUserCheckIns(user.id);
           const engCheckIns = checkIns.filter(c => c.subject === SubjectCategory.ENGLISH);
-          // 简单的估算：每个打卡按5个词算，或者之后可以解析内容
-          setLearnedWordsCount(engCheckIns.length * 5); 
+          
+          let totalWords = 0;
+          let lastWords = 0;
+          
+          if (engCheckIns.length > 0) {
+              const sorted = engCheckIns.sort((a, b) => b.timestamp - a.timestamp);
+              // Find the most recent check-in that has a valid wordCount
+              const lastValid = sorted.find(c => c.wordCount && c.wordCount > 0);
+              if (lastValid) {
+                  lastWords = lastValid.wordCount || 0;
+              }
+              // Calculate total roughly or accurately
+              totalWords = engCheckIns.reduce((acc, c) => acc + (c.wordCount || 5), 0);
+          }
+          
+          setLearnedWordsCount(totalWords);
+          setLastCheckInWords(lastWords);
       }
       loadHistory();
   }, [user.id, isGuest]);
@@ -92,9 +108,21 @@ export const EnglishTutor: React.FC<Props> = ({ user, onCheckIn }) => {
   const handleQuickCheckIn = () => {
     if (isGuest) return;
     if (!content) return;
+
+    const currentWordCount = content.vocabList.length;
+    
+    // Word Count Constraint Check
+    if (currentWordCount < lastCheckInWords) {
+        if (!confirm(`⚠️ 警告：本次打卡单词数 (${currentWordCount}) 少于上次 (${lastCheckInWords})。\n\n按规定，单词打卡数量必须大于等于前一天。确定要继续吗？`)) {
+            return;
+        }
+    }
+
     const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-    const checkInText = `## 每日AI英语阅读打卡 (${timeStr})\n\n学习了关于 "${content.article.substring(0, 20)}..." 的文章，重点背诵了 ${content.vocabList.length} 个单词。\n\n**今日新词：**\n${content.vocabList.map(v => `- ${v.word}: ${v.definition}`).join('\n')}\n\n感悟：DeepSeek 出题很有深度，上下文释义功能很好用！`;
-    onCheckIn(SubjectCategory.ENGLISH, checkInText);
+    const checkInText = `## 每日AI英语阅读打卡 (${timeStr})\n\n学习了关于 "${content.article.substring(0, 20)}..." 的文章，重点背诵了 ${currentWordCount} 个单词。\n\n**今日新词：**\n${content.vocabList.map(v => `- ${v.word}: ${v.definition}`).join('\n')}\n\n感悟：DeepSeek 出题很有深度，上下文释义功能很好用！`;
+    
+    // Default duration 30 mins for English reading
+    onCheckIn(SubjectCategory.ENGLISH, checkInText, 30, currentWordCount);
   };
 
   // 自定义渲染文章，解析 {{word}} 格式

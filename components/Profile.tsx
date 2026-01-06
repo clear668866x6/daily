@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { User, CheckIn, SubjectCategory, getUserStyle, getTitleName, RatingHistory } from '../types';
 import { MarkdownText } from './MarkdownText';
-import { Calendar, Filter, Clock, MapPin, X, Search, User as UserIcon, TrendingUp, ChevronLeft, ArrowLeft, History, Trash2, Edit2, Sparkles, ChevronRight, ChevronDown } from 'lucide-react';
+import { Calendar, Filter, Clock, MapPin, X, Search, User as UserIcon, TrendingUp, ChevronLeft, ArrowLeft, History, Trash2, Edit2, Sparkles, ChevronRight, ChevronDown, Save } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import * as storage from '../services/storageService';
 import { FullScreenEditor } from './FullScreenEditor';
@@ -16,6 +16,19 @@ interface Props {
   onDeleteCheckIn: (id: string) => void; 
   onUpdateCheckIn: (id: string, content: string) => void; 
 }
+
+// Updated: Business Day Logic (4 AM cut-off)
+const formatDateKey = (timestampOrDate: number | Date): string => {
+    const date = typeof timestampOrDate === 'number' ? new Date(timestampOrDate) : new Date(timestampOrDate);
+    // If hour is before 4 AM, it counts as the previous day
+    if (date.getHours() < 4) {
+        date.setDate(date.getDate() - 1);
+    }
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+};
 
 export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearchUser, onBack, onDeleteCheckIn, onUpdateCheckIn }) => {
   const [filterSubject, setFilterSubject] = useState<string>('ALL');
@@ -35,6 +48,10 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
 
   // Edit State
   const [editingCheckIn, setEditingCheckIn] = useState<CheckIn | null>(null);
+  
+  // Goal Edit State
+  const [isEditingGoal, setIsEditingGoal] = useState(false);
+  const [newGoal, setNewGoal] = useState(user.dailyGoal || 90);
 
   const subjectButtonRef = useRef<HTMLButtonElement>(null);
   const calendarButtonRef = useRef<HTMLButtonElement>(null);
@@ -46,9 +63,7 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
             setShowSubjectMenu(false);
         }
         if (calendarButtonRef.current && !calendarButtonRef.current.contains(event.target as Node)) {
-             // Don't close if clicking inside the calendar itself (which is rendered usually nearby or via portal, but here inline)
-             // Simplified: just close if not clicking button, but we need to handle clicks inside calendar div.
-             // We'll wrap calendar in a ref container to be safe, or just use simpler logic.
+             // Don't close if clicking inside the calendar itself
         }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -60,6 +75,7 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
       const loadData = async () => {
           const history = await storage.getRatingHistory(user.id);
           setRatingHistory(history);
+          setNewGoal(user.dailyGoal || 90);
           
           if (isSearchOpen) {
               const users = await storage.getAllUsers();
@@ -99,6 +115,18 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
       }
   }
 
+  const handleUpdateGoal = async () => {
+      if (user.id !== currentUser.id) return;
+      try {
+          await storage.adminUpdateUser(user.id, { dailyGoal: newGoal });
+          user.dailyGoal = newGoal; // Local optimistic update
+          setIsEditingGoal(false);
+          // Ideally trigger a global refresh via callback, but this is okay for now
+      } catch (e) {
+          console.error("Failed to update goal");
+      }
+  }
+
   const myCheckIns = useMemo(() => {
     return checkIns.filter(c => c.userId === user.id).sort((a, b) => b.timestamp - a.timestamp);
   }, [checkIns, user.id]);
@@ -110,15 +138,15 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
     }
     if (filterDate) {
       list = list.filter(c => {
-        const dateStr = new Date(c.timestamp).toISOString().split('T')[0];
+        const dateStr = formatDateKey(c.timestamp); // Use business date logic
         return dateStr === filterDate;
       });
     }
     return list;
   }, [myCheckIns, filterSubject, filterDate]);
 
-  const totalDays = new Set(myCheckIns.map(c => new Date(c.timestamp).toDateString())).size;
-  const totalDuration = myCheckIns.reduce((acc, curr) => acc + (curr.duration || 0), 0);
+  const totalDays = new Set(myCheckIns.map(c => formatDateKey(c.timestamp))).size;
+  const totalDuration = myCheckIns.filter(c => !c.isPenalty).reduce((acc, curr) => acc + (curr.duration || 0), 0);
 
   const chartData = useMemo(() => {
       const data = [...ratingHistory].sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime());
@@ -149,7 +177,7 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
   const dailyStatusMap = useMemo(() => {
     const map: Record<string, boolean> = {};
     myCheckIns.forEach(c => {
-        const key = new Date(c.timestamp).toISOString().split('T')[0];
+        const key = formatDateKey(c.timestamp);
         map[key] = true;
     });
     return map;
@@ -169,7 +197,7 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
         const dateStr = `${year}-${monthStr}-${dayStr}`;
         const hasCheckIn = dailyStatusMap[dateStr];
         const isSelected = filterDate === dateStr;
-        const isToday = dateStr === new Date().toISOString().split('T')[0];
+        const isToday = dateStr === formatDateKey(new Date());
 
         cells.push(
             <button
@@ -331,6 +359,26 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
                             </span>
                         )}
                     </div>
+                    {/* Goal Editor */}
+                    <div className="mt-3 flex items-center gap-2 text-sm text-gray-500">
+                        {isEditingGoal ? (
+                            <div className="flex items-center gap-2 bg-gray-100 rounded-lg px-2 py-1">
+                                <input 
+                                    type="number" 
+                                    value={newGoal} 
+                                    onChange={e => setNewGoal(parseInt(e.target.value))}
+                                    className="w-16 bg-white border border-gray-300 rounded px-1 text-center font-bold text-gray-700 text-xs"
+                                />
+                                <button onClick={handleUpdateGoal} className="text-green-600"><Save className="w-4 h-4"/></button>
+                                <button onClick={() => setIsEditingGoal(false)} className="text-gray-400"><X className="w-4 h-4"/></button>
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-2 group cursor-pointer" onClick={() => user.id === currentUser.id && setIsEditingGoal(true)}>
+                                <span>🎯 每日目标: <span className="font-bold text-gray-700">{user.dailyGoal || 90}</span> min</span>
+                                {user.id === currentUser.id && <Edit2 className="w-3 h-3 text-gray-300 group-hover:text-gray-500" />}
+                            </div>
+                        )}
+                    </div>
                 </div>
                 
                 <div className="flex gap-3 w-full md:w-auto">
@@ -488,7 +536,8 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
                     const isLast = index === filteredCheckIns.length - 1;
                     const dateObj = new Date(checkIn.timestamp);
                     const timeStr = dateObj.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-                    const dateStr = dateObj.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+                    // Display calendar date, even if grouped under previous business day
+                    const displayDateStr = dateObj.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
                     
                     const canEdit = currentUser.id === checkIn.userId || currentUser.role === 'admin';
 
@@ -497,7 +546,7 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
                             {/* Timeline Column */}
                             <div className="flex flex-col items-center shrink-0 w-16 pt-1">
                                 <span className="text-xs font-black text-gray-800">{timeStr}</span>
-                                <span className="text-[10px] text-gray-400 font-mono mb-2">{dateStr}</span>
+                                <span className="text-[10px] text-gray-400 font-mono mb-2">{displayDateStr}</span>
                                 <div className={`w-3 h-3 rounded-full border-2 z-10 bg-white ${checkIn.isPenalty ? 'border-red-500 ring-2 ring-red-100' : 'border-brand-500 ring-2 ring-brand-100'}`}></div>
                                 {!isLast && <div className="w-0.5 flex-1 bg-gray-100 group-hover:bg-brand-100 transition-colors my-2 rounded-full"></div>}
                             </div>
@@ -511,12 +560,12 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
                                             <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border flex items-center gap-1.5 ${
                                                 checkIn.isPenalty 
                                                 ? 'bg-red-50 text-red-600 border-red-100' 
-                                                : 'bg-brand-50 text-brand-600 border-brand-100'
+                                                : (checkIn.isLeave ? 'bg-yellow-100 text-yellow-600 border-yellow-200' : 'bg-brand-50 text-brand-600 border-brand-100')
                                             }`}>
                                                 <div className="w-1.5 h-1.5 rounded-full bg-current opacity-60"></div>
-                                                {checkIn.subject}
+                                                {checkIn.isLeave ? '请假申请' : checkIn.subject}
                                             </span>
-                                            {checkIn.duration > 0 && (
+                                            {!checkIn.isLeave && checkIn.duration > 0 && (
                                                 <span className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border ${
                                                     checkIn.isPenalty ? 'text-red-500 bg-white border-red-100' : 'text-gray-500 bg-gray-50 border-gray-100'
                                                 }`}>

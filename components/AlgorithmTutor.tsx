@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { User, AlgorithmTask, AlgorithmSubmission, SubjectCategory } from '../types';
 import * as storage from '../services/storageService';
-import { Code, CheckCircle, Send, Play, Lock, FileCode, Loader2, ChevronDown, ChevronLeft, ChevronRight, Megaphone, PlusCircle, Terminal, Zap, Trophy, Layout, Cpu, Award, X, Moon, Star, Flame, Clock, Users, Trash2, Edit2, Save, Eye, History, Filter } from 'lucide-react';
+import { Code, CheckCircle, Send, Play, Lock, FileCode, Loader2, ChevronDown, ChevronLeft, ChevronRight, Megaphone, PlusCircle, Terminal, Zap, Trophy, Layout, Cpu, Award, X, Moon, Star, Flame, Clock, Users, Trash2, Edit2, Save, Eye, History, Filter, Calendar } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { ToastType } from './Toast';
 import { ACHIEVEMENTS } from '../constants';
@@ -103,6 +103,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   // Admin State
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDesc, setNewTaskDesc] = useState('');
+  const [newTaskDate, setNewTaskDate] = useState(todayStr); // Added Date selection for Admin
   const [assignedUsers, setAssignedUsers] = useState<string[]>([]); 
   const [allUsers, setAllUsers] = useState<User[]>([]); 
   const [isPublishing, setIsPublishing] = useState(false);
@@ -221,6 +222,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
           await storage.updateAlgorithmTask(editingTaskId, {
               title: newTaskTitle,
               description: newTaskDesc,
+              date: newTaskDate,
               assignedTo: assignedUsers.length > 0 ? assignedUsers : undefined
           });
           onShowToast("✅ 题目更新成功！", 'success');
@@ -231,7 +233,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
             title: newTaskTitle,
             description: newTaskDesc,
             difficulty: 'Medium',
-            date: todayStr,
+            date: newTaskDate,
             assignedTo: assignedUsers.length > 0 ? assignedUsers : undefined
           };
           await storage.addAlgorithmTask(newTask);
@@ -240,6 +242,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       }
       setNewTaskTitle('');
       setNewTaskDesc('');
+      setNewTaskDate(todayStr);
       setAssignedUsers([]);
       setShowAdminPanel(false);
       await refreshData();
@@ -396,6 +399,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                             setEditingTaskId(task.id); 
                             setNewTaskTitle(task.title); 
                             setNewTaskDesc(task.description); 
+                            setNewTaskDate(task.date); 
                             setAssignedUsers(task.assignedTo || []); 
                             setShowAdminPanel(true); 
                         }} 
@@ -447,14 +451,28 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                   </div>
                   
                   <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar">
-                      <div>
-                          <label className="block text-sm font-bold text-gray-700 mb-1">题目名称</label>
-                          <input 
-                              value={newTaskTitle}
-                              onChange={e => setNewTaskTitle(e.target.value)}
-                              className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-gray-800"
-                              placeholder="例如: 两数之和"
-                          />
+                      <div className="flex gap-4">
+                          <div className="flex-1">
+                              <label className="block text-sm font-bold text-gray-700 mb-1">题目名称</label>
+                              <input 
+                                  value={newTaskTitle}
+                                  onChange={e => setNewTaskTitle(e.target.value)}
+                                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-gray-800"
+                                  placeholder="例如: 两数之和"
+                              />
+                          </div>
+                          <div>
+                              <label className="block text-sm font-bold text-gray-700 mb-1">发布日期</label>
+                              <div className="relative">
+                                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                  <input 
+                                      type="date"
+                                      value={newTaskDate}
+                                      onChange={e => setNewTaskDate(e.target.value)}
+                                      className="w-full border border-gray-200 rounded-xl pl-9 pr-4 py-2.5 focus:ring-2 focus:ring-indigo-500 outline-none text-gray-800 font-mono"
+                                  />
+                              </div>
+                          </div>
                       </div>
                       
                       <div>
@@ -513,7 +531,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
           </div>
       )}
 
-      {/* ... Other Modals (Boss, Solution, CheckIn, Achievement, Viewer) ... */}
+      {/* ... Other Modals ... (Keep existing code) */}
       {showBossModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black cursor-pointer animate-fade-in" onClick={() => setShowBossModal(false)}>
               <div className="text-white text-center"><h1 className="text-8xl md:text-9xl font-black mb-4 tracking-tighter animate-bounce">你太强了</h1><p className="text-gray-400 text-lg">点击任意处关闭</p></div>
@@ -544,7 +562,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
               </div>
           </div>
       )}
-      {/* ... Achievement Modal ... (Keep code from previous file) */}
+      {/* ... Achievement Modal ... */}
       {showAchievementModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/95 backdrop-blur-md animate-fade-in p-6">
               <div className="w-full max-w-5xl h-full flex flex-col">
@@ -558,7 +576,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
               </div>
           </div>
       )}
-      {/* ... CheckIn Modal ... */}
+      {/* ... CheckIn Modal ... (Keep existing) */}
       {showCheckInModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in"><div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 transform scale-100 transition-all"><div className="text-center mb-6"><div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3"><Clock className="w-6 h-6 text-green-600" /></div><h3 className="text-lg font-bold text-gray-800">恭喜全部 AC！</h3><p className="text-gray-500 text-sm mt-1">记录一下今天攻克这些难题花了多久吧</p></div><div className="flex items-center justify-center gap-2 mb-6"><input type="number" value={checkInDuration} onChange={(e) => setCheckInDuration(parseInt(e.target.value) || 0)} className="w-24 text-center text-2xl font-bold border-b-2 border-indigo-200 focus:border-indigo-500 focus:outline-none text-indigo-600" autoFocus /><span className="text-gray-400 font-bold">分钟</span></div><div className="flex gap-3"><button onClick={() => setShowCheckInModal(false)} className="flex-1 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors">稍后</button><button onClick={confirmCheckIn} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">确认打卡</button></div></div></div>
       )}
@@ -568,7 +586,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
           <div className="flex items-center gap-4"><div className="bg-indigo-100 p-3 rounded-xl text-indigo-600 shadow-sm"><Terminal className="w-6 h-6" /></div><div><h1 className="text-xl font-bold text-gray-800">算法训练营</h1><p className="text-xs text-gray-500 mt-0.5">LeetCode Style Practice</p></div></div>
           <div className="flex items-center gap-6">
               {isAdmin && (
-                  <button onClick={() => { setShowAdminPanel(true); setEditingTaskId(null); setNewTaskTitle(''); setNewTaskDesc(''); }} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all font-bold text-sm active:scale-95">
+                  <button onClick={() => { setShowAdminPanel(true); setEditingTaskId(null); setNewTaskTitle(''); setNewTaskDesc(''); setNewTaskDate(todayStr); }} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all font-bold text-sm active:scale-95">
                       <PlusCircle className="w-4 h-4" /> <span>出题</span>
                   </button>
               )}
@@ -579,7 +597,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
           </div>
       </div>
 
-      {/* Main Workspace */}
+      {/* Main Workspace (Keep existing) */}
       <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-280px)] min-h-[600px]">
         {/* Left Sidebar */}
         <div className="w-full lg:w-80 flex flex-col gap-4 shrink-0">
@@ -598,7 +616,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
             </div>
         </div>
 
-        {/* Right Editor */}
+        {/* Right Editor (Keep existing) */}
         <div className="flex-1 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden relative">
             {activeTask ? (
             <>
@@ -642,7 +660,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
         </div>
       </div>
 
-      {/* --- New: My Submissions History Panel --- */}
+      {/* --- My Submissions History Panel --- (Keep existing) */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <button 
             onClick={() => setShowHistoryPanel(!showHistoryPanel)}

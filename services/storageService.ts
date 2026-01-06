@@ -1,6 +1,6 @@
 
 import { supabase } from './supabase';
-import { CheckIn, User, AlgorithmTask, AlgorithmSubmission, Goal, RatingHistory } from "../types";
+import { CheckIn, User, AlgorithmTask, AlgorithmSubmission, Goal, RatingHistory, LeaveStatus } from "../types";
 
 const getEnv = (key: string, fallback: string) => {
   // @ts-ignore
@@ -25,13 +25,16 @@ export const getAllUsers = async (): Promise<User[]> => {
     console.error('Error fetching ALL users (Check RLS?):', error);
     return [];
   }
-  return data as User[];
+  return data.map((u: any) => ({
+      ...u,
+      dailyGoal: u.daily_goal
+  })) as User[];
 };
 
 export const getUserById = async (id: string): Promise<User | null> => {
     const { data, error } = await supabase.from('users').select('*').eq('id', id).single();
     if (error) return null;
-    return data as User;
+    return { ...data, dailyGoal: data.daily_goal } as User;
 }
 
 export const getCurrentUser = (): User | null => {
@@ -79,7 +82,7 @@ export const loginUser = async (username: string, password?: string, inviteCode?
   let user: User;
 
   if (existingUsers) {
-    user = existingUsers as User;
+    user = { ...existingUsers, dailyGoal: existingUsers.daily_goal } as User;
     if (user.password && password) {
       if (user.password !== password) throw new Error("密码错误");
     } else if (user.password && !password) {
@@ -97,7 +100,8 @@ export const loginUser = async (username: string, password?: string, inviteCode?
       avatar: `https://api.dicebear.com/7.x/notionists/svg?seed=${username}`,
       role: 'user',
       password: password,
-      rating: initialRating
+      rating: initialRating,
+      dailyGoal: 90
     };
     
     const { error } = await supabase.from('users').insert({
@@ -106,7 +110,8 @@ export const loginUser = async (username: string, password?: string, inviteCode?
       avatar: newUser.avatar,
       role: newUser.role,
       password: newUser.password,
-      rating: newUser.rating 
+      rating: newUser.rating,
+      daily_goal: newUser.dailyGoal
     });
     
     if (error) {
@@ -132,7 +137,13 @@ export const updateUserLocal = (user: User) => {
 
 // --- Admin User Functions ---
 export const adminUpdateUser = async (userId: string, updates: Partial<User>): Promise<void> => {
-    const { error } = await supabase.from('users').update(updates).eq('id', userId);
+    const dbUpdates: any = { ...updates };
+    if (updates.dailyGoal) {
+        dbUpdates.daily_goal = updates.dailyGoal;
+        delete dbUpdates.dailyGoal;
+    }
+    
+    const { error } = await supabase.from('users').update(dbUpdates).eq('id', userId);
     if (error) throw error;
 
     if (updates.rating !== undefined) {
@@ -150,10 +161,14 @@ export const adminCreateUser = async (username: string, password?: string, initi
         avatar: `https://api.dicebear.com/7.x/notionists/svg?seed=${username}`,
         role: 'user',
         password: password,
-        rating: initialRating
+        rating: initialRating,
+        dailyGoal: 90
     };
 
-    const { error } = await supabase.from('users').insert(newUser);
+    const { error } = await supabase.from('users').insert({
+        ...newUser,
+        daily_goal: 90
+    });
     if (error) throw error;
     
     await recordRatingHistory(newUser.id, initialRating, "Admin Created User");
@@ -232,6 +247,14 @@ export const getCheckIns = async (): Promise<CheckIn[]> => {
       imageUrl: item.image_url,
       duration: item.duration || 0,
       isPenalty: item.is_penalty || false,
+      
+      isLeave: item.is_leave || false,
+      leaveDays: item.leave_days || 0,
+      leaveReason: item.leave_reason || '',
+      leaveStatus: item.leave_status || 'approved',
+      makeupMinutes: item.makeup_minutes || 0,
+
+      wordCount: item.word_count || 0,
       isAnnouncement: item.is_announcement || false, 
       timestamp: Number(item.timestamp), 
       likedBy: item.liked_by || []
@@ -259,6 +282,14 @@ export const getUserCheckIns = async (userId: string): Promise<CheckIn[]> => {
       imageUrl: item.image_url,
       duration: item.duration,
       isPenalty: item.is_penalty,
+
+      isLeave: item.is_leave || false,
+      leaveDays: item.leave_days || 0,
+      leaveReason: item.leave_reason || '',
+      leaveStatus: item.leave_status || 'approved',
+      makeupMinutes: item.makeup_minutes || 0,
+
+      wordCount: item.word_count || 0,
       isAnnouncement: item.is_announcement,
       timestamp: Number(item.timestamp),
       likedBy: item.liked_by || []
@@ -278,6 +309,14 @@ export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
     image_url: checkIn.imageUrl || null,
     duration: checkIn.duration || 0, 
     is_penalty: checkIn.isPenalty || false, 
+    
+    is_leave: checkIn.isLeave || false,
+    leave_days: checkIn.leaveDays || 0,
+    leave_reason: checkIn.leaveReason || '',
+    leave_status: checkIn.leaveStatus || 'approved',
+    makeup_minutes: checkIn.makeupMinutes || 0,
+
+    word_count: checkIn.wordCount || 0,
     is_announcement: checkIn.isAnnouncement || false, 
     timestamp: checkIn.timestamp,
     liked_by: checkIn.likedBy || []
@@ -291,6 +330,14 @@ export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
   }
 };
 
+export const updateLeaveStatus = async (checkInId: string, status: LeaveStatus, makeupMinutes: number) => {
+    const { error } = await supabase.from('checkins').update({
+        leave_status: status,
+        makeup_minutes: makeupMinutes
+    }).eq('id', checkInId);
+    if (error) throw error;
+}
+
 export const deleteCheckIn = async (id: string): Promise<number> => {
     // Get checkin first to know impact
     const { data: checkIn } = await supabase.from('checkins').select('*').eq('id', id).single();
@@ -298,17 +345,12 @@ export const deleteCheckIn = async (id: string): Promise<number> => {
     
     let ratingDelta = 0;
     if (checkIn.is_penalty) {
-        // Was penalty (-points), undoing means (+points)
-        // Estimate: 30 min penalty was approx -5 points
-        // Simplified: +5
-        // Better: We should have stored the delta.
-        // For now, let's reverse the duration logic roughly.
-        // Or cleaner: Don't guess, just delete. The User Rating History has the real record.
-        // But for "instant feedback", we return 0 here and let the user handle via Rating History admin tools if precise needed.
-        // Wait, app logic relies on this. 
-        // Let's assume standard: duration/10 + 1 for study.
-        if (checkIn.duration) {
-            ratingDelta = Math.round((checkIn.duration / 10) * 1.5) + 1; // Refund penalty
+        if (checkIn.content.includes('缺勤') || checkIn.content.includes('偿还失败')) {
+            ratingDelta = 50;
+        } else if (checkIn.content.includes('时长不足')) {
+            ratingDelta = 15;
+        } else if (checkIn.duration) {
+            ratingDelta = Math.round((checkIn.duration / 10) * 1.5) + 1; 
         }
     } else {
         // Was study (+points), undoing means (-points)
@@ -320,9 +362,6 @@ export const deleteCheckIn = async (id: string): Promise<number> => {
     const { error } = await supabase.from('checkins').delete().eq('id', id);
     if (error) throw error;
     
-    // Also try to find a matching rating_history record to delete? 
-    // It's hard to match exactly without ID link. 
-    // We will just perform a new rating update to offset it.
     if (ratingDelta !== 0) {
         const { data: user } = await supabase.from('users').select('rating').eq('id', checkIn.user_id).single();
         if (user) {

@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { SubjectCategory, AlgorithmSubmission, AlgorithmTask } from './types';
-import { Zap, Star, Flame, Trophy, Moon, Sparkles, Megaphone, Calculator, BookOpen, ScrollText, LayoutGrid, Cpu, HardDrive, Network, Code2, Coffee, Layers, Clock, Calendar } from 'lucide-react';
+import { Zap, Star, Flame, Trophy, Moon, Sparkles, Megaphone, Calculator, BookOpen, ScrollText, LayoutGrid, Cpu, HardDrive, Network, Code2, Coffee, Layers, Clock, Calendar, RefreshCcw } from 'lucide-react';
 
 export interface Achievement {
     id: string;
@@ -64,7 +64,7 @@ export const ACHIEVEMENTS: Achievement[] = [
         color: 'text-green-600 bg-green-100',
         condition: (s, t, checkIns) => {
             // Logic handled in App.tsx mainly, simplified check here if possible or just rely on manual trigger
-            return false; // Complex logic, placeholder
+            return false; 
         }
     },
     {
@@ -95,6 +95,25 @@ export const ACHIEVEMENTS: Achievement[] = [
                 dateMap[d].add(c.subject);
             });
             return Object.values(dateMap).some(set => set.size >= 3);
+        }
+    },
+    {
+        id: 'comeback_kid',
+        title: '绝地反击',
+        description: '在请假后的一天内完成双倍学习任务 (180分钟)',
+        icon: RefreshCcw,
+        color: 'text-red-600 bg-red-100',
+        condition: (s, t, checkIns) => {
+            if (!checkIns) return false;
+            // Logic implies checking history for a leave followed by >180min day
+            for (let i = 1; i < checkIns.length; i++) {
+                const prev = checkIns[i];
+                const curr = checkIns[i-1]; // Assuming sorted desc
+                if (prev.isLeave && !curr.isLeave && (curr.duration || 0) >= 180) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 ];

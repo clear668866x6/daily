@@ -2,11 +2,12 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { CheckIn, SubjectCategory, User, getUserStyle } from '../types'; 
 import { MarkdownText } from './MarkdownText';
-import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Clock, Search, User as UserIcon, Calendar as CalendarIcon, ArrowLeft, Pin, Trash2, Users } from 'lucide-react';
+import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Clock, Search, User as UserIcon, Calendar as CalendarIcon, ArrowLeft, Pin, Trash2, Users, Coffee, Check, XCircle, Maximize2 } from 'lucide-react';
 import { FullScreenEditor } from './FullScreenEditor';
 import { FILTER_GROUPS } from '../constants';
 import { compressImage } from '../services/imageUtils';
 import { ImageViewer } from './ImageViewer';
+import { updateLeaveStatus } from '../services/storageService';
 
 interface Props {
   checkIns: CheckIn[];
@@ -107,6 +108,24 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
       setIsViewerOpen(true);
   }
 
+  // Admin Approval
+  const handleApproveLeave = async (checkIn: CheckIn) => {
+      if (!isAdmin) return;
+      const makeup = parseInt(prompt("请输入需要偿还的补习时长(分钟):", "60") || "0");
+      await updateLeaveStatus(checkIn.id, 'approved', makeup);
+      // Optimistic update via onUpdateCheckIn logic or refresh
+      const newContent = checkIn.content.replace('⏳ 超过2天，等待管理员审批...', `✅ 已批准 (需补时 ${makeup} 分钟)`);
+      onUpdateCheckIn(checkIn.id, newContent);
+  }
+
+  const handleRejectLeave = async (checkIn: CheckIn) => {
+      if (!isAdmin) return;
+      if (!confirm("确定驳回该请假申请吗？")) return;
+      await updateLeaveStatus(checkIn.id, 'rejected', 0);
+      const newContent = checkIn.content.replace('⏳ 超过2天，等待管理员审批...', `❌ 申请被驳回`);
+      onUpdateCheckIn(checkIn.id, newContent);
+  }
+
   // Regular Feed Filtering
   const { announcements, regularPosts } = useMemo(() => {
     const pinned = checkIns.filter(c => !!c.isAnnouncement);
@@ -158,9 +177,10 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
     const isOwner = user.id === checkIn.userId;
     const canDelete = isOwner || isAdmin;
     const canEdit = isOwner || isAdmin;
+    const isLeave = checkIn.isLeave;
 
     const nameStyle = getUserStyle(checkIn.userRole || 'user', checkIn.userRating ?? 1200);
-    const subjectTheme = getSubjectTheme(checkIn.subject);
+    const subjectTheme = isLeave ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : getSubjectTheme(checkIn.subject);
 
     return (
         <div 
@@ -168,7 +188,9 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
           className={`bg-white rounded-3xl p-6 shadow-sm border transition-all hover:shadow-md relative overflow-hidden group
               ${isPinned 
                   ? 'border-indigo-200 bg-gradient-to-br from-white to-indigo-50/30 ring-1 ring-indigo-100' 
-                  : 'border-gray-100 hover:border-gray-200'
+                  : isLeave 
+                    ? 'border-yellow-200 bg-yellow-50/10'
+                    : 'border-gray-100 hover:border-gray-200'
               }
           `}
         >
@@ -213,10 +235,20 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                                     公告
                                 </span>
                             )}
+                            {isLeave && (
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 ${
+                                    checkIn.leaveStatus === 'approved' ? 'bg-green-100 text-green-700' :
+                                    checkIn.leaveStatus === 'rejected' ? 'bg-red-100 text-red-700' :
+                                    'bg-yellow-100 text-yellow-700'
+                                }`}>
+                                    {checkIn.leaveStatus === 'approved' ? '已通过' : 
+                                     checkIn.leaveStatus === 'rejected' ? '已驳回' : '审核中'}
+                                </span>
+                            )}
                         </div>
                         <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5 font-mono">
                             <span>{new Date(checkIn.timestamp).toLocaleString('zh-CN', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'})}</span>
-                            {checkIn.duration > 0 && (
+                            {checkIn.duration > 0 && !isLeave && (
                                 <span className="flex items-center gap-1 bg-gray-50 px-1.5 py-0.5 rounded text-gray-500 border border-gray-100">
                                     <Clock className="w-3 h-3" /> {checkIn.duration}m
                                 </span>
@@ -227,8 +259,8 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                 
                 {!isPinned && (
                     <div className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border ${subjectTheme} flex items-center gap-1.5`}>
-                        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50"></span>
-                        {checkIn.subject}
+                        {isLeave ? <Coffee className="w-3 h-3" /> : <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50"></span>}
+                        {isLeave ? '请假条' : checkIn.subject}
                     </div>
                 )}
             </div>
@@ -236,6 +268,17 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
             <div className={`mb-4 text-sm leading-relaxed relative z-10 pl-1 ${isPinned ? 'text-gray-900 font-medium' : 'text-gray-800'}`}>
                 <MarkdownText content={checkIn.content} />
             </div>
+
+            {/* Admin Controls for Pending Leave */}
+            {isLeave && checkIn.leaveStatus === 'pending' && isAdmin && (
+                <div className="bg-yellow-50 p-3 rounded-xl border border-yellow-100 mb-4 flex items-center justify-between">
+                    <span className="text-xs font-bold text-yellow-700">请假审批</span>
+                    <div className="flex gap-2">
+                        <button onClick={() => handleApproveLeave(checkIn)} className="bg-green-500 text-white px-3 py-1 rounded text-xs font-bold hover:bg-green-600 flex items-center gap-1"><Check className="w-3 h-3"/> 批准</button>
+                        <button onClick={() => handleRejectLeave(checkIn)} className="bg-red-50 text-red-600 border border-red-200 px-3 py-1 rounded text-xs font-bold hover:bg-red-100 flex items-center gap-1"><XCircle className="w-3 h-3"/> 驳回</button>
+                    </div>
+                </div>
+            )}
 
             {checkIn.imageUrl && (
                 <div className="mb-5 relative z-10 rounded-2xl overflow-hidden border border-gray-100 max-w-sm cursor-zoom-in group/image" onClick={() => openImageViewer(checkIn.imageUrl || '')}>

@@ -21,7 +21,10 @@ export interface User {
   role: UserRole;
   password?: string;
   rating?: number; 
+  dailyGoal?: number; // Target study minutes (default 90)
 }
+
+export type LeaveStatus = 'pending' | 'approved' | 'rejected';
 
 export interface CheckIn {
   id: string;
@@ -36,6 +39,15 @@ export interface CheckIn {
   images?: string[]; // New: Multiple images
   duration?: number; // 学习时长(分钟)
   isPenalty?: boolean; // 是否为惩罚/摸鱼记录
+  
+  // 请假相关
+  isLeave?: boolean; 
+  leaveDays?: number; // 请假天数
+  leaveReason?: string; // 请假理由
+  leaveStatus?: LeaveStatus; // 状态
+  makeupMinutes?: number; // 需要偿还/补习的时长
+  
+  wordCount?: number; // 新增：英语单词打卡数量
   isAnnouncement?: boolean; // 新增：是否为置顶公告
   timestamp: number;
   likedBy: string[]; 
@@ -44,7 +56,6 @@ export interface CheckIn {
 export interface Goal {
   id: number;
   user_id: string;
-  // 新增用户信息字段
   user_name?: string;
   user_avatar?: string;
   user_rating?: number;
@@ -74,11 +85,11 @@ export interface AlgorithmTask {
   description: string;
   difficulty: 'Easy' | 'Medium' | 'Hard';
   date: string;
-  assignedTo?: string[]; // Array of User IDs. If present, only these users are penalized for missing it.
+  assignedTo?: string[]; 
 }
 
 export interface AlgorithmSubmission {
-  id?: string; // Database ID (string to handle bigint/uuid)
+  id?: string;
   taskId: string;
   userId: string;
   userName?: string; 
@@ -87,7 +98,7 @@ export interface AlgorithmSubmission {
   language: string; 
   status: 'Passed' | 'Failed';
   timestamp: number;
-  duration?: number; // Minutes spent solving
+  duration?: number; 
 }
 
 export interface DailyStats {
@@ -95,19 +106,18 @@ export interface DailyStats {
   count: number;
 }
 
-// --- Helper for Codeforces Style Rating Colors ---
 export const getUserStyle = (role: UserRole, rating: number = 0) => {
   if (role === 'admin') {
     return "font-black text-black"; 
   }
   
-  if (rating < 1200) return "text-gray-500 font-medium"; // Newbie (Gray)
-  if (rating < 1400) return "text-green-600 font-medium"; // Pupil (Green)
-  if (rating < 1600) return "text-cyan-600 font-medium"; // Specialist (Cyan)
-  if (rating < 1900) return "text-blue-600 font-medium"; // Expert (Blue)
-  if (rating < 2100) return "text-violet-600 font-bold"; // Candidate Master (Violet)
-  if (rating < 2400) return "text-orange-500 font-bold"; // Master (Orange)
-  return "text-red-600 font-bold"; // Grandmaster (Red)
+  if (rating < 1200) return "text-gray-500 font-medium"; 
+  if (rating < 1400) return "text-green-600 font-medium"; 
+  if (rating < 1600) return "text-cyan-600 font-medium"; 
+  if (rating < 1900) return "text-blue-600 font-medium"; 
+  if (rating < 2100) return "text-violet-600 font-bold"; 
+  if (rating < 2400) return "text-orange-500 font-bold"; 
+  return "text-red-600 font-bold"; 
 };
 
 export const getTitleName = (role: UserRole, rating: number = 0) => {

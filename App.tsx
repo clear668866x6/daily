@@ -17,7 +17,7 @@ import { CheckIn, SubjectCategory, User, AlgorithmTask } from './types';
 import * as storage from './services/storageService';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { Fireworks } from './components/Fireworks'; 
-import { X, CalendarOff, Flame, Trophy } from 'lucide-react'; 
+import { X, CalendarOff, Flame, Trophy, Coffee } from 'lucide-react'; 
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('kaoyan_active_tab') || 'dashboard');
@@ -35,10 +35,13 @@ const App: React.FC = () => {
 
   const [targetProfileId, setTargetProfileId] = useState<string | null>(null);
 
-  const [penaltyModalData, setPenaltyModalData] = useState<{count: number, date: string} | null>(null);
+  const [penaltyModalData, setPenaltyModalData] = useState<{count: number, date: string, type: 'missing' | 'debt'} | null>(null);
   const [streakModalData, setStreakModalData] = useState<number | null>(null);
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  // Default daily goal in minutes
+  const DEFAULT_DAILY_GOAL = 90;
 
   const showToast = (message: string, type: ToastType = 'success') => {
     const id = Date.now().toString() + Math.random();
@@ -76,6 +79,7 @@ const App: React.FC = () => {
     }
   };
 
+  // 获取业务日期 (凌晨4点前算前一天)
   const getBusinessDate = (date: Date): string => {
       const adjustedDate = new Date(date);
       if (adjustedDate.getHours() < 4) {
@@ -103,6 +107,7 @@ const App: React.FC = () => {
       const yesterday = getBusinessDate(yesterdayDate);
 
       const latest = uniqueDates[0];
+      // Streak continues if latest check-in is Today or Yesterday
       if (latest !== today && latest !== yesterday) {
           return 0; 
       }
@@ -118,72 +123,121 @@ const App: React.FC = () => {
       return streak;
   };
 
+  // 核心逻辑：检查每日惩罚 & 连胜奖励
   const checkDailyPenalties = async (currentUser: User) => {
       if (currentUser.role === 'guest') return currentUser;
-      if (currentUser.role === 'admin') return currentUser; // Admin exemption
-
+      
       const lastCheckedDate = localStorage.getItem(`last_penalty_check_${currentUser.id}`);
       const now = new Date();
-      if (now.getHours() < 4) return currentUser;
-
       const todayBusinessDate = getBusinessDate(now);
 
-      if (lastCheckedDate && lastCheckedDate !== todayBusinessDate) {
-          const yesterdayDate = new Date(now); 
-          yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-          const yesterdayStr = getBusinessDate(yesterdayDate);
+      if (!lastCheckedDate || lastCheckedDate < todayBusinessDate) {
           
-          if (lastCheckedDate < yesterdayStr) { 
-              // 1. General Check-in Penalty
-              const userCheckIns = await storage.getUserCheckIns(currentUser.id);
-              const hasCheckInYesterday = userCheckIns.some(c => {
-                  const cDate = new Date(c.timestamp);
-                  const cBusinessDate = getBusinessDate(cDate);
-                  return cBusinessDate === yesterdayStr && !c.isPenalty;
+          let dateIterator = new Date(lastCheckedDate || new Date(now.getTime() - 86400000 * 2)); 
+          // If first run, start from yesterday
+          if (!lastCheckedDate) {
+             const y = new Date();
+             y.setDate(y.getDate() - 1);
+             dateIterator = y; 
+          } else {
+             dateIterator = new Date(lastCheckedDate);
+             dateIterator.setDate(dateIterator.getDate() + 1);
+          }
+
+          const userCheckIns = await storage.getUserCheckIns(currentUser.id);
+          let updatedRating = currentUser.rating || 1200;
+          let hasUpdated = false;
+
+          // Iterate through all missed business days up to Yesterday (relative to business date)
+          // We DO NOT check `todayBusinessDate` because the day is not over!
+          while (getBusinessDate(dateIterator) < todayBusinessDate) {
+              const checkDateStr = getBusinessDate(dateIterator);
+              console.log(`Checking penalties for: ${checkDateStr}`);
+
+              // 1. Check if user is on leave (Approved Leave) covering this date
+              // Simplification: We check if there is an Approved Leave check-in posted ON this business date.
+              // In reality a leave might span days, but user posts 1 checkin for the period.
+              // For robustness, we check if any leave record has timestamp <= checkDateStr + leaveDays
+              const isLeaveExempt = userCheckIns.some(c => {
+                  if (!c.isLeave || c.leaveStatus !== 'approved') return false;
+                  const leaveStart = new Date(c.timestamp); // Checkin timestamp
+                  // Business Date of the leave checkin
+                  const leaveBusinessDate = getBusinessDate(leaveStart);
+                  
+                  // Logic: Does checkDateStr fall into [leaveBusinessDate, leaveBusinessDate + leaveDays - 1]
+                  const checkTime = new Date(checkDateStr).getTime();
+                  const startTime = new Date(leaveBusinessDate).getTime();
+                  const endTime = startTime + ((c.leaveDays || 1) - 1) * 86400000;
+                  
+                  return checkTime >= startTime && checkTime <= endTime;
               });
 
-              if (!hasCheckInYesterday) {
-                  const penaltyRating = -50;
-                  const newRating = (currentUser.rating || 1200) + penaltyRating;
-                  await storage.updateRating(currentUser.id, newRating, `缺勤惩罚 (${yesterdayStr})`);
-                  const missedKey = `kaoyan_missed_count_${currentUser.id}`;
-                  const currentMissed = parseInt(localStorage.getItem(missedKey) || '0') + 1;
-                  localStorage.setItem(missedKey, currentMissed.toString());
-                  setPenaltyModalData({ count: currentMissed, date: yesterdayStr });
-                  currentUser.rating = newRating; 
+              if (isLeaveExempt) {
+                  console.log(`Date ${checkDateStr} is exempted due to leave.`);
+                  dateIterator.setDate(dateIterator.getDate() + 1);
+                  continue; 
               }
 
-              // 2. Algorithm Penalty (Skip if excluded)
-              const tasks = await storage.getAlgorithmTasks();
-              const taskYesterday = tasks.find(t => t.date === yesterdayStr);
+              // 2. Determine "Debt Status": Check if the DAY BEFORE THIS CHECK DATE was a Leave Day
+              // If yesterday was a leave, today implies potential repayment (if we enforce it immediately).
+              // Current logic: If checkDateStr is immediately after a leave period end? Too complex.
+              // Simplified: Only check repayment if "Leave" explicitly stated makeup needed next day.
+              // We'll skip complex debt logic for now and focus on simple daily goal.
+
+              // 3. Check stats for `checkDateStr`
+              const daysCheckIns = userCheckIns.filter(c => getBusinessDate(new Date(c.timestamp)) === checkDateStr);
               
-              if (taskYesterday) {
-                  // Only penalize if assigned to this user explicitly (if assignedTo is present)
-                  // If assignedTo is missing, it's global? No, per spec: "Algorithms training for those excluded should not be notified"
-                  // Assuming logic: if assignedTo is present AND user is NOT in it -> Excluded.
-                  const isExcluded = taskYesterday.assignedTo && !taskYesterday.assignedTo.includes(currentUser.id);
-                  const isExplicitlyAssigned = taskYesterday.assignedTo && taskYesterday.assignedTo.includes(currentUser.id);
+              const duration = daysCheckIns.filter(c => !c.isPenalty).reduce((sum, c) => sum + (c.duration || 0), 0);
+              const dailyGoal = currentUser.dailyGoal || DEFAULT_DAILY_GOAL;
+              // If previous day was leave, maybe double goal? Let's keep it simple for now.
+              const targetDuration = dailyGoal;
+
+              if (duration < targetDuration) {
+                  let penalty = 0;
+                  let reason = '';
                   
-                  // Penalize only if explicitly assigned? Or if global?
-                  // Let's assume strict assignment based on previous logic and new request.
-                  // If task has assignments, only those users are checked.
-                  
-                  if (isExplicitlyAssigned) {
-                      const subs = await storage.getAlgorithmSubmissions(currentUser.id);
-                      const isDone = subs.some(s => s.taskId === taskYesterday.id && s.status === 'Passed');
-                      
-                      if (!isDone) {
-                           const algoPenalty = -20;
-                           const newAlgoRating = (currentUser.rating || 1200) + algoPenalty;
-                           await storage.updateRating(currentUser.id, newAlgoRating, `算法未完成 (${yesterdayStr})`);
-                           currentUser.rating = newAlgoRating;
-                      }
+                  if (duration === 0) {
+                      penalty = -50;
+                      reason = `[系统] 缺勤惩罚 (${checkDateStr})`;
+                  } else {
+                      penalty = -15;
+                      reason = `[系统] 时长不足 (${checkDateStr}): ${duration}/${targetDuration}min`;
                   }
+
+                  // Create VISIBLE Penalty CheckIn
+                  const penaltyCheckIn: CheckIn = {
+                      id: `sys-pen-${Date.now()}-${Math.random()}`,
+                      userId: currentUser.id,
+                      userName: currentUser.name,
+                      userAvatar: currentUser.avatar,
+                      userRating: updatedRating + penalty,
+                      userRole: currentUser.role,
+                      subject: SubjectCategory.OTHER,
+                      content: `⚠️ **${reason}**\n\n根据规则，系统自动执行扣分。请注意保持每日学习节奏！`,
+                      duration: 0,
+                      isPenalty: true,
+                      timestamp: dateIterator.getTime() + 43200000, // Set time to noon of that day for display
+                      likedBy: []
+                  };
+                  await storage.addCheckIn(penaltyCheckIn);
+                  await storage.updateRating(currentUser.id, updatedRating + penalty, reason);
+                  updatedRating += penalty;
+                  hasUpdated = true;
+                  
+                  setPenaltyModalData({ count: Math.abs(penalty), date: checkDateStr, type: 'missing' });
               }
+              
+              dateIterator.setDate(dateIterator.getDate() + 1);
           }
+
+          if (hasUpdated) {
+              currentUser.rating = updatedRating;
+          }
+          
+          // Update Check Date
+          localStorage.setItem(`last_penalty_check_${currentUser.id}`, todayBusinessDate);
       }
 
-      localStorage.setItem(`last_penalty_check_${currentUser.id}`, todayBusinessDate);
       return currentUser;
   };
 
@@ -191,7 +245,41 @@ const App: React.FC = () => {
     const init = async () => {
       let currentUser = storage.getCurrentUser();
       if (currentUser) {
+        // Run penalty check first
         currentUser = await checkDailyPenalties(currentUser) || currentUser;
+        
+        // Then Check Streak Bonus
+        const streak = await calculateStreak(currentUser.id);
+        const lastBonusDate = localStorage.getItem(`last_streak_bonus_${currentUser.id}`);
+        const todayStr = getBusinessDate(new Date());
+        
+        // If streak is multiple of 7 AND we haven't given bonus today
+        if (streak > 0 && streak % 7 === 0 && lastBonusDate !== todayStr) {
+            const bonus = Math.min(streak * 2, 50); // Cap bonus
+            const newRating = (currentUser.rating || 1200) + bonus;
+            await storage.updateRating(currentUser.id, newRating, `🔥 连续打卡 ${streak} 天奖励`);
+            
+            // Create visible bonus checkin
+            const bonusCheckIn: CheckIn = {
+                id: `sys-bonus-${Date.now()}`,
+                userId: currentUser.id,
+                userName: currentUser.name,
+                userAvatar: currentUser.avatar,
+                userRating: newRating,
+                userRole: currentUser.role,
+                subject: SubjectCategory.DAILY,
+                content: `🎉 **七日连胜奖励！**\n\n已连续坚持 ${streak} 天，获得 ${bonus} 分奖励！\nKeep Momentum!`,
+                duration: 0,
+                timestamp: Date.now(),
+                likedBy: []
+            };
+            await storage.addCheckIn(bonusCheckIn);
+            
+            currentUser.rating = newRating;
+            setStreakModalData(streak);
+            localStorage.setItem(`last_streak_bonus_${currentUser.id}`, todayStr);
+        }
+
         setUser(currentUser);
         storage.updateUserLocal(currentUser);
       }
@@ -241,16 +329,8 @@ const App: React.FC = () => {
     setCheckIns(prev => [newCheckIn, ...prev]);
     try {
       await storage.addCheckIn(newCheckIn);
-      showToast("打卡发布成功！", 'success');
+      showToast(newCheckIn.isLeave ? "请假已提交" : "打卡发布成功！", 'success');
       await refreshData();
-
-      setTimeout(async () => {
-          const streak = await calculateStreak(user.id);
-          if (streak > 0 && (streak % 7 === 0)) { // Weekly streak celebration
-              setStreakModalData(streak);
-          }
-      }, 500);
-
     } catch (e) {
       console.error(e);
       showToast("打卡上传失败，请检查网络", 'error');
@@ -306,7 +386,7 @@ const App: React.FC = () => {
     await storage.toggleLike(checkInId, user.id);
   };
 
-  const handleAutoCheckIn = (subject: SubjectCategory, content: string, duration?: number) => {
+  const handleAutoCheckIn = (subject: SubjectCategory, content: string, duration?: number, wordCount?: number) => {
     if (!user) return;
     if (user.role === 'guest') {
       showToast("访客模式无法自动打卡", 'error');
@@ -322,6 +402,7 @@ const App: React.FC = () => {
       subject,
       content,
       duration: duration || 0,
+      wordCount: wordCount, 
       timestamp: Date.now(),
       likedBy: []
     };
@@ -379,17 +460,21 @@ const App: React.FC = () => {
       {penaltyModalData && (
           <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-red-600/95 backdrop-blur-md animate-fade-in text-white p-8 text-center">
               <div className="bg-white/20 p-6 rounded-full mb-6 animate-bounce">
-                  <CalendarOff className="w-16 h-16 text-white" />
+                  {penaltyModalData.type === 'debt' ? <Coffee className="w-16 h-16 text-white" /> : <CalendarOff className="w-16 h-16 text-white" />}
               </div>
-              <h2 className="text-3xl font-black mb-2">昨日未打卡!</h2>
+              <h2 className="text-3xl font-black mb-2">
+                  {penaltyModalData.type === 'debt' ? '偿还失败！' : '目标未达成!'}
+              </h2>
               <p className="text-red-100 text-lg mb-8 max-w-md">
-                  考研是一场持久战，请坚持下去。<br/>
-                  昨日 ({penaltyModalData.date}) 未检测到打卡记录。
+                  {penaltyModalData.type === 'debt' 
+                    ? `请假后的双倍偿还日 (${penaltyModalData.date}) 未达标，触发重罚机制。`
+                    : `考研是一场持久战。昨日 (${penaltyModalData.date}) 学习时长未达标/缺勤。`
+                  }
               </p>
               
               <div className="bg-black/20 rounded-2xl p-6 mb-10 w-full max-w-xs border border-white/10">
-                  <div className="text-sm text-red-200 uppercase font-bold tracking-widest mb-1">累计缺勤</div>
-                  <div className="text-6xl font-black font-mono">{penaltyModalData.count} <span className="text-lg">次</span></div>
+                  <div className="text-sm text-red-200 uppercase font-bold tracking-widest mb-1">Rating 扣除</div>
+                  <div className="text-6xl font-black font-mono">-{penaltyModalData.count}</div>
               </div>
 
               <div className="flex gap-4">
@@ -419,7 +504,7 @@ const App: React.FC = () => {
       <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen relative bg-[#F8F9FA]">
         <div className="max-w-7xl mx-auto">
           <GlobalAlerts user={user} checkIns={checkIns} algoTasks={algoTasks} onNavigate={setActiveTab} />
-          {activeTab === 'dashboard' && <div className="animate-fade-in"><Dashboard checkIns={checkIns} currentUser={user} onUpdateUser={handleUpdateUser} onShowToast={showToast} onUpdateCheckIn={handleUpdateCheckIn} initialSelectedUserId={targetProfileId} /></div>}
+          {activeTab === 'dashboard' && <div className="animate-fade-in"><Dashboard checkIns={checkIns} currentUser={user} onUpdateUser={handleUpdateUser} onShowToast={showToast} onUpdateCheckIn={handleUpdateCheckIn} initialSelectedUserId={targetProfileId} onAddCheckIn={handleAddCheckIn} /></div>}
           {activeTab === 'profile' && <Profile user={visitedProfileUser || user} currentUser={user} checkIns={checkIns} onSearchUser={handleViewUser} onBack={handleProfileBack} onDeleteCheckIn={handleDeleteCheckInTrigger} onUpdateCheckIn={handleUpdateCheckIn} />}
           {activeTab === 'feed' && <div className="animate-fade-in"><Feed checkIns={checkIns} user={user} onAddCheckIn={handleAddCheckIn} onDeleteCheckIn={handleDeleteCheckInTrigger} onLike={handleLike} onUpdateCheckIn={handleUpdateCheckIn} onViewUserProfile={handleViewUser} /></div>}
           {activeTab === 'english' && <div className="animate-fade-in"><EnglishTutor user={user} onCheckIn={handleAutoCheckIn} /></div>}
