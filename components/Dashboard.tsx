@@ -35,16 +35,16 @@ const SUBJECT_WEIGHTS: Record<string, number> = {
     [SubjectCategory.ALGORITHM]: 1.0, 
 };
 
-// Updated: Business Day Logic (4 AM cut-off)
+// Updated: Business Day Logic (4 AM cut-off) - Strictly Local Time
 const formatDateKey = (timestampOrDate: number | Date): string => {
-    const date = typeof timestampOrDate === 'number' ? new Date(timestampOrDate) : new Date(timestampOrDate);
-    if (date.getHours() < 4) {
-        date.setDate(date.getDate() - 1);
+    const d = typeof timestampOrDate === 'number' ? new Date(timestampOrDate) : new Date(timestampOrDate);
+    if (d.getHours() < 4) {
+        d.setDate(d.getDate() - 1);
     }
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 };
 
 export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser, onShowToast, initialSelectedUserId, onAddCheckIn }) => {
@@ -191,16 +191,15 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       return uniqueDays.size;
   }, [selectedUserCheckIns]);
 
-  const totalCheckInCount = useMemo(() => {
-      return selectedUserCheckIns.filter(c => !c.isPenalty).length;
-  }, [selectedUserCheckIns]);
-
   const stats = useMemo(() => {
     const subjectDuration: Record<string, number> = {}; 
     const dateDuration: Record<string, number> = {}; 
-    let totalStudyMinutes = 0;
+    let totalStudyMinutes = 0; // Lifetime Total
+    let todayStudyMinutes = 0; // Strictly Today's Business Day Minutes
     let totalPenaltyMinutes = 0;
     
+    const todayStr = formatDateKey(new Date());
+
     const sortedCheckIns = [...selectedUserCheckIns].sort((a, b) => a.timestamp - b.timestamp);
 
     sortedCheckIns.forEach(c => {
@@ -227,6 +226,9 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           }
           
           totalStudyMinutes += duration;
+          if (dateKey === todayStr) {
+              todayStudyMinutes += duration;
+          }
       }
     });
 
@@ -241,7 +243,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
         hours: parseFloat((minutes / 60).toFixed(1)) 
     }));
 
-    return { pieData, durationData, totalStudyMinutes, totalPenaltyMinutes };
+    return { pieData, durationData, totalStudyMinutes, todayStudyMinutes, totalPenaltyMinutes };
   }, [selectedUserCheckIns, pieFilterType, pieDate, pieMonth, pieYear, barDateRange]);
 
   const heatmapData = useMemo(() => {
@@ -254,18 +256,21 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   }, [selectedUserCheckIns]);
 
   const ratingChartData = useMemo(() => {
-      const dailyRatings = new Map<string, { rating: number, reason: string }>();
+      const dailyRatings = new Map<string, { rating: number, reason: string, fullDate: string }>();
       const sorted = [...ratingHistory].sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime());
       
       sorted.forEach(r => {
-          const dateKey = new Date(r.recorded_at).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
-          dailyRatings.set(dateKey, { rating: r.rating, reason: r.change_reason || '' });
+          const d = new Date(r.recorded_at);
+          // Standardize date display for chart
+          const dateKey = `${d.getMonth()+1}/${d.getDate()}`;
+          dailyRatings.set(dateKey, { rating: r.rating, reason: r.change_reason || '', fullDate: d.toLocaleString() });
       });
 
       return Array.from(dailyRatings.entries()).map(([date, data]) => ({
           date,
           rating: data.rating,
-          reason: data.reason
+          reason: data.reason,
+          fullDate: data.fullDate
       }));
   }, [ratingHistory]);
 
@@ -605,6 +610,15 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const ratingColorClass = getUserStyle(selectedUser.role, selectedUser.rating ?? 1200);
   const titleName = getTitleName(selectedUser.role, selectedUser.rating ?? 1200);
 
+  // Month Picker Change Handler
+  const handleCalendarMonthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = e.target.value; // YYYY-MM
+      if(val) {
+          const [y, m] = val.split('-');
+          setCurrentMonth(new Date(parseInt(y), parseInt(m)-1, 1));
+      }
+  }
+
   if (isAdmin && selectedUserId === currentUser.id) {
         const leaderboardUsers = [...allUsers].sort((a, b) => (b.rating ?? 1200) - (a.rating ?? 1200));
         return (
@@ -763,7 +777,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                     if(h<13) return '中午好';
                     if(h<18) return '下午好';
                     return '晚上好';
-                })()}，<span className="text-brand-600">{currentUser.name}</span>
+                })()}，<span className={`${getUserStyle(currentUser.role, currentUser.rating ?? 1200)}`}>{currentUser.name}</span>
             </h1>
             <div className="text-gray-500 font-medium mt-1 flex items-center gap-2 text-sm">
                 今天也要加油呀！✨ 目标: 
@@ -916,11 +930,11 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                   <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
                       <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">今日时长</div>
                       <div className="text-3xl font-black text-gray-800">
-                          {Math.floor(stats.totalStudyMinutes / 60)}<span className="text-sm font-medium text-gray-400">h</span>
-                          {stats.totalStudyMinutes % 60}<span className="text-sm font-medium text-gray-400">m</span>
+                          {Math.floor(stats.todayStudyMinutes / 60)}<span className="text-sm font-medium text-gray-400">h</span>
+                          {stats.todayStudyMinutes % 60}<span className="text-sm font-medium text-gray-400">m</span>
                       </div>
                       <div className="mt-2 h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                          <div className="h-full bg-brand-500" style={{ width: `${Math.min((stats.totalStudyMinutes / (currentUser.dailyGoal || 90)) * 100, 100)}%` }}></div>
+                          <div className="h-full bg-brand-500" style={{ width: `${Math.min((stats.todayStudyMinutes / (currentUser.dailyGoal || 90)) * 100, 100)}%` }}></div>
                       </div>
                   </div>
                   <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
@@ -953,6 +967,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                                       <stop offset="95%" stopColor="#f43f5e" stopOpacity={0}/>
                                   </linearGradient>
                               </defs>
+                              <XAxis dataKey="date" tick={{fontSize: 10, fill: '#9ca3af'}} tickLine={false} axisLine={false} />
                               <Tooltip 
                                 contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px'}} 
                                 itemStyle={{color: '#f43f5e', fontWeight: 'bold'}}
@@ -1072,9 +1087,15 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                           <CalendarIcon className="w-5 h-5 text-brand-500" /> 打卡日历
                       </h3>
                       <div className="flex items-center gap-1">
-                          <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-gray-100 rounded text-gray-400"><ChevronLeft className="w-4 h-4" /></button>
-                          <span className="text-xs font-bold text-gray-600 w-16 text-center">{currentMonth.getMonth()+1}月</span>
-                          <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-gray-100 rounded text-gray-400"><ChevronRight className="w-4 h-4" /></button>
+                           <input 
+                              type="month" 
+                              value={`${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}`}
+                              onChange={(e) => {
+                                  const [y, m] = e.target.value.split('-');
+                                  setCurrentMonth(new Date(parseInt(y), parseInt(m) - 1, 1));
+                              }}
+                              className="text-xs font-bold text-gray-600 bg-gray-50 px-2 py-1 rounded border border-gray-200 outline-none"
+                           />
                       </div>
                   </div>
                   <div className="grid grid-cols-7 gap-1 place-items-center mb-2">

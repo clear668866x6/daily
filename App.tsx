@@ -79,13 +79,17 @@ const App: React.FC = () => {
     }
   };
 
-  // 获取业务日期 (凌晨4点前算前一天)
+  // 获取业务日期 (凌晨4点前算前一天) - Strictly Local Time
   const getBusinessDate = (date: Date): string => {
-      const adjustedDate = new Date(date);
-      if (adjustedDate.getHours() < 4) {
-          adjustedDate.setDate(adjustedDate.getDate() - 1);
+      const d = new Date(date);
+      // If before 4 AM, subtract one day
+      if (d.getHours() < 4) {
+          d.setDate(d.getDate() - 1);
       }
-      return adjustedDate.toISOString().split('T')[0];
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
   };
 
   const calculateStreak = async (userId: string): Promise<number> => {
@@ -131,80 +135,79 @@ const App: React.FC = () => {
       const now = new Date();
       const todayBusinessDate = getBusinessDate(now);
 
-      if (!lastCheckedDate || lastCheckedDate < todayBusinessDate) {
-          
-          let dateIterator = new Date(lastCheckedDate || new Date(now.getTime() - 86400000 * 2)); 
-          // If first run, start from yesterday
-          if (!lastCheckedDate) {
-             const y = new Date();
-             y.setDate(y.getDate() - 1);
-             dateIterator = y; 
-          } else {
-             dateIterator = new Date(lastCheckedDate);
-             dateIterator.setDate(dateIterator.getDate() + 1);
+      // If last check was today, skip
+      if (lastCheckedDate === todayBusinessDate) {
+          return currentUser;
+      }
+
+      let dateIterator: Date;
+      if (!lastCheckedDate) {
+          // New user or first run: start from yesterday (business day)
+          // to avoid penalizing history.
+           const y = new Date();
+           if(y.getHours() < 4) y.setDate(y.getDate() - 1); // Adjust for business day logic base
+           y.setDate(y.getDate() - 1); // Go to yesterday
+           dateIterator = y;
+      } else {
+           dateIterator = new Date(lastCheckedDate);
+           dateIterator.setDate(dateIterator.getDate() + 1); // Start checking from the day AFTER last check
+      }
+
+      // Fetch fresh checkins to avoid stale data
+      const userCheckIns = await storage.getUserCheckIns(currentUser.id);
+      let updatedRating = currentUser.rating || 1200;
+      let hasUpdated = false;
+
+      // Iterate through all missed business days UP TO (but not including) Today
+      // We do NOT check today because the day is not over.
+      while (getBusinessDate(dateIterator) < todayBusinessDate) {
+          const checkDateStr = getBusinessDate(dateIterator);
+          console.log(`Checking penalties for: ${checkDateStr}`);
+
+          // 1. Check Leave Exemptions
+          const isLeaveExempt = userCheckIns.some(c => {
+              if (!c.isLeave || c.leaveStatus !== 'approved') return false;
+              // Check if checkDateStr falls within this leave request
+              const leaveStartTimestamp = c.timestamp;
+              const leaveStartDate = getBusinessDate(new Date(leaveStartTimestamp));
+              
+              // Simple range check: start <= checkDate < start + days
+              const start = new Date(leaveStartDate).getTime();
+              const current = new Date(checkDateStr).getTime();
+              const end = start + ((c.leaveDays || 1) * 86400000); 
+              
+              return current >= start && current < end;
+          });
+
+          if (isLeaveExempt) {
+              // Skip penalty, but mark this day as checked
+              localStorage.setItem(`last_penalty_check_${currentUser.id}`, checkDateStr);
+              dateIterator.setDate(dateIterator.getDate() + 1);
+              continue; 
           }
 
-          const userCheckIns = await storage.getUserCheckIns(currentUser.id);
-          let updatedRating = currentUser.rating || 1200;
-          let hasUpdated = false;
+          // 2. Check Stats
+          const daysCheckIns = userCheckIns.filter(c => getBusinessDate(new Date(c.timestamp)) === checkDateStr);
+          const duration = daysCheckIns.filter(c => !c.isPenalty).reduce((sum, c) => sum + (c.duration || 0), 0);
+          const dailyGoal = currentUser.dailyGoal || DEFAULT_DAILY_GOAL;
 
-          // Iterate through all missed business days up to Yesterday (relative to business date)
-          // We DO NOT check `todayBusinessDate` because the day is not over!
-          while (getBusinessDate(dateIterator) < todayBusinessDate) {
-              const checkDateStr = getBusinessDate(dateIterator);
-              console.log(`Checking penalties for: ${checkDateStr}`);
-
-              // 1. Check if user is on leave (Approved Leave) covering this date
-              // Simplification: We check if there is an Approved Leave check-in posted ON this business date.
-              // In reality a leave might span days, but user posts 1 checkin for the period.
-              // For robustness, we check if any leave record has timestamp <= checkDateStr + leaveDays
-              const isLeaveExempt = userCheckIns.some(c => {
-                  if (!c.isLeave || c.leaveStatus !== 'approved') return false;
-                  const leaveStart = new Date(c.timestamp); // Checkin timestamp
-                  // Business Date of the leave checkin
-                  const leaveBusinessDate = getBusinessDate(leaveStart);
-                  
-                  // Logic: Does checkDateStr fall into [leaveBusinessDate, leaveBusinessDate + leaveDays - 1]
-                  const checkTime = new Date(checkDateStr).getTime();
-                  const startTime = new Date(leaveBusinessDate).getTime();
-                  const endTime = startTime + ((c.leaveDays || 1) - 1) * 86400000;
-                  
-                  return checkTime >= startTime && checkTime <= endTime;
-              });
-
-              if (isLeaveExempt) {
-                  console.log(`Date ${checkDateStr} is exempted due to leave.`);
-                  dateIterator.setDate(dateIterator.getDate() + 1);
-                  continue; 
+          if (duration < dailyGoal) {
+              let penalty = 0;
+              let reason = '';
+              
+              if (duration === 0) {
+                  penalty = -50;
+                  reason = `[系统] 缺勤惩罚 (${checkDateStr})`;
+              } else {
+                  penalty = -15;
+                  reason = `[系统] 时长不足 (${checkDateStr}): ${duration}/${dailyGoal}min`;
               }
 
-              // 2. Determine "Debt Status": Check if the DAY BEFORE THIS CHECK DATE was a Leave Day
-              // If yesterday was a leave, today implies potential repayment (if we enforce it immediately).
-              // Current logic: If checkDateStr is immediately after a leave period end? Too complex.
-              // Simplified: Only check repayment if "Leave" explicitly stated makeup needed next day.
-              // We'll skip complex debt logic for now and focus on simple daily goal.
-
-              // 3. Check stats for `checkDateStr`
-              const daysCheckIns = userCheckIns.filter(c => getBusinessDate(new Date(c.timestamp)) === checkDateStr);
+              // Double check we haven't already penalized this specific date
+              // (Prevent dups if local storage was cleared but DB remains)
+              const alreadyPenalized = daysCheckIns.some(c => c.isPenalty && c.content.includes(checkDateStr));
               
-              const duration = daysCheckIns.filter(c => !c.isPenalty).reduce((sum, c) => sum + (c.duration || 0), 0);
-              const dailyGoal = currentUser.dailyGoal || DEFAULT_DAILY_GOAL;
-              // If previous day was leave, maybe double goal? Let's keep it simple for now.
-              const targetDuration = dailyGoal;
-
-              if (duration < targetDuration) {
-                  let penalty = 0;
-                  let reason = '';
-                  
-                  if (duration === 0) {
-                      penalty = -50;
-                      reason = `[系统] 缺勤惩罚 (${checkDateStr})`;
-                  } else {
-                      penalty = -15;
-                      reason = `[系统] 时长不足 (${checkDateStr}): ${duration}/${targetDuration}min`;
-                  }
-
-                  // Create VISIBLE Penalty CheckIn
+              if (!alreadyPenalized) {
                   const penaltyCheckIn: CheckIn = {
                       id: `sys-pen-${Date.now()}-${Math.random()}`,
                       userId: currentUser.id,
@@ -216,28 +219,26 @@ const App: React.FC = () => {
                       content: `⚠️ **${reason}**\n\n根据规则，系统自动执行扣分。请注意保持每日学习节奏！`,
                       duration: 0,
                       isPenalty: true,
-                      timestamp: dateIterator.getTime() + 43200000, // Set time to noon of that day for display
+                      timestamp: dateIterator.getTime() + 43200000, // Noon of that day
                       likedBy: []
                   };
                   await storage.addCheckIn(penaltyCheckIn);
                   await storage.updateRating(currentUser.id, updatedRating + penalty, reason);
                   updatedRating += penalty;
                   hasUpdated = true;
-                  
                   setPenaltyModalData({ count: Math.abs(penalty), date: checkDateStr, type: 'missing' });
               }
-              
-              dateIterator.setDate(dateIterator.getDate() + 1);
-          }
-
-          if (hasUpdated) {
-              currentUser.rating = updatedRating;
           }
           
-          // Update Check Date
-          localStorage.setItem(`last_penalty_check_${currentUser.id}`, todayBusinessDate);
+          // Mark THIS specific date as checked
+          localStorage.setItem(`last_penalty_check_${currentUser.id}`, checkDateStr);
+          dateIterator.setDate(dateIterator.getDate() + 1);
       }
 
+      if (hasUpdated) {
+          currentUser.rating = updatedRating;
+      }
+      
       return currentUser;
   };
 
@@ -259,7 +260,6 @@ const App: React.FC = () => {
             const newRating = (currentUser.rating || 1200) + bonus;
             await storage.updateRating(currentUser.id, newRating, `🔥 连续打卡 ${streak} 天奖励`);
             
-            // Create visible bonus checkin
             const bonusCheckIn: CheckIn = {
                 id: `sys-bonus-${Date.now()}`,
                 userId: currentUser.id,
