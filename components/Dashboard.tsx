@@ -195,6 +195,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
     const subjectDuration: Record<string, number> = {}; 
     const dateDuration: Record<string, number> = {}; 
     let totalStudyMinutes = 0; // Lifetime Total
+    let filteredPieMinutes = 0; // Filtered Total for Pie Chart
     let todayStudyMinutes = 0; // Strictly Today's Business Day Minutes
     let totalPenaltyMinutes = 0;
     
@@ -209,6 +210,8 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       if (c.isPenalty) {
           totalPenaltyMinutes += duration; 
       } else {
+          totalStudyMinutes += duration; // Add to lifetime regardless of filter
+
           // Pie Chart Logic
           let includeInPie = false;
           if (pieFilterType === 'day' && dateKey === pieDate) includeInPie = true;
@@ -217,6 +220,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
 
           if (includeInPie) {
              subjectDuration[c.subject] = (subjectDuration[c.subject] || 0) + duration;
+             filteredPieMinutes += duration; // Sum up only valid pie chart entries
           }
 
           // Bar Chart Logic (Date Range)
@@ -225,7 +229,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
               dateDuration[label] = (dateDuration[label] || 0) + duration;
           }
           
-          totalStudyMinutes += duration;
           if (dateKey === todayStr) {
               todayStudyMinutes += duration;
           }
@@ -243,7 +246,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
         hours: parseFloat((minutes / 60).toFixed(1)) 
     }));
 
-    return { pieData, durationData, totalStudyMinutes, todayStudyMinutes, totalPenaltyMinutes };
+    return { pieData, durationData, totalStudyMinutes, filteredPieMinutes, todayStudyMinutes, totalPenaltyMinutes };
   }, [selectedUserCheckIns, pieFilterType, pieDate, pieMonth, pieYear, barDateRange]);
 
   const heatmapData = useMemo(() => {
@@ -1181,9 +1184,9 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                       ) : (
                           <div className="absolute inset-0 flex items-center justify-center text-gray-300 text-xs">无数据</div>
                       )}
-                      {stats.totalStudyMinutes > 0 && (
+                      {stats.filteredPieMinutes > 0 && (
                           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                              <span className="text-2xl font-black text-gray-800">{Math.floor(stats.totalStudyMinutes / 60)}h</span>
+                              <span className="text-2xl font-black text-gray-800">{Math.floor(stats.filteredPieMinutes / 60)}h</span>
                               <span className="text-[10px] text-gray-400 font-bold uppercase">Total</span>
                           </div>
                       )}

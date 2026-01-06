@@ -338,24 +338,28 @@ export const updateLeaveStatus = async (checkInId: string, status: LeaveStatus, 
     if (error) throw error;
 }
 
-export const deleteCheckIn = async (id: string): Promise<number> => {
+export const deleteCheckIn = async (id: string, skipRatingReversal: boolean = false): Promise<number> => {
     // Get checkin first to know impact
     const { data: checkIn } = await supabase.from('checkins').select('*').eq('id', id).single();
     if (!checkIn) return 0;
     
     let ratingDelta = 0;
-    if (checkIn.is_penalty) {
-        if (checkIn.content.includes('缺勤') || checkIn.content.includes('偿还失败')) {
-            ratingDelta = 50; // Restore 50 points
-        } else if (checkIn.content.includes('时长不足')) {
-            ratingDelta = 15; // Restore 15 points
-        } else if (checkIn.duration) {
-            ratingDelta = Math.round((checkIn.duration / 10) * 1.5) + 1; 
-        }
-    } else {
-        // Was study (+points), undoing means (-points)
-        if (checkIn.duration) {
-             ratingDelta = -(Math.floor(checkIn.duration / 10) + 1);
+    
+    // Only calculate rating impact if NOT skipping reversal (e.g. non-admin delete)
+    if (!skipRatingReversal) {
+        if (checkIn.is_penalty) {
+            if (checkIn.content.includes('缺勤') || checkIn.content.includes('偿还失败')) {
+                ratingDelta = 50; // Restore 50 points
+            } else if (checkIn.content.includes('时长不足')) {
+                ratingDelta = 15; // Restore 15 points
+            } else if (checkIn.duration) {
+                ratingDelta = Math.round((checkIn.duration / 10) * 1.5) + 1; 
+            }
+        } else {
+            // Was study (+points), undoing means (-points)
+            if (checkIn.duration) {
+                 ratingDelta = -(Math.floor(checkIn.duration / 10) + 1);
+            }
         }
     }
 
@@ -371,6 +375,44 @@ export const deleteCheckIn = async (id: string): Promise<number> => {
     }
 
     return ratingDelta;
+}
+
+export const exemptPenalty = async (id: string): Promise<{ ratingDelta: number, newContent: string }> => {
+    const { data: checkIn } = await supabase.from('checkins').select('*').eq('id', id).single();
+    if (!checkIn || !checkIn.is_penalty) {
+        throw new Error("Target is not a penalty record");
+    }
+
+    let ratingDelta = 0;
+    // Calculate refund amount based on content heuristics (same as deleteCheckIn)
+    if (checkIn.content.includes('缺勤') || checkIn.content.includes('偿还失败')) {
+        ratingDelta = 50; 
+    } else if (checkIn.content.includes('时长不足')) {
+        ratingDelta = 15;
+    } else {
+        ratingDelta = 15; // Default safe fallback
+    }
+
+    // Instead of deleting, we update the content and remove penalty flag
+    const originalContent = checkIn.content.replace(/(\n|^)⚠️/g, '').replace(/(\n|^)\[系统\]/g, '').trim();
+    const newContent = `~~${originalContent}~~ \n\n> 🛡️ **[管理员已豁免]** 扣分已返还，记录已归档。`;
+    
+    const { error } = await supabase.from('checkins').update({
+        is_penalty: false,
+        content: newContent
+    }).eq('id', id);
+
+    if (error) throw error;
+
+    if (ratingDelta !== 0) {
+        const { data: user } = await supabase.from('users').select('rating').eq('id', checkIn.user_id).single();
+        if (user) {
+             const newRating = (user.rating || 1200) + ratingDelta;
+             await updateRating(checkIn.user_id, newRating, `管理员豁免惩罚 (ID:${id.substring(0,4)})`);
+        }
+    }
+    
+    return { ratingDelta, newContent };
 }
 
 export const updateCheckIn = async (id: string, content: string): Promise<void> => {

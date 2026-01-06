@@ -321,6 +321,22 @@ const App: React.FC = () => {
     }
   }
 
+  const handleExemptPenalty = async (id: string) => {
+    if (!user || user.role !== 'admin') return;
+    try {
+      const { ratingDelta, newContent } = await storage.exemptPenalty(id);
+      
+      // Optimistic update
+      setCheckIns(prev => prev.map(c => c.id === id ? { ...c, content: newContent, isPenalty: false } : c));
+      
+      showToast(`已豁免，返还 ${ratingDelta} 分`, 'success');
+      await refreshData(); // Force sync to be sure
+    } catch (e) {
+      console.error(e);
+      showToast("操作失败", 'error');
+    }
+  }
+
   const handleAddCheckIn = async (newCheckIn: CheckIn) => {
     if (user?.role === 'guest') {
       showToast("访客模式无法发布打卡", 'error');
@@ -344,8 +360,13 @@ const App: React.FC = () => {
       if (!user || !checkInToDelete) return;
       const id = checkInToDelete;
       setCheckIns(prev => prev.filter(c => c.id !== id));
+      
+      const isAdmin = user.role === 'admin';
+      
       try {
-          const ratingDelta = await storage.deleteCheckIn(id);
+          // If admin, pass true to skip rating reversal
+          const ratingDelta = await storage.deleteCheckIn(id, isAdmin);
+          
           if (ratingDelta !== 0) {
               const newRating = (user.rating || 1200) + ratingDelta;
               const updatedUser = { ...user, rating: newRating };
@@ -493,7 +514,7 @@ const App: React.FC = () => {
                   </div>
                   <div className="text-yellow-400 font-black text-lg uppercase tracking-[0.3em] mb-2 animate-pulse">Momentum Streak</div>
                   <h2 className="text-5xl md:text-6xl font-black mb-6 bg-clip-text text-transparent bg-gradient-to-r from-yellow-200 to-yellow-500 drop-shadow-sm">连续打卡 {streakModalData} 天!</h2>
-                  <p className="text-indigo-200 text-lg max-w-md leading-relaxed mb-12">坚持就是胜利。保持这个节奏，上岸指日可待！</p>
+                  <p className="text-indigo-200 text-lg max-w-md leading-relaxed mb-12">坚持就是胜利。保持这个节奏，上岸终有时！</p>
                   <div className="flex items-center gap-2 text-white/50 text-sm animate-bounce"><span>点击任意处关闭</span></div>
               </div>
           </div>
@@ -505,8 +526,8 @@ const App: React.FC = () => {
         <div className="max-w-7xl mx-auto">
           <GlobalAlerts user={user} checkIns={checkIns} algoTasks={algoTasks} onNavigate={setActiveTab} />
           {activeTab === 'dashboard' && <div className="animate-fade-in"><Dashboard checkIns={checkIns} currentUser={user} onUpdateUser={handleUpdateUser} onShowToast={showToast} onUpdateCheckIn={handleUpdateCheckIn} initialSelectedUserId={targetProfileId} onAddCheckIn={handleAddCheckIn} /></div>}
-          {activeTab === 'profile' && <Profile user={visitedProfileUser || user} currentUser={user} checkIns={checkIns} onSearchUser={handleViewUser} onBack={handleProfileBack} onDeleteCheckIn={handleDeleteCheckInTrigger} onUpdateCheckIn={handleUpdateCheckIn} />}
-          {activeTab === 'feed' && <div className="animate-fade-in"><Feed checkIns={checkIns} user={user} onAddCheckIn={handleAddCheckIn} onDeleteCheckIn={handleDeleteCheckInTrigger} onLike={handleLike} onUpdateCheckIn={handleUpdateCheckIn} onViewUserProfile={handleViewUser} /></div>}
+          {activeTab === 'profile' && <Profile user={visitedProfileUser || user} currentUser={user} checkIns={checkIns} onSearchUser={handleViewUser} onBack={handleProfileBack} onDeleteCheckIn={handleDeleteCheckInTrigger} onUpdateCheckIn={handleUpdateCheckIn} onExemptPenalty={handleExemptPenalty} />}
+          {activeTab === 'feed' && <div className="animate-fade-in"><Feed checkIns={checkIns} user={user} onAddCheckIn={handleAddCheckIn} onDeleteCheckIn={handleDeleteCheckInTrigger} onLike={handleLike} onUpdateCheckIn={handleUpdateCheckIn} onViewUserProfile={handleViewUser} onExemptPenalty={handleExemptPenalty} /></div>}
           {activeTab === 'english' && <div className="animate-fade-in"><EnglishTutor user={user} onCheckIn={handleAutoCheckIn} /></div>}
           {activeTab === 'algorithm' && <div className="animate-fade-in"><AlgorithmTutor user={user} onCheckIn={handleAutoCheckIn} onShowToast={showToast} /></div>}
           {activeTab === 'achievements' && <AchievementsHistory user={user} />}
@@ -515,7 +536,7 @@ const App: React.FC = () => {
         </div>
       </main>
       
-      <Modal isOpen={isDeleteModalOpen} onClose={() => setIsDeleteModalOpen(false)} onConfirm={confirmDeleteCheckIn} title="确认删除" message="确定要删除这条打卡记录吗？删除后，该记录产生的 Rating 分数变化将被撤销。" confirmText="确认删除" type="danger" />
+      <Modal isOpen={isDeleteModalOpen} onClose={() => setIsDeleteModalOpen(false)} onConfirm={confirmDeleteCheckIn} title="确认删除" message={user.role === 'admin' ? "管理员删除操作不会扣除用户积分，仅移除记录。" : "确定要删除这条打卡记录吗？删除后，该记录产生的 Rating 分数变化将被撤销。"} confirmText="确认删除" type="danger" />
       <AdminUserModal isOpen={isAdminModalOpen} onClose={() => setIsAdminModalOpen(false)} currentUser={user} onShowToast={showToast} onViewUser={(userId) => { setIsAdminModalOpen(false); handleViewUser(userId); }} />
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
       <style>{`

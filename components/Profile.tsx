@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { User, CheckIn, SubjectCategory, getUserStyle, getTitleName, RatingHistory } from '../types';
 import { MarkdownText } from './MarkdownText';
-import { Calendar, Filter, Clock, MapPin, X, Search, User as UserIcon, TrendingUp, ChevronLeft, ArrowLeft, History, Trash2, Edit2, Sparkles, ChevronRight, ChevronDown, Save } from 'lucide-react';
+import { Calendar, Filter, Clock, MapPin, X, Search, User as UserIcon, TrendingUp, ChevronLeft, ArrowLeft, History, Trash2, Edit2, Sparkles, ChevronRight, ChevronDown, Save, ShieldCheck } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import * as storage from '../services/storageService';
 import { FullScreenEditor } from './FullScreenEditor';
@@ -15,6 +15,7 @@ interface Props {
   onBack?: () => void; 
   onDeleteCheckIn: (id: string) => void; 
   onUpdateCheckIn: (id: string, content: string) => void; 
+  onExemptPenalty?: (id: string) => void;
 }
 
 // Updated: Business Day Logic (4 AM cut-off)
@@ -30,7 +31,7 @@ const formatDateKey = (timestampOrDate: number | Date): string => {
     return `${y}-${m}-${d}`;
 };
 
-export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearchUser, onBack, onDeleteCheckIn, onUpdateCheckIn }) => {
+export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearchUser, onBack, onDeleteCheckIn, onUpdateCheckIn, onExemptPenalty }) => {
   const [filterSubject, setFilterSubject] = useState<string>('ALL');
   const [filterDate, setFilterDate] = useState<string>('');
   const [ratingHistory, setRatingHistory] = useState<RatingHistory[]>([]);
@@ -540,6 +541,8 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
                     const displayDateStr = dateObj.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
                     
                     const canEdit = currentUser.id === checkIn.userId || currentUser.role === 'admin';
+                    const isAdmin = currentUser.role === 'admin';
+                    const isPenalty = checkIn.isPenalty;
 
                     return (
                         <div key={checkIn.id} className="flex gap-4 md:gap-6 group">
@@ -575,24 +578,37 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
                                         </div>
                                         
                                         {/* Edit/Delete Actions */}
-                                        {canEdit && (
-                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            {/* Admin Exempt Button */}
+                                            {isAdmin && isPenalty && onExemptPenalty && (
                                                 <button 
-                                                    onClick={() => setEditingCheckIn(checkIn)}
-                                                    className="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
-                                                    title="编辑"
+                                                    onClick={() => onExemptPenalty(checkIn.id)}
+                                                    className="text-indigo-500 bg-indigo-50 hover:bg-indigo-100 transition-colors px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 mr-2"
+                                                    title="免除扣分"
                                                 >
-                                                    <Edit2 className="w-3.5 h-3.5" />
+                                                    <ShieldCheck className="w-4 h-4" /> 豁免
                                                 </button>
-                                                <button 
-                                                    onClick={() => onDeleteCheckIn(checkIn.id)}
-                                                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                                    title="删除"
-                                                >
-                                                    <Trash2 className="w-3.5 h-3.5" />
-                                                </button>
-                                            </div>
-                                        )}
+                                            )}
+                                        
+                                            {canEdit && (
+                                                <>
+                                                    <button 
+                                                        onClick={() => setEditingCheckIn(checkIn)}
+                                                        className="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                                                        title="编辑"
+                                                    >
+                                                        <Edit2 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => onDeleteCheckIn(checkIn.id)}
+                                                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                        title="删除"
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                </>
+                                            )}
+                                        </div>
                                     </div>
 
                                     <div className="text-gray-800 text-sm leading-relaxed">

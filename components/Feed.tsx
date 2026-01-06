@@ -2,7 +2,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { CheckIn, SubjectCategory, User, getUserStyle } from '../types'; 
 import { MarkdownText } from './MarkdownText';
-import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Clock, Search, User as UserIcon, Calendar as CalendarIcon, ArrowLeft, Pin, Trash2, Users, Coffee, Check, XCircle, Maximize2 } from 'lucide-react';
+import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Clock, Search, User as UserIcon, Calendar as CalendarIcon, ArrowLeft, Pin, Trash2, Users, Coffee, Check, XCircle, Maximize2, ShieldCheck } from 'lucide-react';
 import { FullScreenEditor } from './FullScreenEditor';
 import { FILTER_GROUPS } from '../constants';
 import { compressImage } from '../services/imageUtils';
@@ -17,9 +17,10 @@ interface Props {
   onDeleteCheckIn: (id: string) => void;
   onUpdateCheckIn: (id: string, content: string) => void;
   onViewUserProfile: (userId: string) => void;
+  onExemptPenalty?: (id: string) => void;
 }
 
-export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, onDeleteCheckIn, onUpdateCheckIn, onViewUserProfile }) => {
+export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, onDeleteCheckIn, onUpdateCheckIn, onViewUserProfile, onExemptPenalty }) => {
   const [content, setContent] = useState('');
   const [subject, setSubject] = useState<SubjectCategory>(SubjectCategory.MATH);
   const [image, setImage] = useState<string | null>(null);
@@ -178,6 +179,7 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
     const canDelete = isOwner || isAdmin;
     const canEdit = isOwner || isAdmin;
     const isLeave = checkIn.isLeave;
+    const isPenalty = checkIn.isPenalty;
 
     const nameStyle = getUserStyle(checkIn.userRole || 'user', checkIn.userRating ?? 1200);
     const subjectTheme = isLeave ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : getSubjectTheme(checkIn.subject);
@@ -190,7 +192,9 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                   ? 'border-indigo-200 bg-gradient-to-br from-white to-indigo-50/30 ring-1 ring-indigo-100' 
                   : isLeave 
                     ? 'border-yellow-200 bg-yellow-50/10'
-                    : 'border-gray-100 hover:border-gray-200'
+                    : isPenalty 
+                        ? 'border-red-200 bg-red-50/10'
+                        : 'border-gray-100 hover:border-gray-200'
               }
           `}
         >
@@ -259,7 +263,7 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                 
                 {!isPinned && (
                     <div className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border ${subjectTheme} flex items-center gap-1.5`}>
-                        {isLeave ? <Coffee className="w-3 h-3" /> : <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50"></span>}
+                        {isLeave ? <Coffee className="w-3 h-3" /> : isPenalty ? <XCircle className="w-3 h-3"/> : <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50"></span>}
                         {isLeave ? '请假条' : checkIn.subject}
                     </div>
                 )}
@@ -310,6 +314,17 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                 </button>
                 
                 <div className="ml-auto flex items-center gap-2">
+                    {/* Admin Exempt Button */}
+                    {isAdmin && isPenalty && onExemptPenalty && (
+                        <button 
+                            onClick={() => onExemptPenalty(checkIn.id)}
+                            className="text-indigo-500 bg-indigo-50 hover:bg-indigo-100 transition-colors px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"
+                            title="免除扣分"
+                        >
+                            <ShieldCheck className="w-4 h-4" /> 豁免
+                        </button>
+                    )}
+                    
                     {canEdit && (
                         <button 
                             onClick={() => setEditingCheckIn(checkIn)}
