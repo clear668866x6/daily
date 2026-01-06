@@ -346,9 +346,9 @@ export const deleteCheckIn = async (id: string): Promise<number> => {
     let ratingDelta = 0;
     if (checkIn.is_penalty) {
         if (checkIn.content.includes('缺勤') || checkIn.content.includes('偿还失败')) {
-            ratingDelta = 50;
+            ratingDelta = 50; // Restore 50 points
         } else if (checkIn.content.includes('时长不足')) {
-            ratingDelta = 15;
+            ratingDelta = 15; // Restore 15 points
         } else if (checkIn.duration) {
             ratingDelta = Math.round((checkIn.duration / 10) * 1.5) + 1; 
         }

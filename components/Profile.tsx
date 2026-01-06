@@ -400,15 +400,15 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
             {/* Rating Chart */}
             <div className="mt-8 mb-2 h-64 w-full bg-white rounded-2xl border border-gray-100 p-4 shadow-sm relative overflow-hidden">
                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-                    <TrendingUp className="w-3 h-3" /> Rating 积分走势
+                    <TrendingUp className="w-3 h-3 text-red-500" /> Rating 积分走势
                 </h3>
                 {chartData.length > 1 ? (
                     <ResponsiveContainer width="100%" height="100%">
                         <AreaChart data={chartData}>
                             <defs>
-                                <linearGradient id="colorRatingProfile" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.1}/>
-                                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
+                                <linearGradient id="colorRatingRed" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.2}/>
+                                    <stop offset="95%" stopColor="#f43f5e" stopOpacity={0}/>
                                 </linearGradient>
                             </defs>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
@@ -427,18 +427,18 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
                             />
                             <Tooltip 
                                 contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px'}}
-                                itemStyle={{color: '#4f46e5', fontWeight: 'bold'}}
+                                itemStyle={{color: '#f43f5e', fontWeight: 'bold'}}
                                 labelStyle={{color: '#9ca3af', marginBottom: '4px'}}
                             />
                             <Area 
-                                type="monotone" 
+                                type="monotone"
                                 dataKey="rating" 
-                                stroke="#4f46e5" 
+                                stroke="#f43f5e" 
                                 strokeWidth={3} 
                                 fillOpacity={1} 
-                                fill="url(#colorRatingProfile)" 
-                                dot={{r: 3, fill: '#4f46e5', strokeWidth: 2, stroke: '#fff'}} 
-                                activeDot={{r: 6}}
+                                fill="url(#colorRatingRed)" 
+                                dot={{r: 4, fill: '#fff', stroke: '#f43f5e', strokeWidth: 2}} 
+                                activeDot={{r: 6, fill: '#f43f5e', stroke: '#fff', strokeWidth: 2}}
                             />
                         </AreaChart>
                     </ResponsiveContainer>
