@@ -47,6 +47,17 @@ const formatDateKey = (timestampOrDate: number | Date): string => {
     return `${year}-${month}-${day}`;
 };
 
+// Helper for dynamic rating background
+const getRatingBackground = (rating: number) => {
+    if (rating < 1200) return 'from-gray-600 to-gray-500';
+    if (rating < 1400) return 'from-green-600 to-green-500';
+    if (rating < 1600) return 'from-cyan-600 to-cyan-500';
+    if (rating < 1900) return 'from-blue-600 to-blue-500';
+    if (rating < 2100) return 'from-violet-600 to-violet-500';
+    if (rating < 2400) return 'from-orange-600 to-orange-500';
+    return 'from-red-600 to-rose-600';
+};
+
 export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser, onShowToast, initialSelectedUserId, onAddCheckIn }) => {
   // View State
   const [selectedUserId, setSelectedUserId] = useState<string>(initialSelectedUserId || currentUser.id);
@@ -685,6 +696,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
 
   const ratingColorClass = getUserStyle(selectedUser.role, selectedUser.rating ?? 1200);
   const titleName = getTitleName(selectedUser.role, selectedUser.rating ?? 1200);
+  const ratingGradient = getRatingBackground(currentUser.rating || 1200);
 
   // --- Admin Dashboard View ---
   if (isAdmin && selectedUserId === currentUser.id) {
@@ -964,13 +976,16 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
              </div>
              
              {/* Rating Card */}
-             <div className="bg-gradient-to-br from-gray-900 to-gray-800 text-white px-5 py-2 rounded-xl shadow-lg flex items-center gap-4 relative overflow-hidden group cursor-pointer" onClick={() => setShowRules(true)}>
-                 <div className="absolute right-0 top-0 w-20 h-20 bg-white opacity-5 rounded-full -mr-10 -mt-10 blur-xl"></div>
+             <div 
+                className={`bg-gradient-to-br ${ratingGradient} text-white px-5 py-2 rounded-xl shadow-lg flex items-center gap-4 relative overflow-hidden group cursor-pointer transition-all hover:scale-105`} 
+                onClick={() => setShowRules(true)}
+             >
+                 <div className="absolute right-0 top-0 w-20 h-20 bg-white opacity-10 rounded-full -mr-10 -mt-10 blur-xl group-hover:opacity-20 transition-opacity"></div>
                  <div>
-                     <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">Rating</div>
+                     <div className="text-[10px] text-white/80 font-bold uppercase tracking-wider mb-0.5">Rating</div>
                      <div className="text-2xl font-black tracking-tight">{currentUser.rating || 1200}</div>
                  </div>
-                 <div className={`text-right ${ratingColorClass.replace('text-', 'text-white/90 ')}`}>
+                 <div className="text-right text-white/90">
                      <div className="text-xs opacity-60">Rank</div>
                      <div className="font-bold text-sm">{titleName}</div>
                  </div>
@@ -1084,7 +1099,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                   </div>
                   <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-center items-center">
                         <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">Current Rating</div>
-                        <div className="text-3xl font-black text-brand-600">{currentUser.rating || 1200}</div>
+                        <div className={`text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r ${ratingGradient}`}>{currentUser.rating || 1200}</div>
                   </div>
               </div>
 
