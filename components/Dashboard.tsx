@@ -3,13 +3,13 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { CheckIn, User, Goal, SubjectCategory, RatingHistory, getUserStyle, getTitleName } from '../types';
 import * as storage from '../services/storageService';
 import { AreaChart, Area, XAxis, Tooltip, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Trophy, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, ChevronDown, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Flag, Activity, Maximize2, Filter, X, Grid3X3, Medal, Coffee, Save, Shield, CalendarOff, UserPlus, Search, MoreHorizontal, LogOut, CheckCircle2 } from 'lucide-react';
+import { Trophy, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, ChevronDown, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Flag, Activity, Maximize2, Filter, X, Grid3X3, Medal, Coffee, Save, Shield, CalendarOff, UserPlus, Search, MoreHorizontal, LogOut, CheckCircle2, ChevronUp, ShieldCheck, KeyRound } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { ToastType } from './Toast';
 import { FullScreenEditor } from './FullScreenEditor';
 import { ImageViewer } from './ImageViewer';
 import { Modal } from './Modal';
-import { AdminUserModal } from './AdminUserModal'; // Kept for logic reuse if needed, but we implement main table here
+import { AdminUserModal } from './AdminUserModal'; 
 
 interface Props {
   checkIns: CheckIn[];
@@ -19,6 +19,7 @@ interface Props {
   onUpdateCheckIn?: (id: string, content: string) => void;
   onAddCheckIn?: (checkIn: CheckIn) => void; 
   initialSelectedUserId?: string | null;
+  onNavigateToUser?: (userId: string) => void; // New prop for admin nav
 }
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1'];
@@ -82,7 +83,7 @@ const getDailyAggregatedRatings = (history: RatingHistory[]) => {
     }));
 };
 
-export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser, onShowToast, initialSelectedUserId, onAddCheckIn }) => {
+export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser, onShowToast, initialSelectedUserId, onAddCheckIn, onNavigateToUser }) => {
   // View State
   const [selectedUserId, setSelectedUserId] = useState<string>(initialSelectedUserId || currentUser.id);
   const [allUsers, setAllUsers] = useState<User[]>([]);
@@ -153,6 +154,12 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const [sysAbsentStartDate, setSysAbsentStartDate] = useState('');
   const [allPenalties, setAllPenalties] = useState<CheckIn[]>([]);
   const [showAdminUserModal, setShowAdminUserModal] = useState(false);
+  
+  // Admin Expandable Rows
+  const [expandedUserIds, setExpandedUserIds] = useState<string[]>([]);
+  const [userPenaltyMap, setUserPenaltyMap] = useState<Record<string, CheckIn[]>>({});
+  const [editingUserRating, setEditingUserRating] = useState<{id: string, rating: number} | null>(null);
+  const [editingUserPassword, setEditingUserPassword] = useState<{id: string, password: string} | null>(null);
 
   const isAdmin = currentUser.role === 'admin';
   const isViewingSelf = selectedUserId === currentUser.id;
@@ -204,6 +211,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
         if (isAdmin) {
             const config = storage.getSystemConfig();
             setSysAbsentStartDate(config.absentStartDate);
+            // Fetch all penalties initially or when needed? Fetch all is better for aggregate stats
             const pens = await storage.getAllPenalties();
             setAllPenalties(pens);
         }
@@ -392,6 +400,83 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
 
       return { todayDuration, absentCount, isLeaveToday, activeLeave };
   }
+
+  const toggleRowExpand = async (userId: string) => {
+      if (expandedUserIds.includes(userId)) {
+          setExpandedUserIds(prev => prev.filter(id => id !== userId));
+      } else {
+          setExpandedUserIds(prev => [...prev, userId]);
+          // Fetch specific penalty/checkin details for this user if not already fetched optimally
+          // For simplicity, we use client side filtered checkIns which are already loaded in `checkIns` prop
+          const penalties = checkIns.filter(c => c.userId === userId && c.isPenalty).sort((a, b) => b.timestamp - a.timestamp);
+          setUserPenaltyMap(prev => ({ ...prev, [userId]: penalties }));
+      }
+  };
+
+  const handleExemptPenalty = async (checkInId: string, userId: string) => {
+      try {
+          const { ratingDelta } = await storage.exemptPenalty(checkInId);
+          onShowToast(`已豁免，Rating +${ratingDelta}`, 'success');
+          // Refresh local state
+          const updatedPenalties = userPenaltyMap[userId].map(p => 
+              p.id === checkInId ? { ...p, isPenalty: false, content: p.content + ' [已豁免]' } : p
+          );
+          setUserPenaltyMap(prev => ({ ...prev, [userId]: updatedPenalties }));
+          // Ideally refresh user rating too
+          const updatedUser = await storage.getUserById(userId);
+          if (updatedUser) {
+              setAllUsers(prev => prev.map(u => u.id === userId ? updatedUser : u));
+          }
+      } catch (e) {
+          console.error(e);
+          onShowToast("操作失败", 'error');
+      }
+  };
+
+  const handleUpdateUserRating = async (userId: string) => {
+      if (!editingUserRating || editingUserRating.id !== userId) return;
+      try {
+          await storage.adminUpdateUser(userId, { rating: editingUserRating.rating });
+          onShowToast("Rating 已更新", 'success');
+          setAllUsers(prev => prev.map(u => u.id === userId ? { ...u, rating: editingUserRating.rating } : u));
+          setEditingUserRating(null);
+      } catch (e) {
+          onShowToast("更新失败", 'error');
+      }
+  };
+
+  const handleUpdateUserPassword = async (userId: string) => {
+      if (!editingUserPassword || editingUserPassword.id !== userId || !editingUserPassword.password) return;
+      try {
+          await storage.adminUpdateUser(userId, { password: editingUserPassword.password });
+          onShowToast("密码已修改", 'success');
+          setEditingUserPassword(null);
+      } catch (e) {
+          onShowToast("修改失败", 'error');
+      }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+      if (!confirm("⚠️ 高危操作：确定要彻底删除该用户吗？\n所有打卡记录和数据将无法恢复！")) return;
+      try {
+          await storage.adminDeleteUser(userId);
+          onShowToast("用户已删除", 'success');
+          setAllUsers(prev => prev.filter(u => u.id !== userId));
+      } catch (e) {
+          onShowToast("删除失败", 'error');
+      }
+  };
+
+  const getOverallStats = () => {
+      const todayStr = formatDateKey(new Date());
+      const totalDuration = checkIns.reduce((acc, c) => acc + (c.isPenalty ? 0 : (c.duration || 0)), 0);
+      const activeUsersToday = new Set(checkIns.filter(c => formatDateKey(c.timestamp) === todayStr && !c.isPenalty).map(c => c.userId)).size;
+      const totalUsers = allUsers.filter(u => u.role !== 'admin').length;
+      const absentUsersToday = Math.max(0, totalUsers - activeUsersToday);
+      const totalPenalties = checkIns.filter(c => c.isPenalty).length;
+
+      return { totalDuration, activeUsersToday, absentUsersToday, totalPenalties };
+  };
 
   // --- Please Leave Logic ---
   const handleSubmitLeave = async () => {
@@ -686,8 +771,8 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
 
   // --- Admin Dashboard View ---
   if (isAdmin) {
-        const usersList = allUsers.filter(u => u.role !== 'admin'); // Hide other admins/self from this list logic if desired
-        const todayStr = formatDateKey(new Date());
+        const usersList = allUsers.filter(u => u.role !== 'admin'); // Hide other admins from list
+        const overallStats = getOverallStats();
 
         return (
           <div className="space-y-6 animate-fade-in pb-20">
@@ -709,17 +794,37 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                    </div>
                </div>
 
-               {/* Admin User Management Table */}
-               <div className="bg-white rounded-[2rem] p-8 border border-gray-100 shadow-sm overflow-hidden">
+               {/* Admin Stats Cards */}
+               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                   <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                       <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">打卡总时长</div>
+                       <div className="text-3xl font-black text-gray-800">{Math.round(overallStats.totalDuration / 60)} <span className="text-lg text-gray-400">h</span></div>
+                   </div>
+                   <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                       <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">今日打卡</div>
+                       <div className="text-3xl font-black text-green-600">{overallStats.activeUsersToday} <span className="text-lg text-gray-400">人</span></div>
+                   </div>
+                   <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                       <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">今日缺勤</div>
+                       <div className="text-3xl font-black text-red-500">{overallStats.absentUsersToday} <span className="text-lg text-gray-400">人</span></div>
+                   </div>
+                   <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                       <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">累计违规</div>
+                       <div className="text-3xl font-black text-orange-500">{overallStats.totalPenalties} <span className="text-lg text-gray-400">次</span></div>
+                   </div>
+               </div>
+
+               {/* Combined Leaderboard & Management Table */}
+               <div className="bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm overflow-hidden">
                    <div className="flex justify-between items-center mb-6">
                         <h2 className="text-xl font-black text-gray-800 flex items-center gap-2">
-                            <ListTodo className="w-6 h-6 text-indigo-500" /> 人员管理看板
+                            <ListTodo className="w-6 h-6 text-indigo-500" /> 用户管理 & Rating 排行榜
                         </h2>
                         <button 
                             onClick={() => setShowAdminUserModal(true)}
-                            className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-200"
+                            className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all active:scale-95"
                         >
-                            <UserPlus className="w-4 h-4" /> 管理/新增用户
+                            <UserPlus className="w-4 h-4" /> 新增用户
                         </button>
                    </div>
                    
@@ -727,74 +832,167 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                        <table className="w-full text-left border-collapse">
                            <thead>
                                <tr className="text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 bg-gray-50/50">
-                                   <th className="py-3 pl-4 rounded-tl-xl">用户</th>
+                                   <th className="py-3 pl-4 rounded-tl-xl w-16">Rank</th>
+                                   <th className="py-3">用户 (点击头像访问)</th>
+                                   <th className="py-3">Rating</th>
                                    <th className="py-3">今日时长</th>
-                                   <th className="py-3">违规/缺勤</th>
+                                   <th className="py-3">缺勤次数</th>
                                    <th className="py-3">状态</th>
-                                   <th className="py-3 pr-4 text-right rounded-tr-xl">操作</th>
+                                   <th className="py-3 pr-4 text-right rounded-tr-xl">管理</th>
                                </tr>
                            </thead>
                            <tbody className="text-sm">
-                               {usersList.map((u) => {
+                               {usersList.map((u, index) => {
                                    const stats = calculateUserStats(u);
+                                   const isExpanded = expandedUserIds.includes(u.id);
+                                   
                                    return (
-                                       <tr key={u.id} className="group hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0">
-                                           <td className="py-3 pl-4">
-                                               <div className="flex items-center gap-3 cursor-pointer" onClick={() => initialSelectedUserId !== u.id && window.location.reload() /* Basic nav simulation since Dashboard is self-contained */}> 
-                                                   {/* Note: In real app, router or parent handler changes view. Here we use `onViewUser` passed to modal usually, but Admin IS the dashboard. 
-                                                      Admin clicking avatar -> open Profile. We can use `setVisitedProfileUser` logic if it was passed, 
-                                                      but Admin component structure replaces Dashboard. 
-                                                      We'll assume external navigation or just trigger modal for edit. 
-                                                      Wait, requirement: "Admin click avatar -> enter their profile". 
-                                                      Since Dashboard replaces content based on `isAdmin`, we need a way to see "User Profile" as Admin.
-                                                      In `App.tsx`, `handleViewUser` changes tab to `profile`. We can expose that here? 
-                                                      Actually, `Dashboard` receives `initialSelectedUserId` but renders Admin View if `isAdmin && selectedUserId === currentUser.id`.
-                                                      If we click a user, we should probably navigate to 'profile' tab.
-                                                      But Dashboard props don't have navigate. 
-                                                      Let's use a workaround: window.location or assume App handles it. 
-                                                      Actually, let's just make the avatar click trigger the edit modal or nothing for now as strict navigation isn't passed.
-                                                      Re-reading: "Admin clicking avatar enters their profile". 
-                                                      In `App.tsx`, we have `handleViewUser`. We can add a callback prop `onViewProfile`.
-                                                      For now, let's make it alert or use the existing modal. 
-                                                      Wait, standard `Dashboard` behavior: `onViewUser` isn't a prop.
-                                                      I will add a `viewProfile` helper if possible or just use a link.*/}
-                                                   <img src={u.avatar} className="w-9 h-9 rounded-full bg-gray-100 border border-gray-100" />
-                                                   <div>
-                                                       <div className="font-bold text-gray-800">{u.name}</div>
-                                                       <div className="text-xs text-gray-400 font-mono">ID: {u.id.substring(0,6)}</div>
+                                       <React.Fragment key={u.id}>
+                                           <tr className={`group transition-colors border-b border-gray-50 last:border-0 ${isExpanded ? 'bg-indigo-50/30' : 'hover:bg-gray-50'}`}>
+                                               <td className="py-3 pl-4 font-mono text-gray-400 font-bold">
+                                                   {index < 3 ? <Medal className={`w-5 h-5 ${index===0?'text-yellow-500':index===1?'text-gray-400':'text-orange-600'}`} /> : index + 1}
+                                               </td>
+                                               <td className="py-3">
+                                                   <div className="flex items-center gap-3"> 
+                                                       <img 
+                                                            src={u.avatar} 
+                                                            className="w-9 h-9 rounded-full bg-gray-100 border border-gray-100 cursor-pointer hover:scale-110 transition-transform hover:ring-2 hover:ring-indigo-200" 
+                                                            onClick={() => onNavigateToUser && onNavigateToUser(u.id)}
+                                                            title="点击访问个人主页"
+                                                       />
+                                                       <div>
+                                                           <div className="font-bold text-gray-800">{u.name}</div>
+                                                           <div className="text-[10px] text-gray-400 font-mono">ID: {u.id.substring(0,6)}</div>
+                                                       </div>
                                                    </div>
-                                               </div>
-                                           </td>
-                                           <td className="py-3 font-mono font-bold text-gray-600">
-                                               {stats.todayDuration} <span className="text-xs font-normal text-gray-400">min</span>
-                                           </td>
-                                           <td className="py-3">
-                                               {stats.absentCount > 0 ? (
-                                                   <span className="bg-red-50 text-red-600 px-2 py-1 rounded-lg text-xs font-bold">{stats.absentCount} 次</span>
-                                               ) : (
-                                                   <span className="text-gray-300 text-xs">-</span>
-                                               )}
-                                           </td>
-                                           <td className="py-3">
-                                               {stats.activeLeave ? (
-                                                   <span className="bg-yellow-50 text-yellow-600 px-2 py-1 rounded-lg text-xs font-bold flex items-center w-fit gap-1">
-                                                       <Coffee className="w-3 h-3"/> 请假中
-                                                   </span>
-                                               ) : (
-                                                   <span className="bg-green-50 text-green-600 px-2 py-1 rounded-lg text-xs font-bold flex items-center w-fit gap-1">
-                                                       <CheckCircle2 className="w-3 h-3"/> 正常
-                                                   </span>
-                                               )}
-                                           </td>
-                                           <td className="py-3 pr-4 text-right">
-                                               <button 
-                                                   onClick={() => setShowAdminUserModal(true)} 
-                                                   className="text-gray-400 hover:text-indigo-600 p-2 rounded-full hover:bg-indigo-50 transition-colors"
-                                               >
-                                                   <MoreHorizontal className="w-4 h-4" />
-                                               </button>
-                                           </td>
-                                       </tr>
+                                               </td>
+                                               <td className={`py-3 font-bold ${u.rating && u.rating >= 2000 ? 'text-red-600' : 'text-indigo-600'}`}>
+                                                   {u.rating || 1200}
+                                               </td>
+                                               <td className="py-3 font-mono font-bold text-gray-600">
+                                                   {stats.todayDuration} <span className="text-xs font-normal text-gray-400">min</span>
+                                               </td>
+                                               <td className="py-3">
+                                                   {stats.absentCount > 0 ? (
+                                                       <span className="bg-red-50 text-red-600 px-2 py-1 rounded-lg text-xs font-bold">{stats.absentCount} 次</span>
+                                                   ) : (
+                                                       <span className="text-gray-300 text-xs">-</span>
+                                                   )}
+                                               </td>
+                                               <td className="py-3">
+                                                   {stats.activeLeave ? (
+                                                       <span className="bg-yellow-50 text-yellow-600 px-2 py-1 rounded-lg text-xs font-bold flex items-center w-fit gap-1">
+                                                           <Coffee className="w-3 h-3"/> 请假中
+                                                       </span>
+                                                   ) : (
+                                                       <span className="bg-green-50 text-green-600 px-2 py-1 rounded-lg text-xs font-bold flex items-center w-fit gap-1">
+                                                           <CheckCircle2 className="w-3 h-3"/> 正常
+                                                       </span>
+                                                   )}
+                                               </td>
+                                               <td className="py-3 pr-4 text-right">
+                                                   <button 
+                                                       onClick={() => toggleRowExpand(u.id)} 
+                                                       className={`text-gray-400 hover:text-indigo-600 p-2 rounded-full hover:bg-indigo-50 transition-colors ${isExpanded ? 'bg-indigo-100 text-indigo-600' : ''}`}
+                                                   >
+                                                       {isExpanded ? <ChevronUp className="w-4 h-4" /> : <MoreHorizontal className="w-4 h-4" />}
+                                                   </button>
+                                               </td>
+                                           </tr>
+                                           
+                                           {/* Expandable Details Row */}
+                                           {isExpanded && (
+                                               <tr className="bg-indigo-50/30 animate-fade-in">
+                                                   <td colSpan={7} className="p-4 pt-0">
+                                                       <div className="bg-white rounded-xl border border-indigo-100 p-4 shadow-sm grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                           {/* Left: Quick Actions */}
+                                                           <div className="space-y-4">
+                                                               <h4 className="text-xs font-bold text-indigo-900 uppercase tracking-wider flex items-center gap-2">
+                                                                   <Edit3 className="w-3 h-3" /> 快速编辑
+                                                               </h4>
+                                                               <div className="flex gap-3">
+                                                                   <div className="flex-1">
+                                                                       <label className="text-[10px] text-gray-500 font-bold block mb-1">修改 Rating</label>
+                                                                       <div className="flex">
+                                                                           <input 
+                                                                               type="number" 
+                                                                               className="w-full text-xs border border-gray-200 rounded-l-lg px-2 py-1.5 focus:ring-1 focus:ring-indigo-500 outline-none"
+                                                                               placeholder={`${u.rating}`}
+                                                                               value={editingUserRating?.id === u.id ? editingUserRating.rating : ''}
+                                                                               onChange={(e) => setEditingUserRating({id: u.id, rating: parseInt(e.target.value)})}
+                                                                           />
+                                                                           <button 
+                                                                               onClick={() => handleUpdateUserRating(u.id)}
+                                                                               className="bg-indigo-600 text-white px-3 py-1.5 rounded-r-lg text-xs font-bold hover:bg-indigo-700"
+                                                                           >
+                                                                               保存
+                                                                           </button>
+                                                                       </div>
+                                                                   </div>
+                                                                   <div className="flex-1">
+                                                                       <label className="text-[10px] text-gray-500 font-bold block mb-1">重置密码</label>
+                                                                       <div className="flex">
+                                                                           <input 
+                                                                               type="text" 
+                                                                               className="w-full text-xs border border-gray-200 rounded-l-lg px-2 py-1.5 focus:ring-1 focus:ring-indigo-500 outline-none"
+                                                                               placeholder="新密码"
+                                                                               value={editingUserPassword?.id === u.id ? editingUserPassword.password : ''}
+                                                                               onChange={(e) => setEditingUserPassword({id: u.id, password: e.target.value})}
+                                                                           />
+                                                                           <button 
+                                                                               onClick={() => handleUpdateUserPassword(u.id)}
+                                                                               className="bg-gray-600 text-white px-3 py-1.5 rounded-r-lg text-xs font-bold hover:bg-gray-700"
+                                                                           >
+                                                                               修改
+                                                                           </button>
+                                                                       </div>
+                                                                   </div>
+                                                               </div>
+                                                               <div className="pt-2">
+                                                                   <button 
+                                                                       onClick={() => handleDeleteUser(u.id)}
+                                                                       className="text-red-500 text-xs font-bold flex items-center gap-1 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded w-fit transition-colors"
+                                                                   >
+                                                                       <Trash2 className="w-3 h-3" /> 删除该用户
+                                                                   </button>
+                                                               </div>
+                                                           </div>
+
+                                                           {/* Right: Penalty Records */}
+                                                           <div className="space-y-2">
+                                                               <h4 className="text-xs font-bold text-red-900 uppercase tracking-wider flex items-center gap-2">
+                                                                   <AlertCircle className="w-3 h-3 text-red-500" /> 缺勤/违规记录
+                                                               </h4>
+                                                               <div className="bg-gray-50 rounded-lg p-2 max-h-40 overflow-y-auto custom-scrollbar border border-gray-100">
+                                                                   {userPenaltyMap[u.id] && userPenaltyMap[u.id].length > 0 ? (
+                                                                       userPenaltyMap[u.id].map(p => (
+                                                                           <div key={p.id} className="flex justify-between items-center p-2 mb-1 bg-white rounded border border-gray-100 last:mb-0">
+                                                                               <div>
+                                                                                   <div className="text-xs font-bold text-gray-700 truncate max-w-[150px]">{p.content.split('\n')[0].replace(/\*/g, '')}</div>
+                                                                                   <div className="text-[10px] text-gray-400 font-mono">{new Date(p.timestamp).toLocaleDateString()}</div>
+                                                                               </div>
+                                                                               {!p.content.includes('已豁免') ? (
+                                                                                   <button 
+                                                                                       onClick={() => handleExemptPenalty(p.id, u.id)}
+                                                                                       className="text-[10px] bg-green-50 text-green-600 px-2 py-1 rounded border border-green-100 hover:bg-green-100 font-bold flex items-center gap-1"
+                                                                                   >
+                                                                                       <ShieldCheck className="w-3 h-3" /> 豁免
+                                                                                   </button>
+                                                                               ) : (
+                                                                                   <span className="text-[10px] text-gray-400 italic">已豁免</span>
+                                                                               )}
+                                                                           </div>
+                                                                       ))
+                                                                   ) : (
+                                                                       <div className="text-center text-xs text-gray-400 py-4">无违规记录</div>
+                                                                   )}
+                                                               </div>
+                                                           </div>
+                                                       </div>
+                                                   </td>
+                                               </tr>
+                                           )}
+                                       </React.Fragment>
                                    );
                                })}
                            </tbody>

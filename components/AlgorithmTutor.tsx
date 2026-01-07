@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { User, AlgorithmTask, AlgorithmSubmission, SubjectCategory } from '../types';
 import * as storage from '../services/storageService';
@@ -316,7 +315,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
 
   const dateStatusMap = useMemo(() => {
       const map: Record<string, 'all' | 'partial' | 'none'> = {};
-      const uniqueDates = Array.from(new Set(visibleTasks.map(t => t.date)));
+      const uniqueDates = Array.from(new Set(visibleTasks.map(t => t.date))) as string[];
       uniqueDates.forEach(date => {
           const dateTasks = visibleTasks.filter(t => t.date === date);
           if (dateTasks.length === 0) return;

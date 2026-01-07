@@ -540,7 +540,8 @@ const App: React.FC = () => {
       <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen relative bg-[#F8F9FA]">
         <div className="max-w-7xl mx-auto">
           <GlobalAlerts user={user} checkIns={checkIns} algoTasks={algoTasks} onNavigate={setActiveTab} />
-          {activeTab === 'dashboard' && <div className="animate-fade-in"><Dashboard checkIns={checkIns} currentUser={user} onUpdateUser={handleUpdateUser} onShowToast={showToast} onUpdateCheckIn={handleUpdateCheckIn} initialSelectedUserId={targetProfileId} onAddCheckIn={handleAddCheckIn} /></div>}
+          {/* Pass handleViewUser to Dashboard as onNavigateToUser */}
+          {activeTab === 'dashboard' && <div className="animate-fade-in"><Dashboard checkIns={checkIns} currentUser={user} onUpdateUser={handleUpdateUser} onShowToast={showToast} onUpdateCheckIn={handleUpdateCheckIn} initialSelectedUserId={targetProfileId} onAddCheckIn={handleAddCheckIn} onNavigateToUser={handleViewUser} /></div>}
           {activeTab === 'profile' && <Profile user={visitedProfileUser || user} currentUser={user} checkIns={checkIns} onSearchUser={handleViewUser} onBack={handleProfileBack} onDeleteCheckIn={handleDeleteCheckInTrigger} onUpdateCheckIn={handleUpdateCheckIn} onExemptPenalty={handleExemptPenalty} />}
           {activeTab === 'feed' && <div className="animate-fade-in"><Feed checkIns={checkIns} user={user} onAddCheckIn={handleAddCheckIn} onDeleteCheckIn={handleDeleteCheckInTrigger} onLike={handleLike} onUpdateCheckIn={handleUpdateCheckIn} onViewUserProfile={handleViewUser} onExemptPenalty={handleExemptPenalty} /></div>}
           {activeTab === 'english' && <div className="animate-fade-in"><EnglishTutor user={user} onCheckIn={handleAutoCheckIn} /></div>}
