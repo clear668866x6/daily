@@ -27,14 +27,19 @@ export const getAllUsers = async (): Promise<User[]> => {
   }
   return data.map((u: any) => ({
       ...u,
-      dailyGoal: u.daily_goal
+      dailyGoal: u.daily_goal,
+      lastGoalEditDate: u.last_goal_edit_date // Map from DB snake_case
   })) as User[];
 };
 
 export const getUserById = async (id: string): Promise<User | null> => {
     const { data, error } = await supabase.from('users').select('*').eq('id', id).single();
     if (error) return null;
-    return { ...data, dailyGoal: data.daily_goal } as User;
+    return { 
+        ...data, 
+        dailyGoal: data.daily_goal,
+        lastGoalEditDate: data.last_goal_edit_date
+    } as User;
 }
 
 export const getCurrentUser = (): User | null => {
@@ -82,7 +87,12 @@ export const loginUser = async (username: string, password?: string, inviteCode?
   let user: User;
 
   if (existingUsers) {
-    user = { ...existingUsers, dailyGoal: existingUsers.daily_goal } as User;
+    user = { 
+        ...existingUsers, 
+        dailyGoal: existingUsers.daily_goal,
+        lastGoalEditDate: existingUsers.last_goal_edit_date 
+    } as User;
+    
     if (user.password && password) {
       if (user.password !== password) throw new Error("密码错误");
     } else if (user.password && !password) {
@@ -142,6 +152,10 @@ export const adminUpdateUser = async (userId: string, updates: Partial<User>): P
         dbUpdates.daily_goal = updates.dailyGoal;
         delete dbUpdates.dailyGoal;
     }
+    if (updates.lastGoalEditDate) {
+        dbUpdates.last_goal_edit_date = updates.lastGoalEditDate;
+        delete dbUpdates.lastGoalEditDate;
+    }
     
     const { error } = await supabase.from('users').update(dbUpdates).eq('id', userId);
     if (error) throw error;
@@ -182,6 +196,20 @@ export const adminDeleteUser = async (userId: string): Promise<void> => {
     const { error } = await supabase.from('users').delete().eq('id', userId);
     if (error) throw error;
 }
+
+// --- System Config ---
+export const getSystemConfig = () => {
+    const startDate = localStorage.getItem('kaoyan_sys_start_date');
+    return {
+        absentStartDate: startDate || ''
+    };
+};
+
+export const setSystemConfig = (key: string, value: string) => {
+    if (key === 'absentStartDate') {
+        localStorage.setItem('kaoyan_sys_start_date', value);
+    }
+};
 
 // --- Rating Logic (Updated) ---
 export const updateRating = async (userId: string, newRating: number, reason: string) => {
@@ -294,6 +322,28 @@ export const getUserCheckIns = async (userId: string): Promise<CheckIn[]> => {
       timestamp: Number(item.timestamp),
       likedBy: item.liked_by || []
   })) as CheckIn[];
+}
+
+// Special function for Admin Dashboard to find penalties
+export const getAllPenalties = async (): Promise<CheckIn[]> => {
+    const { data, error } = await supabase
+        .from('checkins')
+        .select('*')
+        .eq('is_penalty', true)
+        .order('timestamp', { ascending: false });
+    
+    if (error) return [];
+    return data.map((item: any) => ({
+      id: item.id,
+      userId: item.user_id,
+      userName: item.user_name,
+      userAvatar: item.user_avatar,
+      subject: item.subject,
+      content: item.content,
+      isPenalty: true,
+      timestamp: Number(item.timestamp),
+      likedBy: item.liked_by || []
+    })) as CheckIn[];
 }
 
 export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {

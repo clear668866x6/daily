@@ -2,8 +2,8 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { CheckIn, User, Goal, SubjectCategory, RatingHistory, getUserStyle, getTitleName } from '../types';
 import * as storage from '../services/storageService';
-import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, EyeOff, BrainCircuit, ChevronDown, UserCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, CalendarCheck, Flag, Sparkles, Activity, Maximize2, Filter, X, Grid3X3, Medal, Coffee, Info, Save } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, Tooltip, CartesianGrid } from 'recharts';
+import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, ChevronDown, Calendar as CalendarIcon, ChevronLeft, ChevronRight, CalendarCheck, Flag, Activity, Maximize2, Filter, X, Grid3X3, Medal, Coffee, Info, Save, Shield, CalendarOff, Users, ShieldCheck, ChevronUp } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { ToastType } from './Toast';
 import { FullScreenEditor } from './FullScreenEditor';
@@ -48,9 +48,6 @@ const formatDateKey = (timestampOrDate: number | Date): string => {
 };
 
 export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser, onShowToast, initialSelectedUserId, onAddCheckIn }) => {
-  const [motto, setMotto] = useState(() => localStorage.getItem('user_motto') || "考研是一场孤独的旅行，但终点是星辰大海。");
-  const [isEditingMotto, setIsEditingMotto] = useState(false);
-  
   // View State
   const [selectedUserId, setSelectedUserId] = useState<string>(initialSelectedUserId || currentUser.id);
   const [allUsers, setAllUsers] = useState<User[]>([]);
@@ -116,6 +113,11 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   // Rule Modal
   const [showRules, setShowRules] = useState(false);
 
+  // Admin Specific
+  const [sysAbsentStartDate, setSysAbsentStartDate] = useState('');
+  const [allPenalties, setAllPenalties] = useState<CheckIn[]>([]);
+  const [expandedPenaltyUser, setExpandedPenaltyUser] = useState<string | null>(null);
+
   const isAdmin = currentUser.role === 'admin';
   const isViewingSelf = selectedUserId === currentUser.id;
 
@@ -163,9 +165,15 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
         setRatingHistory(rHist);
         const uGoals = await storage.getUserGoals(selectedUserId);
         setDisplayGoals(uGoals);
+        if (isAdmin) {
+            const config = storage.getSystemConfig();
+            setSysAbsentStartDate(config.absentStartDate);
+            const pens = await storage.getAllPenalties();
+            setAllPenalties(pens);
+        }
     };
     loadData();
-  }, [selectedUserId, checkIns]); 
+  }, [selectedUserId, checkIns, isAdmin]); 
 
   const selectedUser = useMemo(() => {
       if (selectedUserId === currentUser.id) return currentUser;
@@ -307,13 +315,30 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   };
 
   const handleSaveDailyGoal = async () => {
-    if (tempDailyGoal <= 0) {
-        onShowToast("目标必须大于0分钟", 'error');
+    // Constraint 1: Time cannot be less than 40 mins
+    if (tempDailyGoal < 40) {
+        onShowToast("每日目标不能少于 40 分钟", 'error');
         return;
     }
-    const updated = { ...currentUser, dailyGoal: tempDailyGoal };
+
+    // Constraint 2: Only editable once per day (unless admin)
+    const todayStr = formatDateKey(new Date());
+    if (currentUser.lastGoalEditDate === todayStr && !isAdmin) {
+        onShowToast("每日目标每天只能修改一次", 'error');
+        return;
+    }
+
+    const updated = { 
+        ...currentUser, 
+        dailyGoal: tempDailyGoal,
+        lastGoalEditDate: todayStr
+    };
+
     try {
-        await storage.adminUpdateUser(currentUser.id, { dailyGoal: tempDailyGoal });
+        await storage.adminUpdateUser(currentUser.id, { 
+            dailyGoal: tempDailyGoal,
+            lastGoalEditDate: todayStr
+        });
         onUpdateUser(updated);
         storage.updateUserLocal(updated);
         setIsEditingDailyGoal(false);
@@ -322,6 +347,54 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
         onShowToast("更新失败", 'error');
     }
   }
+
+  // --- Admin Functions ---
+  const handleSaveSysConfig = () => {
+      storage.setSystemConfig('absentStartDate', sysAbsentStartDate);
+      onShowToast("系统配置已保存", 'success');
+  };
+
+  const handleExemptPenalty = async (id: string, userId: string) => {
+      try {
+          const { ratingDelta } = await storage.exemptPenalty(id);
+          onShowToast(`已豁免，Rating +${ratingDelta}`, 'success');
+          // Refresh local data
+          const pens = await storage.getAllPenalties();
+          setAllPenalties(pens);
+          // Ideally refresh user list too to show new rating
+          storage.getAllUsers().then(setAllUsers);
+      } catch (e) {
+          onShowToast("操作失败", 'error');
+      }
+  };
+
+  const getAdminStats = () => {
+      const todayStr = formatDateKey(new Date());
+      const totalTime = checkIns.reduce((acc, c) => acc + (c.isPenalty ? 0 : (c.duration || 0)), 0);
+      const activeUsers = new Set(checkIns.filter(c => formatDateKey(c.timestamp) === todayStr && !c.isPenalty).map(c => c.userId));
+      const todayActiveCount = activeUsers.size;
+      const totalUsers = allUsers.filter(u => u.role !== 'admin').length;
+      const absentCount = Math.max(0, totalUsers - todayActiveCount);
+      
+      return { totalTime, todayActiveCount, absentCount };
+  };
+
+  const penaltyUsers = useMemo(() => {
+      const userMap: Record<string, { user: User, count: number, records: CheckIn[] }> = {};
+      allPenalties.forEach(p => {
+          if (!userMap[p.userId]) {
+              const u = allUsers.find(x => x.id === p.userId);
+              if (u) {
+                  userMap[p.userId] = { user: u, count: 0, records: [] };
+              }
+          }
+          if (userMap[p.userId]) {
+              userMap[p.userId].count++;
+              userMap[p.userId].records.push(p);
+          }
+      });
+      return Object.values(userMap).sort((a, b) => b.count - a.count);
+  }, [allPenalties, allUsers]);
 
   // --- Please Leave Logic ---
   const handleSubmitLeave = async () => {
@@ -613,36 +686,97 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const ratingColorClass = getUserStyle(selectedUser.role, selectedUser.rating ?? 1200);
   const titleName = getTitleName(selectedUser.role, selectedUser.rating ?? 1200);
 
-  // Month Picker Change Handler
-  const handleCalendarMonthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const val = e.target.value; // YYYY-MM
-      if(val) {
-          const [y, m] = val.split('-');
-          setCurrentMonth(new Date(parseInt(y), parseInt(m)-1, 1));
-      }
-  }
-
+  // --- Admin Dashboard View ---
   if (isAdmin && selectedUserId === currentUser.id) {
         const leaderboardUsers = [...allUsers].sort((a, b) => (b.rating ?? 1200) - (a.rating ?? 1200));
+        const adminStats = getAdminStats();
+
         return (
           <div className="space-y-6 animate-fade-in pb-20">
-               <div className="flex justify-between items-center mb-4">
-                   <h1 className="text-2xl font-bold text-gray-800">管理后台看板</h1>
-                   <div className="relative">
-                       <select 
-                           value={selectedUserId}
-                           onChange={(e) => setSelectedUserId(e.target.value)}
-                           className="appearance-none bg-white border border-gray-200 text-gray-600 py-2 pl-4 pr-10 rounded-full text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer hover:bg-gray-50 transition-colors shadow-sm"
-                       >
-                           {allUsers.map(u => (
-                               <option key={u.id} value={u.id}>
-                                   {u.id === currentUser.id ? '🏆 排行榜 (管理员)' : `👀 ${u.name}`}
-                               </option>
-                           ))}
-                       </select>
-                       <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+               {/* Admin Header & Config */}
+               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+                   <h1 className="text-2xl font-black text-gray-800 flex items-center gap-2">
+                       <Shield className="w-7 h-7 text-indigo-600" /> 管理主页
+                   </h1>
+                   <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-sm">
+                       <CalendarOff className="w-4 h-4 text-red-500" />
+                       <span className="text-xs font-bold text-gray-500">缺勤惩罚生效起始日:</span>
+                       <input 
+                           type="date" 
+                           value={sysAbsentStartDate} 
+                           onChange={e => setSysAbsentStartDate(e.target.value)}
+                           className="text-xs font-bold text-gray-800 outline-none border-b border-dashed border-gray-300 focus:border-indigo-500"
+                       />
+                       <button onClick={handleSaveSysConfig} className="ml-2 text-indigo-600 hover:text-indigo-800"><Save className="w-4 h-4"/></button>
                    </div>
                </div>
+
+               {/* Admin Stats Cards */}
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                   <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
+                       <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">打卡总时长</div>
+                       <div className="text-4xl font-black text-gray-800">{Math.round(adminStats.totalTime / 60)} <span className="text-lg text-gray-400">h</span></div>
+                   </div>
+                   <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
+                       <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">今日打卡人数</div>
+                       <div className="text-4xl font-black text-green-600">{adminStats.todayActiveCount} <span className="text-lg text-gray-400">人</span></div>
+                   </div>
+                   <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
+                       <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">今日缺勤人数</div>
+                       <div className="text-4xl font-black text-red-500">{adminStats.absentCount} <span className="text-lg text-gray-400">人</span></div>
+                   </div>
+               </div>
+
+               {/* Penalty Manager */}
+               <div className="bg-white rounded-[2rem] p-8 border border-gray-100 shadow-sm overflow-hidden">
+                   <h2 className="text-xl font-black text-gray-800 mb-6 flex items-center gap-2">
+                        <AlertCircle className="w-6 h-6 text-orange-500" /> 缺勤/惩罚记录管理
+                   </h2>
+                   <div className="space-y-3">
+                       {penaltyUsers.length === 0 ? (
+                           <div className="text-center text-gray-400 py-8">暂无违规记录，大家都很棒！</div>
+                       ) : (
+                           penaltyUsers.map(record => (
+                               <div key={record.user.id} className="border border-gray-100 rounded-xl overflow-hidden">
+                                   <div 
+                                       className="flex items-center justify-between p-4 bg-gray-50/50 cursor-pointer hover:bg-gray-50 transition-colors"
+                                       onClick={() => setExpandedPenaltyUser(expandedPenaltyUser === record.user.id ? null : record.user.id)}
+                                   >
+                                       <div className="flex items-center gap-3">
+                                           <img src={record.user.avatar} className="w-8 h-8 rounded-full bg-white" />
+                                           <span className="font-bold text-gray-700">{record.user.name}</span>
+                                           <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold">
+                                               {record.count} 次违规
+                                           </span>
+                                       </div>
+                                       <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${expandedPenaltyUser === record.user.id ? 'rotate-180' : ''}`} />
+                                   </div>
+                                   
+                                   {expandedPenaltyUser === record.user.id && (
+                                       <div className="p-4 bg-white border-t border-gray-100 space-y-2">
+                                           {record.records.map(p => (
+                                               <div key={p.id} className="flex justify-between items-start text-xs text-gray-600 p-2 hover:bg-gray-50 rounded-lg group">
+                                                   <div className="flex-1">
+                                                       <div className="font-bold text-red-500 mb-1">{p.content.split('\n')[0].replace(/\*\*/g, '')}</div>
+                                                       <div className="text-gray-400 font-mono">{new Date(p.timestamp).toLocaleString()}</div>
+                                                   </div>
+                                                   <button 
+                                                       onClick={(e) => { e.stopPropagation(); handleExemptPenalty(p.id, record.user.id); }}
+                                                       className="flex items-center gap-1 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded transition-colors font-bold"
+                                                   >
+                                                       <ShieldCheck className="w-3 h-3" /> 豁免
+                                                   </button>
+                                               </div>
+                                           ))}
+                                       </div>
+                                   )}
+                               </div>
+                           ))
+                       )}
+                   </div>
+               </div>
+
+              {/* Leaderboard */}
               <div className="bg-white rounded-[2rem] p-8 border border-gray-100 shadow-sm overflow-hidden">
                   <h2 className="text-2xl font-black text-gray-800 mb-6 flex items-center gap-2">
                       <Trophy className="w-6 h-6 text-yellow-500" /> 全员 Rating 排行榜

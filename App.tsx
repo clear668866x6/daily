@@ -67,10 +67,13 @@ const App: React.FC = () => {
 
       if (user) {
          const freshUser = await storage.getUserById(user.id);
-         if (freshUser && freshUser.rating !== user.rating) {
-             const mergedUser = { ...user, rating: freshUser.rating };
-             setUser(mergedUser);
-             storage.updateUserLocal(mergedUser);
+         if (freshUser) {
+             // Only update if critical fields changed to avoid jitters, but rating is critical
+             if(freshUser.rating !== user.rating || freshUser.dailyGoal !== user.dailyGoal || freshUser.lastGoalEditDate !== user.lastGoalEditDate) {
+                 const mergedUser = { ...user, ...freshUser };
+                 setUser(mergedUser);
+                 storage.updateUserLocal(mergedUser);
+             }
          }
       }
 
@@ -131,6 +134,9 @@ const App: React.FC = () => {
   const checkDailyPenalties = async (currentUser: User) => {
       if (currentUser.role === 'guest') return currentUser;
       
+      const sysConfig = storage.getSystemConfig();
+      const startDateLimit = sysConfig.absentStartDate ? new Date(sysConfig.absentStartDate).getTime() : 0;
+
       const lastCheckedDate = localStorage.getItem(`last_penalty_check_${currentUser.id}`);
       const now = new Date();
       const todayBusinessDate = getBusinessDate(now);
@@ -162,6 +168,15 @@ const App: React.FC = () => {
       // We do NOT check today because the day is not over.
       while (getBusinessDate(dateIterator) < todayBusinessDate) {
           const checkDateStr = getBusinessDate(dateIterator);
+          
+          // Check if this date is before the system configured start date
+          const currentDateMillis = new Date(checkDateStr).getTime();
+          if (currentDateMillis < startDateLimit) {
+              localStorage.setItem(`last_penalty_check_${currentUser.id}`, checkDateStr);
+              dateIterator.setDate(dateIterator.getDate() + 1);
+              continue;
+          }
+
           console.log(`Checking penalties for: ${checkDateStr}`);
 
           // 1. Check Leave Exemptions

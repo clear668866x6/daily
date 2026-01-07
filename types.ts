@@ -22,6 +22,7 @@ export interface User {
   password?: string;
   rating?: number; 
   dailyGoal?: number; // Target study minutes (default 90)
+  lastGoalEditDate?: string; // Date string YYYY-MM-DD
 }
 
 export type LeaveStatus = 'pending' | 'approved' | 'rejected';
