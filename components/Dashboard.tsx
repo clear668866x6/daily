@@ -2,8 +2,8 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { CheckIn, User, Goal, SubjectCategory, RatingHistory, getUserStyle, getTitleName } from '../types';
 import * as storage from '../services/storageService';
-import { AreaChart, Area, XAxis, Tooltip, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Trophy, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, ChevronDown, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Flag, Activity, Maximize2, Filter, X, Grid3X3, Medal, Coffee, Save, Shield, CalendarOff, UserPlus, Search, MoreHorizontal, LogOut, CheckCircle2, ChevronUp, ShieldCheck, KeyRound } from 'lucide-react';
+import { AreaChart, Area, XAxis, Tooltip, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, Legend, YAxis } from 'recharts';
+import { Trophy, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, ChevronDown, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Flag, Activity, Maximize2, Filter, X, Grid3X3, Medal, Coffee, Save, Shield, CalendarOff, UserPlus, Search, MoreHorizontal, LogOut, CheckCircle2, ChevronUp, ShieldCheck, KeyRound, Users, BarChart3, PieChart as PieChartIcon } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { ToastType } from './Toast';
 import { FullScreenEditor } from './FullScreenEditor';
@@ -22,7 +22,7 @@ interface Props {
   onNavigateToUser?: (userId: string) => void; // New prop for admin nav
 }
 
-const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1'];
+const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
 
 const SUBJECT_WEIGHTS: Record<string, number> = {
     [SubjectCategory.MATH]: 1.2,
@@ -211,7 +211,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
         if (isAdmin) {
             const config = storage.getSystemConfig();
             setSysAbsentStartDate(config.absentStartDate);
-            // Fetch all penalties initially or when needed? Fetch all is better for aggregate stats
             const pens = await storage.getAllPenalties();
             setAllPenalties(pens);
         }
@@ -467,15 +466,57 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       }
   };
 
-  const getOverallStats = () => {
+  const getAdminStats = () => {
       const todayStr = formatDateKey(new Date());
+      
+      // Basic Stats
       const totalDuration = checkIns.reduce((acc, c) => acc + (c.isPenalty ? 0 : (c.duration || 0)), 0);
       const activeUsersToday = new Set(checkIns.filter(c => formatDateKey(c.timestamp) === todayStr && !c.isPenalty).map(c => c.userId)).size;
       const totalUsers = allUsers.filter(u => u.role !== 'admin').length;
       const absentUsersToday = Math.max(0, totalUsers - activeUsersToday);
       const totalPenalties = checkIns.filter(c => c.isPenalty).length;
+      
+      // Calculate Average Rating
+      const totalRating = allUsers.filter(u => u.role !== 'admin').reduce((acc, u) => acc + (u.rating || 1200), 0);
+      const avgRating = totalUsers > 0 ? Math.round(totalRating / totalUsers) : 1200;
 
-      return { totalDuration, activeUsersToday, absentUsersToday, totalPenalties };
+      // Calculate Pending Leaves
+      const pendingLeaves = checkIns.filter(c => c.isLeave && c.leaveStatus === 'pending').length;
+
+      // Subject Distribution Data
+      const subjectMap: Record<string, number> = {};
+      const subjectCheckIns = checkIns.filter(c => !c.isPenalty && !c.isLeave);
+      subjectCheckIns.forEach(c => {
+          subjectMap[c.subject] = (subjectMap[c.subject] || 0) + (c.duration || 0);
+      });
+      const subjectData = Object.entries(subjectMap)
+          .map(([name, value]) => ({ name, value: Math.round(value/60) }))
+          .sort((a,b) => b.value - a.value)
+          .slice(0, 6); // Top 6
+
+      // Activity Trend (Last 7 Days)
+      const trendMap: Record<string, number> = {};
+      const dates = [];
+      for(let i=6; i>=0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const k = formatDateKey(d);
+          trendMap[k] = 0;
+          dates.push(k);
+      }
+      checkIns.forEach(c => {
+          if (c.isPenalty || c.isLeave) return;
+          const k = formatDateKey(c.timestamp);
+          if (trendMap[k] !== undefined) {
+              trendMap[k] += (c.duration || 0);
+          }
+      });
+      const trendData = dates.map(date => ({
+          date: date.slice(5).replace('-', '/'),
+          hours: Math.round(trendMap[date] / 60)
+      }));
+
+      return { totalDuration, activeUsersToday, absentUsersToday, totalPenalties, avgRating, pendingLeaves, subjectData, trendData };
   };
 
   // --- Please Leave Logic ---
@@ -772,7 +813,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   // --- Admin Dashboard View ---
   if (isAdmin) {
         const usersList = allUsers.filter(u => u.role !== 'admin'); // Hide other admins from list
-        const overallStats = getOverallStats();
+        const adminStats = getAdminStats();
 
         return (
           <div className="space-y-6 animate-fade-in pb-20">
@@ -795,22 +836,79 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                </div>
 
                {/* Admin Stats Cards */}
-               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                   <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-                       <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">打卡总时长</div>
-                       <div className="text-3xl font-black text-gray-800">{Math.round(overallStats.totalDuration / 60)} <span className="text-lg text-gray-400">h</span></div>
+               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                   <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+                       <div className="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">打卡总时长</div>
+                       <div className="text-xl font-black text-gray-800">{Math.round(adminStats.totalDuration / 60)} <span className="text-xs font-medium text-gray-400">h</span></div>
                    </div>
-                   <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-                       <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">今日打卡</div>
-                       <div className="text-3xl font-black text-green-600">{overallStats.activeUsersToday} <span className="text-lg text-gray-400">人</span></div>
+                   <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+                       <div className="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">今日打卡</div>
+                       <div className="text-xl font-black text-green-600">{adminStats.activeUsersToday} <span className="text-xs font-medium text-gray-400">人</span></div>
                    </div>
-                   <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-                       <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">今日缺勤</div>
-                       <div className="text-3xl font-black text-red-500">{overallStats.absentUsersToday} <span className="text-lg text-gray-400">人</span></div>
+                   <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+                       <div className="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">今日缺勤</div>
+                       <div className="text-xl font-black text-red-500">{adminStats.absentUsersToday} <span className="text-xs font-medium text-gray-400">人</span></div>
                    </div>
-                   <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-                       <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">累计违规</div>
-                       <div className="text-3xl font-black text-orange-500">{overallStats.totalPenalties} <span className="text-lg text-gray-400">次</span></div>
+                   <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+                       <div className="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">累计违规</div>
+                       <div className="text-xl font-black text-orange-500">{adminStats.totalPenalties} <span className="text-xs font-medium text-gray-400">次</span></div>
+                   </div>
+                   <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+                       <div className="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">待审批请假</div>
+                       <div className={`text-xl font-black ${adminStats.pendingLeaves > 0 ? 'text-blue-600' : 'text-gray-400'}`}>{adminStats.pendingLeaves} <span className="text-xs font-medium text-gray-400">条</span></div>
+                   </div>
+                   <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+                       <div className="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">平均 Rating</div>
+                       <div className="text-xl font-black text-indigo-600">{adminStats.avgRating}</div>
+                   </div>
+               </div>
+
+               {/* Visual Analytics Charts */}
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                   {/* Subject Distribution */}
+                   <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm flex flex-col">
+                       <h3 className="font-bold text-gray-700 flex items-center gap-2 mb-4">
+                           <PieChartIcon className="w-5 h-5 text-indigo-500" /> 全站学习科目分布
+                       </h3>
+                       <div className="flex-1 h-64 w-full">
+                           <ResponsiveContainer width="100%" height="100%">
+                               <PieChart>
+                                   <Pie
+                                       data={adminStats.subjectData}
+                                       cx="50%"
+                                       cy="50%"
+                                       innerRadius={60}
+                                       outerRadius={80}
+                                       paddingAngle={5}
+                                       dataKey="value"
+                                   >
+                                       {adminStats.subjectData.map((entry, index) => (
+                                           <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                       ))}
+                                   </Pie>
+                                   <Tooltip contentStyle={{borderRadius: '12px'}} itemStyle={{fontSize:'12px', fontWeight:'bold'}} />
+                                   <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{fontSize: '10px'}}/>
+                               </PieChart>
+                           </ResponsiveContainer>
+                       </div>
+                   </div>
+
+                   {/* Activity Trend */}
+                   <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm flex flex-col">
+                       <h3 className="font-bold text-gray-700 flex items-center gap-2 mb-4">
+                           <BarChart3 className="w-5 h-5 text-green-500" /> 近 7 日学习时长趋势 (小时)
+                       </h3>
+                       <div className="flex-1 h-64 w-full">
+                           <ResponsiveContainer width="100%" height="100%">
+                               <BarChart data={adminStats.trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                                   <XAxis dataKey="date" tick={{fontSize: 10, fill: '#9ca3af'}} axisLine={false} tickLine={false} />
+                                   <YAxis tick={{fontSize: 10, fill: '#9ca3af'}} axisLine={false} tickLine={false} />
+                                   <Tooltip cursor={{fill: '#f9fafb'}} contentStyle={{borderRadius: '12px'}} />
+                                   <Bar dataKey="hours" name="总时长" fill="#3B82F6" radius={[4, 4, 0, 0]} barSize={20} />
+                               </BarChart>
+                           </ResponsiveContainer>
+                       </div>
                    </div>
                </div>
 
@@ -861,7 +959,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                                                             title="点击访问个人主页"
                                                        />
                                                        <div>
-                                                           <div className="font-bold text-gray-800">{u.name}</div>
+                                                           <div className={`font-bold text-sm ${getUserStyle(u.role, u.rating)}`}>{u.name}</div>
                                                            <div className="text-[10px] text-gray-400 font-mono">ID: {u.id.substring(0,6)}</div>
                                                        </div>
                                                    </div>
