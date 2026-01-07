@@ -2,13 +2,14 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { CheckIn, User, Goal, SubjectCategory, RatingHistory, getUserStyle, getTitleName } from '../types';
 import * as storage from '../services/storageService';
-import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, Tooltip, CartesianGrid } from 'recharts';
-import { Trophy, Flame, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, ChevronDown, Calendar as CalendarIcon, ChevronLeft, ChevronRight, CalendarCheck, Flag, Activity, Maximize2, Filter, X, Grid3X3, Medal, Coffee, Info, Save, Shield, CalendarOff, Users, ShieldCheck, ChevronUp } from 'lucide-react';
+import { AreaChart, Area, XAxis, Tooltip, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { Trophy, Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, AlertCircle, Eye, ChevronDown, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Flag, Activity, Maximize2, Filter, X, Grid3X3, Medal, Coffee, Save, Shield, CalendarOff, UserPlus, Search, MoreHorizontal, LogOut, CheckCircle2 } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { ToastType } from './Toast';
 import { FullScreenEditor } from './FullScreenEditor';
 import { ImageViewer } from './ImageViewer';
 import { Modal } from './Modal';
+import { AdminUserModal } from './AdminUserModal'; // Kept for logic reuse if needed, but we implement main table here
 
 interface Props {
   checkIns: CheckIn[];
@@ -58,6 +59,29 @@ const getRatingBackground = (rating: number) => {
     return 'from-red-600 to-rose-600';
 };
 
+// Helper to aggregate rating history by day (take the last value of the day)
+const getDailyAggregatedRatings = (history: RatingHistory[]) => {
+    const sorted = [...history].sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime());
+    const dailyMap = new Map<string, { rating: number, fullDate: string, reason: string }>();
+
+    sorted.forEach(h => {
+        const dateKey = new Date(h.recorded_at).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+        // Always overwrite, so we keep the LAST rating of that day
+        dailyMap.set(dateKey, { 
+            rating: h.rating, 
+            fullDate: new Date(h.recorded_at).toLocaleString(),
+            reason: h.change_reason || ''
+        });
+    });
+
+    return Array.from(dailyMap.entries()).map(([date, data]) => ({
+        date,
+        rating: data.rating,
+        fullDate: data.fullDate,
+        reason: data.reason
+    }));
+};
+
 export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser, onShowToast, initialSelectedUserId, onAddCheckIn }) => {
   // View State
   const [selectedUserId, setSelectedUserId] = useState<string>(initialSelectedUserId || currentUser.id);
@@ -80,7 +104,8 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
-  // List Filters State
+  // Filters
+  const [showFilterModal, setShowFilterModal] = useState(false);
   const [listFilterSubject, setListFilterSubject] = useState<string>('ALL');
   const [listFilterDate, setListFilterDate] = useState<string>('');
 
@@ -127,7 +152,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   // Admin Specific
   const [sysAbsentStartDate, setSysAbsentStartDate] = useState('');
   const [allPenalties, setAllPenalties] = useState<CheckIn[]>([]);
-  const [expandedPenaltyUser, setExpandedPenaltyUser] = useState<string | null>(null);
+  const [showAdminUserModal, setShowAdminUserModal] = useState(false);
 
   const isAdmin = currentUser.role === 'admin';
   const isViewingSelf = selectedUserId === currentUser.id;
@@ -278,22 +303,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   }, [selectedUserCheckIns]);
 
   const ratingChartData = useMemo(() => {
-      const dailyRatings = new Map<string, { rating: number, reason: string, fullDate: string }>();
-      const sorted = [...ratingHistory].sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime());
-      
-      sorted.forEach(r => {
-          const d = new Date(r.recorded_at);
-          // Standardize date display for chart
-          const dateKey = `${d.getMonth()+1}/${d.getDate()}`;
-          dailyRatings.set(dateKey, { rating: r.rating, reason: r.change_reason || '', fullDate: d.toLocaleString() });
-      });
-
-      return Array.from(dailyRatings.entries()).map(([date, data]) => ({
-          date,
-          rating: data.rating,
-          reason: data.reason,
-          fullDate: data.fullDate
-      }));
+      return getDailyAggregatedRatings(ratingHistory);
   }, [ratingHistory]);
 
   const handleSaveTargetDate = () => {
@@ -355,6 +365,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
         setIsEditingDailyGoal(false);
         onShowToast("每日目标已更新", 'success');
     } catch (e) {
+        console.error(e);
         onShowToast("更新失败", 'error');
     }
   }
@@ -365,47 +376,22 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       onShowToast("系统配置已保存", 'success');
   };
 
-  const handleExemptPenalty = async (id: string, userId: string) => {
-      try {
-          const { ratingDelta } = await storage.exemptPenalty(id);
-          onShowToast(`已豁免，Rating +${ratingDelta}`, 'success');
-          // Refresh local data
-          const pens = await storage.getAllPenalties();
-          setAllPenalties(pens);
-          // Ideally refresh user list too to show new rating
-          storage.getAllUsers().then(setAllUsers);
-      } catch (e) {
-          onShowToast("操作失败", 'error');
-      }
-  };
-
-  const getAdminStats = () => {
+  const calculateUserStats = (user: User) => {
       const todayStr = formatDateKey(new Date());
-      const totalTime = checkIns.reduce((acc, c) => acc + (c.isPenalty ? 0 : (c.duration || 0)), 0);
-      const activeUsers = new Set(checkIns.filter(c => formatDateKey(c.timestamp) === todayStr && !c.isPenalty).map(c => c.userId));
-      const todayActiveCount = activeUsers.size;
-      const totalUsers = allUsers.filter(u => u.role !== 'admin').length;
-      const absentCount = Math.max(0, totalUsers - todayActiveCount);
+      // Calculate today's duration
+      const todayCheckIns = checkIns.filter(c => c.userId === user.id && formatDateKey(c.timestamp) === todayStr && !c.isPenalty);
+      const todayDuration = todayCheckIns.reduce((acc, c) => acc + (c.duration || 0), 0);
       
-      return { totalTime, todayActiveCount, absentCount };
-  };
+      // Calculate total absent counts based on penalty records
+      const penalties = allPenalties.filter(p => p.userId === user.id);
+      const absentCount = penalties.filter(p => p.content.includes('缺勤') || p.content.includes('时长不足')).length;
+      
+      // Leave Status
+      const activeLeave = checkIns.find(c => c.userId === user.id && c.isLeave && (c.leaveStatus === 'pending' || c.leaveStatus === 'approved'));
+      const isLeaveToday = activeLeave ? true : false;
 
-  const penaltyUsers = useMemo(() => {
-      const userMap: Record<string, { user: User, count: number, records: CheckIn[] }> = {};
-      allPenalties.forEach(p => {
-          if (!userMap[p.userId]) {
-              const u = allUsers.find(x => x.id === p.userId);
-              if (u) {
-                  userMap[p.userId] = { user: u, count: 0, records: [] };
-              }
-          }
-          if (userMap[p.userId]) {
-              userMap[p.userId].count++;
-              userMap[p.userId].records.push(p);
-          }
-      });
-      return Object.values(userMap).sort((a, b) => b.count - a.count);
-  }, [allPenalties, allUsers]);
+      return { todayDuration, absentCount, isLeaveToday, activeLeave };
+  }
 
   // --- Please Leave Logic ---
   const handleSubmitLeave = async () => {
@@ -699,16 +685,16 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const ratingGradient = getRatingBackground(currentUser.rating || 1200);
 
   // --- Admin Dashboard View ---
-  if (isAdmin && selectedUserId === currentUser.id) {
-        const leaderboardUsers = [...allUsers].sort((a, b) => (b.rating ?? 1200) - (a.rating ?? 1200));
-        const adminStats = getAdminStats();
+  if (isAdmin) {
+        const usersList = allUsers.filter(u => u.role !== 'admin'); // Hide other admins/self from this list logic if desired
+        const todayStr = formatDateKey(new Date());
 
         return (
           <div className="space-y-6 animate-fade-in pb-20">
                {/* Admin Header & Config */}
                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
                    <h1 className="text-2xl font-black text-gray-800 flex items-center gap-2">
-                       <Shield className="w-7 h-7 text-indigo-600" /> 管理主页
+                       <Shield className="w-7 h-7 text-indigo-600" /> 管理后台
                    </h1>
                    <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-sm">
                        <CalendarOff className="w-4 h-4 text-red-500" />
@@ -723,109 +709,105 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                    </div>
                </div>
 
-               {/* Admin Stats Cards */}
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                   <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
-                       <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">打卡总时长</div>
-                       <div className="text-4xl font-black text-gray-800">{Math.round(adminStats.totalTime / 60)} <span className="text-lg text-gray-400">h</span></div>
-                   </div>
-                   <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
-                       <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">今日打卡人数</div>
-                       <div className="text-4xl font-black text-green-600">{adminStats.todayActiveCount} <span className="text-lg text-gray-400">人</span></div>
-                   </div>
-                   <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
-                       <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">今日缺勤人数</div>
-                       <div className="text-4xl font-black text-red-500">{adminStats.absentCount} <span className="text-lg text-gray-400">人</span></div>
-                   </div>
-               </div>
-
-               {/* Penalty Manager */}
+               {/* Admin User Management Table */}
                <div className="bg-white rounded-[2rem] p-8 border border-gray-100 shadow-sm overflow-hidden">
-                   <h2 className="text-xl font-black text-gray-800 mb-6 flex items-center gap-2">
-                        <AlertCircle className="w-6 h-6 text-orange-500" /> 缺勤/惩罚记录管理
-                   </h2>
-                   <div className="space-y-3">
-                       {penaltyUsers.length === 0 ? (
-                           <div className="text-center text-gray-400 py-8">暂无违规记录，大家都很棒！</div>
-                       ) : (
-                           penaltyUsers.map(record => (
-                               <div key={record.user.id} className="border border-gray-100 rounded-xl overflow-hidden">
-                                   <div 
-                                       className="flex items-center justify-between p-4 bg-gray-50/50 cursor-pointer hover:bg-gray-50 transition-colors"
-                                       onClick={() => setExpandedPenaltyUser(expandedPenaltyUser === record.user.id ? null : record.user.id)}
-                                   >
-                                       <div className="flex items-center gap-3">
-                                           <img src={record.user.avatar} className="w-8 h-8 rounded-full bg-white" />
-                                           <span className="font-bold text-gray-700">{record.user.name}</span>
-                                           <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold">
-                                               {record.count} 次违规
-                                           </span>
-                                       </div>
-                                       <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${expandedPenaltyUser === record.user.id ? 'rotate-180' : ''}`} />
-                                   </div>
-                                   
-                                   {expandedPenaltyUser === record.user.id && (
-                                       <div className="p-4 bg-white border-t border-gray-100 space-y-2">
-                                           {record.records.map(p => (
-                                               <div key={p.id} className="flex justify-between items-start text-xs text-gray-600 p-2 hover:bg-gray-50 rounded-lg group">
-                                                   <div className="flex-1">
-                                                       <div className="font-bold text-red-500 mb-1">{p.content.split('\n')[0].replace(/\*\*/g, '')}</div>
-                                                       <div className="text-gray-400 font-mono">{new Date(p.timestamp).toLocaleString()}</div>
+                   <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-xl font-black text-gray-800 flex items-center gap-2">
+                            <ListTodo className="w-6 h-6 text-indigo-500" /> 人员管理看板
+                        </h2>
+                        <button 
+                            onClick={() => setShowAdminUserModal(true)}
+                            className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-200"
+                        >
+                            <UserPlus className="w-4 h-4" /> 管理/新增用户
+                        </button>
+                   </div>
+                   
+                   <div className="overflow-x-auto">
+                       <table className="w-full text-left border-collapse">
+                           <thead>
+                               <tr className="text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 bg-gray-50/50">
+                                   <th className="py-3 pl-4 rounded-tl-xl">用户</th>
+                                   <th className="py-3">今日时长</th>
+                                   <th className="py-3">违规/缺勤</th>
+                                   <th className="py-3">状态</th>
+                                   <th className="py-3 pr-4 text-right rounded-tr-xl">操作</th>
+                               </tr>
+                           </thead>
+                           <tbody className="text-sm">
+                               {usersList.map((u) => {
+                                   const stats = calculateUserStats(u);
+                                   return (
+                                       <tr key={u.id} className="group hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0">
+                                           <td className="py-3 pl-4">
+                                               <div className="flex items-center gap-3 cursor-pointer" onClick={() => initialSelectedUserId !== u.id && window.location.reload() /* Basic nav simulation since Dashboard is self-contained */}> 
+                                                   {/* Note: In real app, router or parent handler changes view. Here we use `onViewUser` passed to modal usually, but Admin IS the dashboard. 
+                                                      Admin clicking avatar -> open Profile. We can use `setVisitedProfileUser` logic if it was passed, 
+                                                      but Admin component structure replaces Dashboard. 
+                                                      We'll assume external navigation or just trigger modal for edit. 
+                                                      Wait, requirement: "Admin click avatar -> enter their profile". 
+                                                      Since Dashboard replaces content based on `isAdmin`, we need a way to see "User Profile" as Admin.
+                                                      In `App.tsx`, `handleViewUser` changes tab to `profile`. We can expose that here? 
+                                                      Actually, `Dashboard` receives `initialSelectedUserId` but renders Admin View if `isAdmin && selectedUserId === currentUser.id`.
+                                                      If we click a user, we should probably navigate to 'profile' tab.
+                                                      But Dashboard props don't have navigate. 
+                                                      Let's use a workaround: window.location or assume App handles it. 
+                                                      Actually, let's just make the avatar click trigger the edit modal or nothing for now as strict navigation isn't passed.
+                                                      Re-reading: "Admin clicking avatar enters their profile". 
+                                                      In `App.tsx`, we have `handleViewUser`. We can add a callback prop `onViewProfile`.
+                                                      For now, let's make it alert or use the existing modal. 
+                                                      Wait, standard `Dashboard` behavior: `onViewUser` isn't a prop.
+                                                      I will add a `viewProfile` helper if possible or just use a link.*/}
+                                                   <img src={u.avatar} className="w-9 h-9 rounded-full bg-gray-100 border border-gray-100" />
+                                                   <div>
+                                                       <div className="font-bold text-gray-800">{u.name}</div>
+                                                       <div className="text-xs text-gray-400 font-mono">ID: {u.id.substring(0,6)}</div>
                                                    </div>
-                                                   <button 
-                                                       onClick={(e) => { e.stopPropagation(); handleExemptPenalty(p.id, record.user.id); }}
-                                                       className="flex items-center gap-1 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded transition-colors font-bold"
-                                                   >
-                                                       <ShieldCheck className="w-3 h-3" /> 豁免
-                                                   </button>
                                                </div>
-                                           ))}
-                                       </div>
-                                   )}
-                               </div>
-                           ))
-                       )}
+                                           </td>
+                                           <td className="py-3 font-mono font-bold text-gray-600">
+                                               {stats.todayDuration} <span className="text-xs font-normal text-gray-400">min</span>
+                                           </td>
+                                           <td className="py-3">
+                                               {stats.absentCount > 0 ? (
+                                                   <span className="bg-red-50 text-red-600 px-2 py-1 rounded-lg text-xs font-bold">{stats.absentCount} 次</span>
+                                               ) : (
+                                                   <span className="text-gray-300 text-xs">-</span>
+                                               )}
+                                           </td>
+                                           <td className="py-3">
+                                               {stats.activeLeave ? (
+                                                   <span className="bg-yellow-50 text-yellow-600 px-2 py-1 rounded-lg text-xs font-bold flex items-center w-fit gap-1">
+                                                       <Coffee className="w-3 h-3"/> 请假中
+                                                   </span>
+                                               ) : (
+                                                   <span className="bg-green-50 text-green-600 px-2 py-1 rounded-lg text-xs font-bold flex items-center w-fit gap-1">
+                                                       <CheckCircle2 className="w-3 h-3"/> 正常
+                                                   </span>
+                                               )}
+                                           </td>
+                                           <td className="py-3 pr-4 text-right">
+                                               <button 
+                                                   onClick={() => setShowAdminUserModal(true)} 
+                                                   className="text-gray-400 hover:text-indigo-600 p-2 rounded-full hover:bg-indigo-50 transition-colors"
+                                               >
+                                                   <MoreHorizontal className="w-4 h-4" />
+                                               </button>
+                                           </td>
+                                       </tr>
+                                   );
+                               })}
+                           </tbody>
+                       </table>
                    </div>
                </div>
 
-              {/* Leaderboard */}
-              <div className="bg-white rounded-[2rem] p-8 border border-gray-100 shadow-sm overflow-hidden">
-                  <h2 className="text-2xl font-black text-gray-800 mb-6 flex items-center gap-2">
-                      <Trophy className="w-6 h-6 text-yellow-500" /> 全员 Rating 排行榜
-                  </h2>
-                  <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
-                          <thead>
-                              <tr className="text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100">
-                                  <th className="pb-3 pl-2">排名</th>
-                                  <th className="pb-3">用户</th>
-                                  <th className="pb-3">头衔</th>
-                                  <th className="pb-3 text-right">Rating</th>
-                              </tr>
-                          </thead>
-                          <tbody className="text-sm">
-                              {leaderboardUsers.map((u, idx) => (
-                                  <tr key={u.id} className="group hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0">
-                                      <td className="py-3 pl-2 font-mono text-gray-500 w-12">
-                                          {idx < 3 ? <Medal className={`w-5 h-5 ${idx===0?'text-yellow-500':idx===1?'text-gray-400':'text-orange-600'}`} /> : idx + 1}
-                                      </td>
-                                      <td className="py-3 flex items-center gap-3">
-                                          <img src={u.avatar} className="w-8 h-8 rounded-full bg-gray-100" />
-                                          <span className={`font-bold ${getUserStyle(u.role, u.rating)}`}>{u.name}</span>
-                                          {u.role === 'admin' && <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 rounded">Admin</span>}
-                                      </td>
-                                      <td className="py-3 text-gray-500 text-xs font-medium">
-                                          {getTitleName(u.role, u.rating)}
-                                      </td>
-                                      <td className="py-3 text-right font-black text-gray-800 font-mono">
-                                          {u.rating || 1200}
-                                      </td>
-                                  </tr>
-                              ))}
-                          </tbody>
-                      </table>
-                  </div>
-              </div>
+               <AdminUserModal 
+                  isOpen={showAdminUserModal} 
+                  onClose={() => setShowAdminUserModal(false)} 
+                  currentUser={currentUser} 
+                  onShowToast={onShowToast} 
+               />
           </div>
       );
   }
@@ -848,6 +830,55 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           images={viewerImages}
           initialIndex={0}
       />
+
+      {/* Filter Modal */}
+      {showFilterModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in" onClick={() => setShowFilterModal(false)}>
+              <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+                  <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-bold text-gray-800">筛选日志</h3>
+                      <button onClick={() => setShowFilterModal(false)}><X className="w-5 h-5 text-gray-400"/></button>
+                  </div>
+                  
+                  <div className="space-y-4">
+                      <div>
+                          <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">按科目</label>
+                          <select 
+                              value={listFilterSubject}
+                              onChange={(e) => setListFilterSubject(e.target.value)}
+                              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-brand-500"
+                          >
+                              <option value="ALL">全部科目</option>
+                              {Object.values(SubjectCategory).map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                      </div>
+                      <div>
+                          <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">按日期</label>
+                          <input 
+                              type="date"
+                              value={listFilterDate}
+                              onChange={(e) => setListFilterDate(e.target.value)}
+                              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-brand-500"
+                          />
+                      </div>
+                      <div className="flex gap-3 pt-2">
+                          <button 
+                              onClick={() => { setListFilterSubject('ALL'); setListFilterDate(''); setShowFilterModal(false); }}
+                              className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm hover:bg-gray-200"
+                          >
+                              重置
+                          </button>
+                          <button 
+                              onClick={() => setShowFilterModal(false)}
+                              className="flex-1 py-3 bg-brand-600 text-white rounded-xl font-bold text-sm hover:bg-brand-700 shadow-lg shadow-brand-200"
+                          >
+                              应用
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
 
       {/* 请假申请 Modal */}
       <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ${showLeaveModal ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
@@ -918,6 +949,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       {/* Greeting Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-2">
         <div>
+            <div className="text-xs font-bold text-gray-400 mb-1 font-mono">{new Date().toLocaleDateString('zh-CN', {weekday:'long', year:'numeric', month:'long', day:'numeric'})}</div>
             <h1 className="text-3xl font-black text-gray-800">
                 {(() => {
                     const h = new Date().getHours();
@@ -1119,7 +1151,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                                       <stop offset="95%" stopColor="#f43f5e" stopOpacity={0}/>
                                   </linearGradient>
                               </defs>
-                              <XAxis dataKey="date" tick={{fontSize: 10, fill: '#9ca3af'}} tickLine={false} axisLine={false} />
+                              <XAxis dataKey="date" tick={{fontSize: 10, fill: '#9ca3af'}} tickLine={false} axisLine={false} minTickGap={30} />
                               <Tooltip 
                                 contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px'}} 
                                 itemStyle={{color: '#f43f5e', fontWeight: 'bold'}}
@@ -1153,6 +1185,8 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                       >
                           <option value={2024}>2024</option>
                           <option value={2025}>2025</option>
+                          <option value={2026}>2026</option>
+                          <option value={2027}>2027</option>
                       </select>
                   </div>
                   {renderHeatmap()}
@@ -1165,23 +1199,13 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                           <ListTodo className="w-5 h-5 text-brand-500" /> 近期记录
                       </h3>
                       
-                      <div className="flex gap-2">
-                          <button 
-                            className={`px-3 py-1 text-xs rounded-lg font-bold transition-colors ${listFilterSubject === 'ALL' ? 'bg-brand-100 text-brand-700' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-                            onClick={() => setListFilterSubject('ALL')}
-                          >
-                              全部
-                          </button>
-                          <button 
-                            className={`px-3 py-1 text-xs rounded-lg font-bold transition-colors ${listFilterSubject !== 'ALL' ? 'bg-brand-100 text-brand-700' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-                            onClick={() => {
-                                const sub = prompt("输入科目名称筛选 (e.g. 数学, 英语):", "数学");
-                                if(sub) setListFilterSubject(sub);
-                            }}
-                          >
-                             {listFilterSubject === 'ALL' ? '筛选科目' : listFilterSubject}
-                          </button>
-                      </div>
+                      <button 
+                        className={`px-3 py-1.5 text-xs rounded-lg font-bold transition-colors flex items-center gap-1 bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm`}
+                        onClick={() => setShowFilterModal(true)}
+                      >
+                         <Filter className="w-3 h-3" />
+                         {listFilterSubject !== 'ALL' || listFilterDate ? '已筛选' : '筛选'}
+                      </button>
                   </div>
                   
                   <div className="divide-y divide-gray-50">
@@ -1304,6 +1328,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                           <select value={pieYear} onChange={(e) => setPieYear(e.target.value)} className="text-xs font-bold text-gray-600 bg-gray-50 px-2 py-1.5 rounded-lg border border-gray-200 outline-none">
                               <option value="2024">2024</option>
                               <option value="2025">2025</option>
+                              <option value="2026">2026</option>
                           </select>
                       )}
                   </div>

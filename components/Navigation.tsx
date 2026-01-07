@@ -15,16 +15,18 @@ export const Navigation: React.FC<Props> = ({ activeTab, onTabChange, onLogout, 
   // Default to collapsed
   const [isCollapsed, setIsCollapsed] = useState(true);
 
+  const isAdmin = currentUser?.role === 'admin';
+
   const navItems = [
-    { id: 'dashboard', label: '打卡首页', icon: LayoutDashboard }, 
-    { id: 'profile', label: '我的主页', icon: UserCircle }, 
+    { id: 'dashboard', label: isAdmin ? '管理后台' : '打卡首页', icon: isAdmin ? Shield : LayoutDashboard }, 
+    { id: 'profile', label: '我的主页', icon: UserCircle, hidden: isAdmin }, 
     { id: 'feed', label: '研友圈', icon: Users },
     { id: 'algorithm', label: '算法训练', icon: Cpu },
     { id: 'english', label: 'AI英语', icon: BookOpen },
     { id: 'achievements', label: '成就历史', icon: Award }, 
     { id: 'pk', label: 'PK竞技', icon: Swords }, 
     { id: 'about', label: '关于', icon: Info },
-  ];
+  ].filter(item => !item.hidden);
 
   return (
     <div 
@@ -91,23 +93,13 @@ export const Navigation: React.FC<Props> = ({ activeTab, onTabChange, onLogout, 
                 {!isCollapsed && (
                     <div className="overflow-hidden">
                         <div className={`text-sm font-bold truncate ${getUserStyle(currentUser.role, currentUser.rating)}`}>{currentUser.name}</div>
-                        <div className="text-xs text-gray-400 truncate">Rating: {currentUser.rating || 1200}</div>
+                        {!isAdmin && <div className="text-xs text-gray-400 truncate">Rating: {currentUser.rating || 1200}</div>}
                     </div>
                 )}
             </div>
         )}
         
         <div className={`flex gap-2 ${isCollapsed ? 'flex-col items-center' : ''}`}>
-             {currentUser?.role === 'admin' && (
-                <button 
-                    onClick={onOpenAdmin}
-                    className={`flex items-center justify-center p-2 rounded-lg text-indigo-600 hover:bg-indigo-50 transition-colors flex-1 border border-indigo-100 ${isCollapsed ? 'w-full' : ''}`}
-                    title="管理后台"
-                >
-                    <Shield className="w-5 h-5" />
-                    {!isCollapsed && <span className="ml-2 text-xs font-bold">后台</span>}
-                </button>
-             )}
             <button 
                 onClick={onLogout}
                 className={`flex items-center justify-center p-2 rounded-lg text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors flex-1 border border-transparent hover:border-red-100 ${isCollapsed ? 'w-full' : ''}`}

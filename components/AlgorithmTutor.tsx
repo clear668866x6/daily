@@ -19,7 +19,9 @@ const LANGUAGES = {
     'java': { name: 'Java 11', template: '// Write your Java solution here\nimport java.util.*;\n\nclass Solution {\n    public void solve() {\n        \n    }\n}' },
     'python': { name: 'Python 3', template: '# Write your Python solution here\n\nclass Solution:\n    def solve(self):\n        pass' },
     'javascript': { name: 'JavaScript', template: '// Write your JavaScript solution here\n\n/**\n * @param {number[]} nums\n * @return {number}\n */\nvar solve = function(nums) {\n    \n};' }
-};
+} as const;
+
+type LanguageKey = keyof typeof LANGUAGES;
 
 // --- Improved Syntax Highlighter ---
 const highlightCode = (code: string) => {
@@ -74,7 +76,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   
   // Language & Code State
-  const [language, setLanguage] = useState<keyof typeof LANGUAGES>('cpp');
+  const [language, setLanguage] = useState<LanguageKey>('cpp');
   const [code, setCode] = useState(''); 
 
   const [isRunning, setIsRunning] = useState(false);
@@ -627,10 +629,10 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                         <div className="relative group">
                             <select 
                                 value={language} 
-                                onChange={(e) => setLanguage(e.target.value as keyof typeof LANGUAGES)} 
+                                onChange={(e) => setLanguage(e.target.value as LanguageKey)} 
                                 className="appearance-none bg-white border border-gray-200 text-gray-700 text-xs font-bold py-1.5 pl-3 pr-8 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm hover:border-indigo-300 transition-colors"
                             >
-                                {(Object.keys(LANGUAGES) as Array<keyof typeof LANGUAGES>).map((key) => (
+                                {(Object.keys(LANGUAGES) as LanguageKey[]).map((key) => (
                                     <option key={key} value={key}>
                                         {LANGUAGES[key].name}
                                     </option>

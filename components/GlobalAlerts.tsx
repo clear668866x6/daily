@@ -35,12 +35,18 @@ export const GlobalAlerts: React.FC<Props> = ({ user, checkIns, algoTasks, onNav
     });
   }, [checkIns, user.id]);
 
-  // 3. 检查今天是否有算法题
+  // 3. 检查今天是否有算法题 (仅对被分配的人显示)
   const todaysAlgoTask = useMemo(() => {
-    return algoTasks.find(t => t.date === todayStr);
-  }, [algoTasks, todayStr]);
+    const task = algoTasks.find(t => t.date === todayStr);
+    if (!task) return null;
+    if (user.role === 'admin') return task; // Admins see all
+    if (task.assignedTo && task.assignedTo.length > 0 && !task.assignedTo.includes(user.id)) {
+        return null;
+    }
+    return task;
+  }, [algoTasks, todayStr, user.id, user.role]);
 
-  if (user.role === 'guest') return null;
+  if (user.role === 'guest' || user.role === 'admin') return null; // Admins don't need basic alerts
 
   return (
     <div className="space-y-4 mb-6">

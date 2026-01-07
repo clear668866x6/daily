@@ -31,6 +31,29 @@ const formatDateKey = (timestampOrDate: number | Date): string => {
     return `${y}-${m}-${d}`;
 };
 
+// Helper to aggregate rating history by day (take the last value of the day)
+const getDailyAggregatedRatings = (history: RatingHistory[]) => {
+    const sorted = [...history].sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime());
+    const dailyMap = new Map<string, { rating: number, fullDate: string, reason: string }>();
+
+    sorted.forEach(h => {
+        const dateKey = new Date(h.recorded_at).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+        // Always overwrite, so we keep the LAST rating of that day
+        dailyMap.set(dateKey, { 
+            rating: h.rating, 
+            fullDate: new Date(h.recorded_at).toLocaleString(),
+            reason: h.change_reason || ''
+        });
+    });
+
+    return Array.from(dailyMap.entries()).map(([date, data]) => ({
+        date,
+        rating: data.rating,
+        fullDate: data.fullDate,
+        reason: data.reason
+    }));
+};
+
 export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearchUser, onBack, onDeleteCheckIn, onUpdateCheckIn, onExemptPenalty }) => {
   const [filterSubject, setFilterSubject] = useState<string>('ALL');
   const [filterDate, setFilterDate] = useState<string>('');
@@ -150,12 +173,7 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
   const totalDuration = myCheckIns.filter(c => !c.isPenalty).reduce((acc, curr) => acc + (curr.duration || 0), 0);
 
   const chartData = useMemo(() => {
-      const data = [...ratingHistory].sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime());
-      return data.map(r => ({
-          date: new Date(r.recorded_at).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }),
-          rating: r.rating,
-          fullDate: new Date(r.recorded_at).toLocaleString()
-      }));
+      return getDailyAggregatedRatings(ratingHistory);
   }, [ratingHistory]);
 
   const displaySearchUsers = useMemo(() => {
