@@ -3,7 +3,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { CheckIn, User, SubjectCategory, RatingHistory, getUserStyle, AlgorithmTask } from '../types';
 import * as storage from '../services/storageService';
 import { AreaChart, Area, XAxis, Tooltip, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, YAxis, Legend } from 'recharts';
-import { Shield, CalendarOff, Save, ListTodo, UserPlus, Medal, Coffee, CheckCircle2, ChevronUp, MoreHorizontal, Edit3, Trash2, AlertCircle, ShieldCheck, BarChart3, PieChart as PieChartIcon, Search, X, History, TrendingUp, TrendingDown, Clock, BookOpen, Send, PlusCircle, Loader2 } from 'lucide-react';
+import { Shield, CalendarOff, Save, ListTodo, UserPlus, Medal, Coffee, CheckCircle2, ChevronUp, MoreHorizontal, Edit3, Trash2, AlertCircle, ShieldCheck, BarChart3, PieChart as PieChartIcon, Search, X, History, TrendingUp, TrendingDown, Clock, BookOpen, Send, PlusCircle, Loader2, Calendar as CalendarIcon, Filter, RotateCcw } from 'lucide-react';
 import { ToastType } from './Toast';
 import { AdminUserModal } from './AdminUserModal';
 import { MarkdownText } from './MarkdownText';
@@ -11,7 +11,7 @@ import { MarkdownText } from './MarkdownText';
 interface Props {
   checkIns: CheckIn[];
   currentUser: User;
-  allUsers: User[]; // Passed from parent or fetched here? Better passed or fetched. 
+  allUsers: User[]; 
   onUpdateUser: (user: User) => void;
   onShowToast: (message: string, type: ToastType) => void;
   onNavigateToUser?: (userId: string) => void;
@@ -42,6 +42,12 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
   const [analyzingUser, setAnalyzingUser] = useState<User | null>(null);
   const [userRatingHistory, setUserRatingHistory] = useState<RatingHistory[]>([]);
   const [analysisTab, setAnalysisTab] = useState<'charts' | 'logs' | 'rating'>('charts');
+  
+  // Analysis Date Filter State
+  const [analysisDateRange, setAnalysisDateRange] = useState({
+      start: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
+      end: new Date().toISOString().split('T')[0]
+  });
 
   // Algorithm Assignment State
   const [showAlgoModal, setShowAlgoModal] = useState(false);
@@ -55,8 +61,14 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
   const [editingUserPassword, setEditingUserPassword] = useState<{id: string, password: string} | null>(null);
   const [editingUserGoal, setEditingUserGoal] = useState<{id: string, goal: number} | null>(null);
 
+  // Recalculate Modal State
+  const [recalcModalOpen, setRecalcModalOpen] = useState(false);
+  const [recalcUserId, setRecalcUserId] = useState<string | null>(null);
+  const [recalcStartDate, setRecalcStartDate] = useState(new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0]);
+  const [recalcEndDate, setRecalcEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [isRecalculating, setIsRecalculating] = useState(false);
+
   useEffect(() => {
-      // Sync users if props change (though dashboard usually controls fetch)
       setAllUsers(propAllUsers);
   }, [propAllUsers]);
 
@@ -93,10 +105,10 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
           .map(([name, value]) => ({ name, value: Math.round(value/60) }))
           .sort((a,b) => b.value - a.value).slice(0, 6);
 
-      // Global Trend (Last 7 Days)
+      // Global Trend (Last 14 Days for better visuals)
       const trendMap: Record<string, number> = {};
       const dates = [];
-      for(let i=6; i>=0; i--) {
+      for(let i=13; i>=0; i--) {
           const d = new Date();
           d.setDate(d.getDate() - i);
           const k = formatDateKey(d);
@@ -124,13 +136,6 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
       onShowToast("系统配置已保存", 'success');
   };
 
-  const handleCreateUser = async (u: string, p: string, r: number) => {
-      // Logic handled in AdminUserModal, we just trigger refresh here if needed
-      // Actually AdminUserModal handles storage call. We need to refresh user list.
-      const updatedUsers = await storage.getAllUsers();
-      setAllUsers(updatedUsers);
-  };
-
   const calculateUserStats = (user: User) => {
       const todayStr = formatDateKey(new Date());
       const todayCheckIns = checkIns.filter(c => c.userId === user.id && formatDateKey(c.timestamp) === todayStr && !c.isPenalty);
@@ -146,7 +151,6 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
           setExpandedUserIds(prev => prev.filter(id => id !== userId));
       } else {
           setExpandedUserIds(prev => [...prev, userId]);
-          // Load specific penalties for quick view
           const penalties = checkIns.filter(c => c.userId === userId && c.isPenalty).sort((a, b) => b.timestamp - a.timestamp);
           setUserPenaltyMap(prev => ({ ...prev, [userId]: penalties }));
       }
@@ -156,10 +160,8 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
       try {
           const { ratingDelta } = await storage.exemptPenalty(checkInId);
           onShowToast(`已豁免，Rating +${ratingDelta}`, 'success');
-          // Refresh local maps
           const updatedPenalties = userPenaltyMap[userId].map(p => p.id === checkInId ? { ...p, isPenalty: false, content: p.content + ' [已豁免]' } : p);
           setUserPenaltyMap(prev => ({ ...prev, [userId]: updatedPenalties }));
-          // Update user list rating
           const updatedUser = await storage.getUserById(userId);
           if (updatedUser) {
               setAllUsers(prev => prev.map(u => u.id === userId ? updatedUser : u));
@@ -170,7 +172,29 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
       }
   }
 
-  // --- Updates ---
+  // Trigger Modal
+  const openRecalcModal = (userId: string) => {
+      setRecalcUserId(userId);
+      setRecalcModalOpen(true);
+  }
+
+  const performRecalculation = async () => {
+      if (!recalcUserId) return;
+      setIsRecalculating(true);
+      try {
+          // Use the Range Recalculation logic
+          const newRating = await storage.recalculateUserRatingByRange(recalcUserId, recalcStartDate, recalcEndDate, currentUser);
+          onShowToast(`区间重算成功，当前 Rating: ${newRating}`, 'success');
+          setAllUsers(prev => prev.map(u => u.id === recalcUserId ? { ...u, rating: newRating } : u));
+          setRecalcModalOpen(false);
+      } catch(e) {
+          console.error(e);
+          onShowToast("重算失败", 'error');
+      } finally {
+          setIsRecalculating(false);
+      }
+  }
+
   const handleQuickUpdate = async (type: 'rating'|'password'|'goal', userId: string) => {
       try {
           if (type === 'rating' && editingUserRating) {
@@ -206,30 +230,52 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
   const openAnalysis = async (user: User) => {
       setAnalyzingUser(user);
       setAnalysisTab('charts');
+      // Reset Date Range to last 30 days
+      setAnalysisDateRange({
+          start: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
+          end: new Date().toISOString().split('T')[0]
+      });
       const rh = await storage.getRatingHistory(user.id);
       setUserRatingHistory(rh);
   };
 
   const getUserAnalysisData = () => {
       if (!analyzingUser) return { pieData: [] };
-      const userCheckIns = checkIns.filter(c => c.userId === analyzingUser.id && !c.isPenalty && !c.isLeave);
+      const userCheckIns = checkIns.filter(c => {
+          if (c.userId !== analyzingUser.id || c.isPenalty || c.isLeave) return false;
+          const date = formatDateKey(c.timestamp);
+          return date >= analysisDateRange.start && date <= analysisDateRange.end;
+      });
       const subMap: Record<string, number> = {};
       userCheckIns.forEach(c => subMap[c.subject] = (subMap[c.subject] || 0) + (c.duration || 0));
       const pieData = Object.entries(subMap).map(([name, value]) => ({ name, value: Math.round(value/60) }));
-      return { pieData };
+      return { pieData, totalLogs: userCheckIns.length };
+  }
+
+  const getFilteredLogs = () => {
+      if (!analyzingUser) return [];
+      return checkIns.filter(c => {
+          if (c.userId !== analyzingUser.id) return false;
+          const date = formatDateKey(c.timestamp);
+          return date >= analysisDateRange.start && date <= analysisDateRange.end;
+      });
+  }
+
+  const getFilteredRatingHistory = () => {
+      if (!analyzingUser) return [];
+      return userRatingHistory.filter(h => {
+          const date = formatDateKey(new Date(h.recorded_at));
+          return date >= analysisDateRange.start && date <= analysisDateRange.end;
+      });
   }
 
   const handleDeleteHistory = async (recordId: number, refundAmount: number) => {
       if (!analyzingUser) return;
       if (!confirm("确定删除这条记录吗？分数将自动回滚。")) return;
       try {
-          // Assuming storageService has deleteRatingHistoryRecord. If not, we'd need to add it.
-          // Since the prompt asks for it, I will assume I added it to storageService in my plan.
-          // If not, I'll simulate it or it will fail. *Self-correction: I added it in storageService update.*
-          await storage.deleteRatingHistoryRecord(recordId, analyzingUser.id, -refundAmount); // refund amount inverse of delta
+          await storage.deleteRatingHistoryRecord(recordId, analyzingUser.id, -refundAmount); 
           onShowToast("记录已删除，分数已回滚", 'success');
           
-          // Refresh
           const updatedRH = await storage.getRatingHistory(analyzingUser.id);
           setUserRatingHistory(updatedRH);
           const updatedUser = await storage.getUserById(analyzingUser.id);
@@ -243,7 +289,6 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
       }
   }
 
-  // --- Algo Publish ---
   const handlePublishAlgo = async () => {
       if (!algoTitle.trim() || !algoDesc.trim()) return;
       setIsPublishingAlgo(true);
@@ -269,79 +314,149 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
   return (
     <div className="space-y-6 pb-20 animate-fade-in relative">
       
-      {/* --- Analysis Modal --- */}
+      {/* --- Recalculate Modal --- */}
+      {recalcModalOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in p-4" onClick={() => setRecalcModalOpen(false)}>
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+                  <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-orange-50">
+                      <h3 className="font-bold text-orange-900 flex items-center gap-2">
+                          <RotateCcw className="w-5 h-5 text-orange-600" /> 积分重算
+                      </h3>
+                      <button onClick={() => setRecalcModalOpen(false)}><X className="w-5 h-5 text-gray-400"/></button>
+                  </div>
+                  <div className="p-6 space-y-4">
+                      <p className="text-xs text-gray-500 leading-relaxed bg-gray-50 p-2 rounded border border-gray-100">
+                          系统将基于所选日期前的 Rating 作为基准，依次重演该区间内的所有打卡记录，并修正所有加分日志。
+                      </p>
+                      <div>
+                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">开始日期</label>
+                          <input type="date" className="w-full border rounded-xl px-3 py-2 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-orange-500" value={recalcStartDate} onChange={e => setRecalcStartDate(e.target.value)} />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">结束日期</label>
+                          <input type="date" className="w-full border rounded-xl px-3 py-2 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-orange-500" value={recalcEndDate} onChange={e => setRecalcEndDate(e.target.value)} />
+                      </div>
+                  </div>
+                  <div className="p-4 border-t border-gray-100 flex gap-3">
+                      <button onClick={() => setRecalcModalOpen(false)} className="flex-1 py-2 rounded-xl text-gray-500 font-bold hover:bg-gray-100 transition-colors">取消</button>
+                      <button onClick={performRecalculation} disabled={isRecalculating} className="flex-1 py-2 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 shadow-lg shadow-orange-200 transition-all flex items-center justify-center gap-2">
+                          {isRecalculating ? <Loader2 className="w-4 h-4 animate-spin"/> : <RotateCcw className="w-4 h-4"/>}
+                          确认重算
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* --- Analysis Modal (Card Style) --- */}
       {analyzingUser && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in" onClick={() => setAnalyzingUser(null)}>
-              <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
-                  <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+              <div className="bg-white rounded-3xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+                  
+                  {/* Modal Header */}
+                  <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0">
                       <div className="flex items-center gap-4">
                           <img src={analyzingUser.avatar} className="w-12 h-12 rounded-full border-2 border-white shadow-sm" />
                           <div>
                               <h2 className="text-xl font-black text-gray-800 flex items-center gap-2">
-                                  {analyzingUser.name} <span className="text-xs font-normal text-gray-500 bg-white px-2 py-0.5 rounded border">ID: {analyzingUser.id.substring(0,6)}</span>
+                                  {analyzingUser.name} <span className="text-xs font-normal text-gray-500 bg-white px-2 py-0.5 rounded border font-mono">ID: {analyzingUser.id.substring(0,6)}</span>
                               </h2>
                               <div className="flex items-center gap-3 text-sm mt-1">
-                                  <span className="font-bold text-indigo-600">Rating: {analyzingUser.rating}</span>
-                                  <span className="text-gray-400">|</span>
+                                  <span className="font-bold text-indigo-600 bg-indigo-50 px-2 rounded">R: {analyzingUser.rating}</span>
                                   <span className="text-gray-600">目标: {analyzingUser.dailyGoal} min</span>
                               </div>
                           </div>
                       </div>
-                      <button onClick={() => setAnalyzingUser(null)} className="p-2 hover:bg-gray-200 rounded-full"><X className="w-6 h-6 text-gray-500"/></button>
+                      <div className="flex items-center gap-3">
+                          {/* Date Range Picker */}
+                          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-sm">
+                              <CalendarIcon className="w-4 h-4 text-gray-400" />
+                              <input 
+                                  type="date" 
+                                  value={analysisDateRange.start}
+                                  onChange={e => setAnalysisDateRange(prev => ({...prev, start: e.target.value}))}
+                                  className="text-xs font-bold text-gray-700 outline-none w-24"
+                              />
+                              <span className="text-gray-400">-</span>
+                              <input 
+                                  type="date" 
+                                  value={analysisDateRange.end}
+                                  onChange={e => setAnalysisDateRange(prev => ({...prev, end: e.target.value}))}
+                                  className="text-xs font-bold text-gray-700 outline-none w-24"
+                              />
+                          </div>
+                          <button onClick={() => setAnalyzingUser(null)} className="p-2 hover:bg-gray-200 rounded-full"><X className="w-6 h-6 text-gray-500"/></button>
+                      </div>
                   </div>
                   
-                  <div className="flex border-b border-gray-100 px-6 gap-6">
-                      <button onClick={() => setAnalysisTab('charts')} className={`py-4 text-sm font-bold border-b-2 transition-colors ${analysisTab === 'charts' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>图表分析</button>
-                      <button onClick={() => setAnalysisTab('rating')} className={`py-4 text-sm font-bold border-b-2 transition-colors ${analysisTab === 'rating' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>积分管理</button>
-                      <button onClick={() => setAnalysisTab('logs')} className={`py-4 text-sm font-bold border-b-2 transition-colors ${analysisTab === 'logs' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>打卡日志</button>
+                  {/* Tabs */}
+                  <div className="flex border-b border-gray-100 px-6 gap-6 bg-white shrink-0">
+                      <button onClick={() => setAnalysisTab('charts')} className={`py-4 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${analysisTab === 'charts' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><PieChartIcon className="w-4 h-4"/> 图表分析</button>
+                      <button onClick={() => setAnalysisTab('rating')} className={`py-4 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${analysisTab === 'rating' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><History className="w-4 h-4"/> 积分管理</button>
+                      <button onClick={() => setAnalysisTab('logs')} className={`py-4 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${analysisTab === 'logs' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><ListTodo className="w-4 h-4"/> 打卡日志</button>
                   </div>
 
+                  {/* Content - Card Layout */}
                   <div className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-gray-50/50">
                       {analysisTab === 'charts' && (
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col h-80">
-                                  <h4 className="font-bold text-gray-700 mb-4 flex items-center gap-2"><PieChartIcon className="w-4 h-4"/> 科目分布 (小时)</h4>
-                                  <ResponsiveContainer width="100%" height="100%">
-                                      <PieChart>
-                                          <Pie data={getUserAnalysisData().pieData} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                                              {getUserAnalysisData().pieData.map((e, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                                          </Pie>
-                                          <Tooltip />
-                                          <Legend verticalAlign="bottom" height={36}/>
-                                      </PieChart>
-                                  </ResponsiveContainer>
+                              <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col h-80 relative">
+                                  <h4 className="font-bold text-gray-700 mb-4 flex items-center gap-2 z-10"><PieChartIcon className="w-4 h-4 text-indigo-500"/> 科目分布 (小时)</h4>
+                                  <div className="flex-1 w-full h-full">
+                                      {getUserAnalysisData().pieData.length > 0 ? (
+                                          <ResponsiveContainer width="100%" height="100%">
+                                              <PieChart>
+                                                  <Pie data={getUserAnalysisData().pieData} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                                                      {getUserAnalysisData().pieData.map((e, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                                                  </Pie>
+                                                  <Tooltip contentStyle={{borderRadius: '12px'}} itemStyle={{fontSize:'12px', fontWeight:'bold'}} />
+                                                  <Legend verticalAlign="bottom" height={36} wrapperStyle={{fontSize: '10px'}}/>
+                                              </PieChart>
+                                          </ResponsiveContainer>
+                                      ) : (
+                                          <div className="absolute inset-0 flex items-center justify-center text-gray-300 text-sm">该时段无数据</div>
+                                      )}
+                                  </div>
                               </div>
-                              {/* Can add more user specific charts here */}
-                              <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-center text-gray-400">
-                                  <BarChart3 className="w-10 h-10 mb-2 opacity-20" />
-                                  <p>更多图表开发中...</p>
+                              <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-center items-center text-gray-400">
+                                  <BarChart3 className="w-12 h-12 mb-3 opacity-20" />
+                                  <p className="font-medium">筛选时段内日志数: {getUserAnalysisData().totalLogs}</p>
                               </div>
                           </div>
                       )}
 
                       {analysisTab === 'rating' && (
-                          <div className="space-y-3">
-                              {userRatingHistory.map((h, idx) => {
-                                  // Simplified delta calc
-                                  const prev = userRatingHistory[idx+1];
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {getFilteredRatingHistory().map((h, idx) => {
+                                  // Find next record to calc delta approximation if not stored
+                                  // Note: logic is heuristic. Ideally backend stores delta.
+                                  // Here we just display what we have.
+                                  const prev = userRatingHistory[userRatingHistory.findIndex(r => r.id === h.id) + 1];
                                   const delta = prev ? h.rating - prev.rating : 0;
+                                  
                                   return (
-                                      <div key={h.id} className="bg-white p-4 rounded-xl border border-gray-100 flex justify-between items-center group hover:shadow-sm transition-all">
-                                          <div className="flex items-center gap-4">
-                                              <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-sm ${delta > 0 ? 'bg-green-100 text-green-700' : delta < 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
-                                                  {delta > 0 ? `+${delta}` : delta}
-                                              </div>
-                                              <div>
-                                                  <div className="font-bold text-gray-800 text-sm">{h.change_reason || '未知变动'}</div>
-                                                  <div className="text-xs text-gray-400 font-mono mt-1">{new Date(h.recorded_at).toLocaleString()}</div>
+                                      <div key={h.id} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all group flex flex-col justify-between">
+                                          <div className="flex justify-between items-start mb-3">
+                                              <div className="flex items-center gap-3">
+                                                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm ${delta > 0 ? 'bg-green-50 text-green-600' : delta < 0 ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-500'}`}>
+                                                      {delta > 0 ? `+${delta}` : delta === 0 ? '-' : delta}
+                                                  </div>
+                                                  <div>
+                                                      <div className="font-bold text-gray-800 text-sm line-clamp-1">{h.change_reason || '未知变动'}</div>
+                                                      <div className="text-xs text-gray-400 font-mono flex items-center gap-1">
+                                                          <Clock className="w-3 h-3"/> {new Date(h.recorded_at).toLocaleString()}
+                                                      </div>
+                                                  </div>
                                               </div>
                                           </div>
-                                          <div className="flex items-center gap-4">
-                                              <span className="text-sm font-bold text-gray-500">R: {h.rating}</span>
+                                          <div className="flex justify-between items-center pt-3 border-t border-gray-50">
+                                              <span className="text-xs font-bold text-gray-500 bg-gray-50 px-2 py-1 rounded">
+                                                  Rating: {h.rating}
+                                              </span>
                                               <button 
                                                   onClick={() => handleDeleteHistory(h.id, delta)} 
-                                                  className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                                  title="删除并回滚"
+                                                  className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                                                  title="删除并回滚分数"
                                               >
                                                   <Trash2 className="w-4 h-4" />
                                               </button>
@@ -349,20 +464,42 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
                                       </div>
                                   )
                               })}
+                              {getFilteredRatingHistory().length === 0 && (
+                                  <div className="col-span-full text-center py-10 text-gray-400">该时段无积分记录</div>
+                              )}
                           </div>
                       )}
 
                       {analysisTab === 'logs' && (
-                          <div className="space-y-3">
-                              {checkIns.filter(c => c.userId === analyzingUser.id).map(c => (
-                                  <div key={c.id} className="bg-white p-4 rounded-xl border border-gray-100 text-sm">
-                                      <div className="flex justify-between items-start mb-2">
-                                          <span className={`px-2 py-0.5 rounded text-xs font-bold ${c.isPenalty ? 'bg-red-100 text-red-600' : 'bg-blue-50 text-blue-600'}`}>{c.isPenalty ? '惩罚' : c.subject}</span>
-                                          <span className="text-gray-400 font-mono text-xs">{new Date(c.timestamp).toLocaleString()}</span>
+                          <div className="grid grid-cols-1 gap-4">
+                              {getFilteredLogs().map(c => (
+                                  <div key={c.id} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all flex flex-col gap-3">
+                                      <div className="flex justify-between items-center">
+                                          <div className="flex items-center gap-2">
+                                              <span className={`px-2 py-1 rounded-lg text-xs font-bold border ${
+                                                  c.isPenalty 
+                                                  ? 'bg-red-50 text-red-600 border-red-100' 
+                                                  : (c.isLeave ? 'bg-yellow-50 text-yellow-600 border-yellow-100' : 'bg-brand-50 text-brand-600 border-brand-100')
+                                              }`}>
+                                                  {c.isPenalty ? '⚠️ 惩罚' : c.subject}
+                                              </span>
+                                              <span className="text-xs text-gray-400 font-mono">{new Date(c.timestamp).toLocaleString()}</span>
+                                          </div>
+                                          {!c.isPenalty && !c.isLeave && (
+                                              <span className="text-xs font-bold text-gray-500 flex items-center gap-1">
+                                                  <Clock className="w-3 h-3"/> {c.duration} min
+                                              </span>
+                                          )}
                                       </div>
-                                      <div className="text-gray-700 line-clamp-2">{c.content}</div>
+                                      
+                                      <div className="text-sm text-gray-700 leading-relaxed bg-gray-50 p-3 rounded-xl border border-gray-50">
+                                          <MarkdownText content={c.content} />
+                                      </div>
                                   </div>
                               ))}
+                              {getFilteredLogs().length === 0 && (
+                                  <div className="text-center py-10 text-gray-400">该时段无打卡记录</div>
+                              )}
                           </div>
                       )}
                   </div>
@@ -455,23 +592,27 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
 
       {/* --- Charts --- */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-           <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm flex flex-col">
+           <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm flex flex-col h-[320px]">
                <h3 className="font-bold text-gray-700 flex items-center gap-2 mb-4"><PieChartIcon className="w-5 h-5 text-indigo-500" /> 全站科目分布</h3>
-               <div className="flex-1 h-64 w-full">
-                   <ResponsiveContainer width="100%" height="100%">
-                       <PieChart>
-                           <Pie data={adminStats.subjectData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                               {adminStats.subjectData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
-                           </Pie>
-                           <Tooltip contentStyle={{borderRadius: '12px'}} itemStyle={{fontSize:'12px', fontWeight:'bold'}} />
-                           <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{fontSize: '10px'}}/>
-                       </PieChart>
-                   </ResponsiveContainer>
+               <div className="flex-1 w-full relative">
+                   {adminStats.subjectData.length > 0 ? (
+                       <ResponsiveContainer width="100%" height="100%">
+                           <PieChart>
+                               <Pie data={adminStats.subjectData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                                   {adminStats.subjectData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                               </Pie>
+                               <Tooltip contentStyle={{borderRadius: '12px'}} itemStyle={{fontSize:'12px', fontWeight:'bold'}} />
+                               <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{fontSize: '10px'}}/>
+                           </PieChart>
+                       </ResponsiveContainer>
+                   ) : (
+                       <div className="absolute inset-0 flex items-center justify-center text-gray-300 text-sm">暂无数据</div>
+                   )}
                </div>
            </div>
-           <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm flex flex-col">
-               <h3 className="font-bold text-gray-700 flex items-center gap-2 mb-4"><BarChart3 className="w-5 h-5 text-green-500" /> 近 7 日总时长 (小时)</h3>
-               <div className="flex-1 h-64 w-full">
+           <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm flex flex-col h-[320px]">
+               <h3 className="font-bold text-gray-700 flex items-center gap-2 mb-4"><BarChart3 className="w-5 h-5 text-green-500" /> 近 14 日总时长 (小时)</h3>
+               <div className="flex-1 w-full relative">
                    <ResponsiveContainer width="100%" height="100%">
                        <BarChart data={adminStats.trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
@@ -575,6 +716,7 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
                                                            </div>
                                                        </div>
                                                        <div className="flex justify-between pt-2">
+                                                           <button onClick={() => openRecalcModal(u.id)} className="text-xs font-bold text-orange-600 flex items-center gap-1 hover:underline"><RotateCcw className="w-3 h-3"/> 重算/回滚 Rating</button>
                                                            <button onClick={() => openAnalysis(u)} className="text-xs font-bold text-indigo-600 flex items-center gap-1 hover:underline"><Search className="w-3 h-3"/> 深度分析/管理记录</button>
                                                            <button onClick={() => handleDeleteUser(u.id)} className="text-red-500 text-xs font-bold flex items-center gap-1 hover:text-red-700"><Trash2 className="w-3 h-3" /> 删除用户</button>
                                                        </div>
