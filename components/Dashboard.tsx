@@ -13,7 +13,7 @@ import { useMemo, useState, useEffect, useRef } from 'react';
 import { Goal, SubjectCategory, RatingHistory, getUserStyle, getTitleName } from '../types';
 import * as storage from '../services/storageService';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, ChevronDown, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Flag, Activity, Maximize2, Filter, X, Grid3X3, Medal, Coffee, Save, Shield, CalendarOff, UserPlus, Search, MoreHorizontal, CheckCircle2 } from 'lucide-react';
+import { Edit3, CheckSquare, Square, Plus, Trash2, Clock, Send, TrendingUp, ListTodo, ChevronDown, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Flag, Activity, Maximize2, Filter, X, Grid3X3, Medal, Coffee, Save, Shield, CalendarOff, UserPlus, Search, MoreHorizontal, CheckCircle2, RefreshCw } from 'lucide-react';
 import { FullScreenEditor } from './FullScreenEditor';
 import { ImageViewer } from './ImageViewer';
 import { Modal } from './Modal';
@@ -226,6 +226,9 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   
   // Rule Modal
   const [showRules, setShowRules] = useState(false);
+  
+  // Manual Refresh State
+  const [isRefreshingRating, setIsRefreshingRating] = useState(false);
 
   const isViewingSelf = selectedUserId === currentUser.id;
 
@@ -299,7 +302,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
     
     const todayStr = formatDateKey(new Date());
 
-    const sortedCheckIns = [...selectedUserCheckIns].sort((a, b) => a.timestamp - b.timestamp);
+    const sortedCheckIns = [...selectedUserCheckIns].sort((a, b) => a.timestamp - a.timestamp);
 
     sortedCheckIns.forEach(c => {
       const dateKey = formatDateKey(c.timestamp);
@@ -470,6 +473,22 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           setLeaveDays(1);
       } catch(e) {
           onShowToast("申请提交失败", 'error');
+      }
+  };
+
+  const handleRefreshRating = async () => {
+      setIsRefreshingRating(true);
+      try {
+          const freshUser = await storage.getUserById(currentUser.id);
+          if (freshUser) {
+              onUpdateUser(freshUser);
+              storage.updateUserLocal(freshUser);
+              onShowToast(`Rating 已同步: ${freshUser.rating}`, 'success');
+          }
+      } catch (e) {
+          onShowToast("同步失败", 'error');
+      } finally {
+          setTimeout(() => setIsRefreshingRating(false), 500);
       }
   };
 
@@ -1035,7 +1054,14 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                       <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">总计投入</div>
                       <div className="text-3xl font-black text-gray-800">{Math.floor(stats.totalStudyMinutes/60)}<span className="text-sm text-gray-400 font-medium">h</span></div>
                   </div>
-                  <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-center items-center">
+                  <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-center items-center relative group">
+                        <button 
+                            onClick={handleRefreshRating} 
+                            className={`absolute top-2 right-2 p-1.5 text-gray-300 hover:text-brand-600 hover:bg-brand-50 rounded-full transition-all ${isRefreshingRating ? 'animate-spin text-brand-600' : 'opacity-0 group-hover:opacity-100'}`}
+                            title="同步最新分数"
+                        >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                        </button>
                         <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">Current Rating</div>
                         <div className={`text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r ${ratingGradient}`}>{currentUser.rating || 1200}</div>
                   </div>
