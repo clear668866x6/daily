@@ -36,7 +36,7 @@ const App: React.FC = () => {
   const [targetProfileId, setTargetProfileId] = useState<string | null>(null);
 
   const [penaltyModalData, setPenaltyModalData] = useState<{count: number, date: string, type: 'missing' | 'debt'} | null>(null);
-  const [streakModalData, setStreakModalData] = useState<number | null>(null);
+  const [streakModalData, setStreakModalData] = useState<{days: number, bonus: number} | null>(null);
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
@@ -271,7 +271,8 @@ const App: React.FC = () => {
         
         // If streak is multiple of 7 AND we haven't given bonus today
         if (streak > 0 && streak % 7 === 0 && lastBonusDate !== todayStr) {
-            const bonus = Math.min(streak * 2, 50); // Cap bonus
+            // Updated Bonus Logic: Min(streak * 0.5, 4)
+            const bonus = Math.min(Math.ceil(streak * 0.5), 4); 
             const newRating = (currentUser.rating || 1200) + bonus;
             await storage.updateRating(currentUser.id, newRating, `🔥 连续打卡 ${streak} 天奖励`);
             
@@ -291,7 +292,7 @@ const App: React.FC = () => {
             await storage.addCheckIn(bonusCheckIn);
             
             currentUser.rating = newRating;
-            setStreakModalData(streak);
+            setStreakModalData({days: streak, bonus: bonus});
             localStorage.setItem(`last_streak_bonus_${currentUser.id}`, todayStr);
         }
 
@@ -528,8 +529,8 @@ const App: React.FC = () => {
                       <Trophy className="w-24 h-24 text-yellow-300 relative z-10" />
                   </div>
                   <div className="text-yellow-400 font-black text-lg uppercase tracking-[0.3em] mb-2 animate-pulse">Momentum Streak</div>
-                  <h2 className="text-5xl md:text-6xl font-black mb-6 bg-clip-text text-transparent bg-gradient-to-r from-yellow-200 to-yellow-500 drop-shadow-sm">连续打卡 {streakModalData} 天!</h2>
-                  <p className="text-indigo-200 text-lg max-w-md leading-relaxed mb-12">坚持就是胜利。保持这个节奏，上岸终有时！</p>
+                  <h2 className="text-5xl md:text-6xl font-black mb-6 bg-clip-text text-transparent bg-gradient-to-r from-yellow-200 to-yellow-500 drop-shadow-sm">连续打卡 {streakModalData.days} 天!</h2>
+                  <p className="text-indigo-200 text-lg max-w-md leading-relaxed mb-12">坚持就是胜利。获得 {streakModalData.bonus} 分奖励！</p>
                   <div className="flex items-center gap-2 text-white/50 text-sm animate-bounce"><span>点击任意处关闭</span></div>
               </div>
           </div>
