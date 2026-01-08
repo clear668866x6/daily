@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { User, CheckIn, SubjectCategory, getUserStyle, getTitleName, RatingHistory } from '../types';
 import { MarkdownText } from './MarkdownText';
-import { Calendar, Filter, Clock, MapPin, X, Search, User as UserIcon, TrendingUp, ChevronLeft, ArrowLeft, History, Trash2, Edit2, Sparkles, ChevronRight, ChevronDown, Save, ShieldCheck } from 'lucide-react';
+import { Calendar, Filter, Clock, MapPin, X, Search, User as UserIcon, TrendingUp, ChevronLeft, ArrowLeft, History, Trash2, Edit2, Sparkles, ChevronRight, ChevronDown, Save, ShieldCheck, BarChart3 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import * as storage from '../services/storageService';
 import { FullScreenEditor } from './FullScreenEditor';
@@ -31,27 +31,70 @@ const formatDateKey = (timestampOrDate: number | Date): string => {
     return `${y}-${m}-${d}`;
 };
 
-// Helper to aggregate rating history by day (take the last value of the day)
+// Helper to aggregate rating history by day
 const getDailyAggregatedRatings = (history: RatingHistory[]) => {
     const sorted = [...history].sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime());
-    const dailyMap = new Map<string, { rating: number, fullDate: string, reason: string }>();
+    const dailyMap = new Map<string, { rating: number, fullDate: string, reason: string, timestamp: number }>();
 
     sorted.forEach(h => {
-        const dateKey = new Date(h.recorded_at).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+        const dateObj = new Date(h.recorded_at);
+        const dateKey = dateObj.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
         // Always overwrite, so we keep the LAST rating of that day
         dailyMap.set(dateKey, { 
             rating: h.rating, 
-            fullDate: new Date(h.recorded_at).toLocaleString(),
-            reason: h.change_reason || ''
+            fullDate: dateObj.toLocaleDateString(), // simplified date
+            reason: h.change_reason || '',
+            timestamp: dateObj.getTime()
         });
     });
 
-    return Array.from(dailyMap.entries()).map(([date, data]) => ({
-        date,
-        rating: data.rating,
-        fullDate: data.fullDate,
-        reason: data.reason
-    }));
+    return Array.from(dailyMap.entries())
+        .map(([date, data]) => ({
+            date,
+            rating: data.rating,
+            fullDate: data.fullDate,
+            reason: data.reason,
+            timestamp: data.timestamp
+        }))
+        .sort((a, b) => a.timestamp - b.timestamp);
+};
+
+// Custom Tooltip Component
+const CustomRatingTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+        const data = payload[0].payload;
+        const change = data.change;
+        const isPositive = change > 0;
+        const isNegative = change < 0;
+        
+        return (
+            <div className="bg-white/95 backdrop-blur-md p-4 border border-gray-100 shadow-xl rounded-2xl text-xs max-w-[260px] animate-fade-in z-50">
+                <p className="font-bold text-gray-400 mb-2 border-b border-gray-100 pb-1 flex justify-between">
+                    <span>{data.fullDate}</span>
+                    <span className="font-mono opacity-50">当日结余</span>
+                </p>
+                <div className="flex items-baseline gap-2 mb-2">
+                    <span className="text-2xl font-black text-gray-800">{data.rating}</span>
+                    {change !== 0 && (
+                        <span className={`font-bold px-2 py-0.5 rounded-lg text-[10px] flex items-center ${
+                            isPositive 
+                                ? 'bg-red-50 text-red-600 border border-red-100' 
+                                : 'bg-green-50 text-green-600 border border-green-100'
+                        }`}>
+                            {isPositive ? '▲' : '▼'} {Math.abs(change)}
+                        </span>
+                    )}
+                </div>
+                {data.reason && (
+                    <div className="text-gray-600 bg-gray-50 p-2 rounded-lg border border-gray-100 leading-relaxed break-words">
+                        <span className="font-bold text-gray-400 block mb-0.5 text-[10px] uppercase">Last Event</span>
+                        {data.reason}
+                    </div>
+                )}
+            </div>
+        );
+    }
+    return null;
 };
 
 export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearchUser, onBack, onDeleteCheckIn, onUpdateCheckIn, onExemptPenalty }) => {
@@ -63,6 +106,9 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
   const [showSubjectMenu, setShowSubjectMenu] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
+
+  // Chart Range State
+  const [chartRange, setChartRange] = useState<'7days' | '30days' | 'all'>('30days');
 
   // Search State
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -173,8 +219,33 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
   const totalDuration = myCheckIns.filter(c => !c.isPenalty).reduce((acc, curr) => acc + (curr.duration || 0), 0);
 
   const chartData = useMemo(() => {
-      return getDailyAggregatedRatings(ratingHistory);
-  }, [ratingHistory]);
+      const dailyData = getDailyAggregatedRatings(ratingHistory);
+      
+      // Calculate delta
+      const dataWithDelta = dailyData.map((item, index) => {
+          const prev = dailyData[index - 1];
+          const change = prev ? item.rating - prev.rating : 0;
+          return { ...item, change };
+      });
+
+      // Filter by Range
+      const now = new Date();
+      let limitDate = new Date(0); // Default all time
+
+      if (chartRange === '7days') {
+          limitDate = new Date();
+          limitDate.setDate(now.getDate() - 7);
+      } else if (chartRange === '30days') {
+          limitDate = new Date();
+          limitDate.setDate(now.getDate() - 30);
+      }
+
+      if (chartRange !== 'all') {
+          return dataWithDelta.filter(d => d.timestamp >= limitDate.getTime());
+      }
+
+      return dataWithDelta;
+  }, [ratingHistory, chartRange]);
 
   const displaySearchUsers = useMemo(() => {
       if (!searchQuery.trim()) {
@@ -417,55 +488,79 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
             </div>
 
             {/* Rating Chart */}
-            <div className="mt-8 mb-2 h-64 w-full bg-white rounded-2xl border border-gray-100 p-4 shadow-sm relative overflow-hidden">
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-                    <TrendingUp className="w-3 h-3 text-red-500" /> Rating 积分走势
-                </h3>
-                {chartData.length > 1 ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={chartData}>
-                            <defs>
-                                <linearGradient id="colorRatingRed" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.2}/>
-                                    <stop offset="95%" stopColor="#f43f5e" stopOpacity={0}/>
-                                </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                            <XAxis 
-                                dataKey="date" 
-                                tick={{fontSize: 10, fill: '#9ca3af'}} 
-                                tickLine={false} 
-                                axisLine={false} 
-                                minTickGap={30} 
-                            />
-                            <YAxis 
-                                domain={['auto', 'auto']} 
-                                tick={{fontSize: 10, fill: '#9ca3af'}} 
-                                tickLine={false} 
-                                axisLine={false} 
-                            />
-                            <Tooltip 
-                                contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px'}}
-                                itemStyle={{color: '#f43f5e', fontWeight: 'bold'}}
-                                labelStyle={{color: '#9ca3af', marginBottom: '4px'}}
-                            />
-                            <Area 
-                                type="monotone"
-                                dataKey="rating" 
-                                stroke="#f43f5e" 
-                                strokeWidth={3} 
-                                fillOpacity={1} 
-                                fill="url(#colorRatingRed)" 
-                                dot={{r: 4, fill: '#fff', stroke: '#f43f5e', strokeWidth: 2}} 
-                                activeDot={{r: 6, fill: '#f43f5e', stroke: '#fff', strokeWidth: 2}}
-                            />
-                        </AreaChart>
-                    </ResponsiveContainer>
-                ) : (
-                    <div className="absolute inset-0 flex items-center justify-center text-gray-300 text-xs">
-                        数据不足，多打卡几次来看看吧
+            <div className="mt-8 mb-2 w-full bg-white rounded-2xl border border-gray-100 p-4 shadow-sm relative overflow-hidden flex flex-col">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
+                        <TrendingUp className="w-3 h-3 text-red-500" /> Rating 积分走势
+                    </h3>
+                    {/* Range Selector */}
+                    <div className="flex bg-gray-100 p-1 rounded-lg">
+                        <button 
+                            onClick={() => setChartRange('7days')} 
+                            className={`text-[10px] font-bold px-3 py-1 rounded-md transition-all ${chartRange === '7days' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        >
+                            近7天
+                        </button>
+                        <button 
+                            onClick={() => setChartRange('30days')} 
+                            className={`text-[10px] font-bold px-3 py-1 rounded-md transition-all ${chartRange === '30days' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        >
+                            近30天
+                        </button>
+                        <button 
+                            onClick={() => setChartRange('all')} 
+                            className={`text-[10px] font-bold px-3 py-1 rounded-md transition-all ${chartRange === 'all' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        >
+                            全部
+                        </button>
                     </div>
-                )}
+                </div>
+                
+                <div className="h-64 w-full">
+                    {chartData.length > 1 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={chartData}>
+                                <defs>
+                                    <linearGradient id="colorRatingRed" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.2}/>
+                                        <stop offset="95%" stopColor="#f43f5e" stopOpacity={0}/>
+                                    </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                                <XAxis 
+                                    dataKey="date" 
+                                    tick={{fontSize: 10, fill: '#9ca3af'}} 
+                                    tickLine={false} 
+                                    axisLine={false} 
+                                    minTickGap={30} 
+                                />
+                                <YAxis 
+                                    domain={['auto', 'auto']} 
+                                    tick={{fontSize: 10, fill: '#9ca3af'}} 
+                                    tickLine={false} 
+                                    axisLine={false} 
+                                    width={30}
+                                />
+                                <Tooltip content={<CustomRatingTooltip />} />
+                                <Area 
+                                    type="monotone"
+                                    dataKey="rating" 
+                                    stroke="#f43f5e" 
+                                    strokeWidth={3} 
+                                    fillOpacity={1} 
+                                    fill="url(#colorRatingRed)" 
+                                    dot={{r: 4, fill: '#fff', stroke: '#f43f5e', strokeWidth: 2}} 
+                                    activeDot={{r: 6, fill: '#f43f5e', stroke: '#fff', strokeWidth: 2}}
+                                />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div className="absolute inset-0 flex items-center justify-center text-gray-300 text-xs flex-col gap-2">
+                            <BarChart3 className="w-8 h-8 opacity-20" />
+                            <span>数据不足，多打卡几次来看看吧</span>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
 

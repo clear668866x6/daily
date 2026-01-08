@@ -359,7 +359,13 @@ export const recalculateUserRating = async (userId: string, adminUser: User): Pr
 }
 
 // --- NEW FUNCTION: Recalculate Rating By Range (Replay Logic) ---
-export const recalculateUserRatingByRange = async (userId: string, startDate: string, endDate: string, adminUser: User): Promise<number> => {
+export const recalculateUserRatingByRange = async (
+    userId: string, 
+    startDate: string, 
+    endDate: string, 
+    adminUser: User,
+    onProgress?: (current: number, total: number) => void
+): Promise<number> => {
     const targetUser = await getUserById(userId);
     if (!targetUser) throw new Error("用户不存在");
 
@@ -374,14 +380,14 @@ export const recalculateUserRatingByRange = async (userId: string, startDate: st
     
     let runningRating = priorHistory && priorHistory.length > 0 ? priorHistory[0].rating : 1200;
     
-    // 2. Fetch ALL records in range (CheckIns AND History)
-    // We will use History as the "Timeline Skeleton" and link CheckIns to them where possible
+    // 2. Fetch ALL records from StartDate to NOW (End of Time)
+    // CRITICAL FIX: We must process ALL future records to maintain consistency.
+    // The `endDate` param is technically used to define the "start of the replay", but we replay until now.
     const { data: rangeHistory } = await supabase
         .from('rating_history')
         .select('*')
         .eq('user_id', userId)
-        .gte('recorded_at', startDate)
-        .lte('recorded_at', endDate + 'T23:59:59')
+        .gte('recorded_at', startDate) 
         .order('recorded_at', { ascending: true });
 
     const { data: rangeCheckIns } = await supabase
@@ -389,43 +395,42 @@ export const recalculateUserRatingByRange = async (userId: string, startDate: st
         .select('*')
         .eq('user_id', userId)
         .gte('timestamp', new Date(startDate).getTime())
-        .lte('timestamp', new Date(endDate).getTime() + 86400000)
         .order('timestamp', { ascending: true });
 
     if (!rangeHistory || rangeHistory.length === 0) {
+        // If no history in range, just update user to baseline (in case they were manually desynced)
+        await supabase.from('users').update({ rating: runningRating }).eq('id', userId);
         return runningRating;
     }
 
+    const totalRecords = rangeHistory.length;
+
     // 3. Replay Loop
-    for (const record of rangeHistory) {
+    for (let i = 0; i < totalRecords; i++) {
+        const record = rangeHistory[i];
+        if (onProgress) onProgress(i + 1, totalRecords);
+
         let delta = 0;
         let reason = record.change_reason || '';
         
         // Try to match with a check-in
-        // Strategy: Match if check-in timestamp is within +/- 5 seconds of history recorded_at
-        // This is necessary because they are created almost simultaneously but not identical ms.
         const recordTime = new Date(record.recorded_at).getTime();
         const matchedCheckIn = rangeCheckIns?.find(c => Math.abs(c.timestamp - recordTime) < 5000);
 
         if (matchedCheckIn) {
-            // It's a Check-In Log: Recalculate points based on current logic
+            // It's a Check-In Log: Always RECALCULATE points based on the running rating
+            // This ensures tiers (1200 vs 2000) are applied correctly based on the *new* timeline
             const prevRating = runningRating;
             
-            // Calculate hypothetical delta using the NEW formula and CURRENT tier
-            // Note: Use duration from check-in
             const duration = matchedCheckIn.duration || 0;
             const subject = matchedCheckIn.subject;
             const isPenalty = matchedCheckIn.is_penalty;
 
             delta = calculatePoints(prevRating, duration, subject, isPenalty);
             
-            // Reconstruct Reason string to reflect new calculation
-            // E.g., "学习 数学 45m (R:1200->1212)"
+            // Reconstruct Reason string
             if (isPenalty) {
-                // Keep penalty reason mostly static but update numbers if contained
                 reason = matchedCheckIn.content.split('\n')[0].replace(/\(R:.*\)/, '').trim(); 
-                // Penalty reasoning in content is usually complex text, we rely on record.change_reason usually.
-                // Simple approach: Use existing reason text pattern if possible
                 if (reason.includes('扣分')) {
                      reason = reason.replace(/扣分\s*-?\d+/, `扣分 ${delta}`);
                 }
@@ -433,30 +438,22 @@ export const recalculateUserRatingByRange = async (userId: string, startDate: st
                 reason = `学习 ${subject} ${duration}m (R:${prevRating}->${prevRating + delta})`;
             }
 
-            // Also update the snapshot on the CheckIn itself
+            // Update CheckIn snapshot
             await supabase.from('checkins').update({ user_rating: prevRating + delta }).eq('id', matchedCheckIn.id);
 
         } else {
             // It's a Manual Adjustment / Bonus / System Penalty without check-in link
-            // For these, we preserve the *original delta* relative to the *original previous* rating
-            // But apply it to our *new* running total.
-            // Problem: We don't store delta explicitly. We have to infer it from Previous Record in the loop? 
-            // BUT we are modifying the chain as we go.
+            // For these, we PRESERVE the original relative delta
+            // Example: Admin added 50 points manually. We keep adding 50 points, regardless of base.
             
-            // Safe fallback: Parse delta from the text "R: 1200 -> 1210" or similar? 
-            // Or look at the record.rating vs its ORIGINAL previous record? 
-            // We don't have the original previous record easily here since we are iterating.
+            // Find this record in the original fetched array to calculate its ORIGINAL delta
+            // Note: `rangeHistory` contains the *old* values before we started updating
+            // But we need the delta relative to the *old previous* value.
             
-            // Best approach: If we can't recalculate it (no checkin data), we assume the *change amount* was intended fixed value (e.g. +4 bonus).
-            // How to find original delta? We need the original state.
-            // Let's assume the gaps in 'rating' property of `rangeHistory` reflect the original deltas.
-            
-            // Find this record in the *original* fetched array to calculate original delta
-            const originalIndex = rangeHistory.findIndex(r => r.id === record.id);
-            const originalPrevRating = originalIndex > 0 ? rangeHistory[originalIndex - 1].rating : (priorHistory?.[0]?.rating || 1200);
-            
+            const originalPrevRating = i > 0 ? rangeHistory[i - 1].rating : (priorHistory?.[0]?.rating || 1200);
             const originalDelta = record.rating - originalPrevRating;
-            delta = originalDelta; // Keep the same numeric change
+            
+            delta = originalDelta; 
             
             // Update reason text if it contains "R: A->B" pattern
             const regex = /R:\s*(\d+)\s*->\s*(\d+)/;
@@ -466,10 +463,10 @@ export const recalculateUserRatingByRange = async (userId: string, startDate: st
             }
         }
 
-        // Apply
+        // Apply Delta
         runningRating += delta;
 
-        // Update DB
+        // Update DB Record
         await supabase
             .from('rating_history')
             .update({ 
@@ -479,7 +476,8 @@ export const recalculateUserRatingByRange = async (userId: string, startDate: st
             .eq('id', record.id);
     }
 
-    // 4. Final User Update
+    // 4. Final User Update (Head)
+    // CRITICAL: This ensures the user's current displayed rating matches the end of the replay chain.
     await supabase.from('users').update({ rating: runningRating }).eq('id', userId);
 
     // 5. Post Announcement
@@ -491,7 +489,7 @@ export const recalculateUserRatingByRange = async (userId: string, startDate: st
         userRating: adminUser.rating,
         userRole: 'admin',
         subject: SubjectCategory.OTHER,
-        content: `🔧 **系统操作公示**\n\n管理员对用户 **${targetUser.name}** 执行了区间积分重算。\n\n📅 **区间**: ${startDate} 至 ${endDate}\n📊 **修正后 Rating**: \`${runningRating}\``,
+        content: `🔧 **系统操作公示**\n\n管理员对用户 **${targetUser.name}** 执行了积分全量校准。\n\n📅 **重算起点**: ${startDate}\n📊 **修正后 Rating**: \`${runningRating}\``,
         duration: 0,
         isAnnouncement: true,
         timestamp: Date.now(),

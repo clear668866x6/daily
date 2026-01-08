@@ -271,28 +271,8 @@ const App: React.FC = () => {
         
         // If streak is multiple of 7 AND we haven't given bonus today
         if (streak > 0 && streak % 7 === 0 && lastBonusDate !== todayStr) {
-            // Updated Bonus Logic: Min(streak * 0.5, 4)
-            const bonus = Math.min(Math.ceil(streak * 0.5), 4); 
-            const newRating = (currentUser.rating || 1200) + bonus;
-            await storage.updateRating(currentUser.id, newRating, `🔥 连续打卡 ${streak} 天奖励`);
-            
-            const bonusCheckIn: CheckIn = {
-                id: `sys-bonus-${Date.now()}`,
-                userId: currentUser.id,
-                userName: currentUser.name,
-                userAvatar: currentUser.avatar,
-                userRating: newRating,
-                userRole: currentUser.role,
-                subject: SubjectCategory.DAILY,
-                content: `🎉 **七日连胜奖励！**\n\n已连续坚持 ${streak} 天，获得 ${bonus} 分奖励！\nKeep Momentum!`,
-                duration: 0,
-                timestamp: Date.now(),
-                likedBy: []
-            };
-            await storage.addCheckIn(bonusCheckIn);
-            
-            currentUser.rating = newRating;
-            setStreakModalData({days: streak, bonus: bonus});
+            // NO RATING BONUS - Just Celebration
+            setStreakModalData({days: streak, bonus: 0});
             localStorage.setItem(`last_streak_bonus_${currentUser.id}`, todayStr);
         }
 
@@ -530,7 +510,9 @@ const App: React.FC = () => {
                   </div>
                   <div className="text-yellow-400 font-black text-lg uppercase tracking-[0.3em] mb-2 animate-pulse">Momentum Streak</div>
                   <h2 className="text-5xl md:text-6xl font-black mb-6 bg-clip-text text-transparent bg-gradient-to-r from-yellow-200 to-yellow-500 drop-shadow-sm">连续打卡 {streakModalData.days} 天!</h2>
-                  <p className="text-indigo-200 text-lg max-w-md leading-relaxed mb-12">坚持就是胜利。获得 {streakModalData.bonus} 分奖励！</p>
+                  <p className="text-indigo-200 text-lg max-w-md leading-relaxed mb-12">
+                      {streakModalData.bonus > 0 ? `坚持就是胜利。获得 ${streakModalData.bonus} 分奖励！` : '坚持就是胜利。保持节奏，继续加油！'}
+                  </p>
                   <div className="flex items-center gap-2 text-white/50 text-sm animate-bounce"><span>点击任意处关闭</span></div>
               </div>
           </div>

@@ -67,6 +67,7 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
   const [recalcStartDate, setRecalcStartDate] = useState(new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0]);
   const [recalcEndDate, setRecalcEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [isRecalculating, setIsRecalculating] = useState(false);
+  const [recalcProgress, setRecalcProgress] = useState(0);
 
   useEffect(() => {
       setAllUsers(propAllUsers);
@@ -175,22 +176,37 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
   // Trigger Modal
   const openRecalcModal = (userId: string) => {
       setRecalcUserId(userId);
+      setRecalcProgress(0);
       setRecalcModalOpen(true);
   }
 
   const performRecalculation = async () => {
       if (!recalcUserId) return;
       setIsRecalculating(true);
+      setRecalcProgress(0);
       try {
-          // Use the Range Recalculation logic
-          const newRating = await storage.recalculateUserRatingByRange(recalcUserId, recalcStartDate, recalcEndDate, currentUser);
-          onShowToast(`区间重算成功，当前 Rating: ${newRating}`, 'success');
-          setAllUsers(prev => prev.map(u => u.id === recalcUserId ? { ...u, rating: newRating } : u));
-          setRecalcModalOpen(false);
+          // Use the Range Recalculation logic with Progress
+          const newRating = await storage.recalculateUserRatingByRange(
+              recalcUserId, 
+              recalcStartDate, 
+              recalcEndDate, 
+              currentUser,
+              (current, total) => {
+                  setRecalcProgress(Math.round((current / total) * 100));
+              }
+          );
+          
+          setRecalcProgress(100);
+          // Wait a moment for visual confirmation
+          setTimeout(() => {
+              onShowToast(`积分全量重算成功，当前 Rating: ${newRating}`, 'success');
+              setAllUsers(prev => prev.map(u => u.id === recalcUserId ? { ...u, rating: newRating } : u));
+              setRecalcModalOpen(false);
+              setIsRecalculating(false);
+          }, 800);
       } catch(e) {
           console.error(e);
           onShowToast("重算失败", 'error');
-      } finally {
           setIsRecalculating(false);
       }
   }
@@ -316,32 +332,48 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
       
       {/* --- Recalculate Modal --- */}
       {recalcModalOpen && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in p-4" onClick={() => setRecalcModalOpen(false)}>
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in p-4" onClick={() => !isRecalculating && setRecalcModalOpen(false)}>
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
                   <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-orange-50">
                       <h3 className="font-bold text-orange-900 flex items-center gap-2">
-                          <RotateCcw className="w-5 h-5 text-orange-600" /> 积分重算
+                          <RotateCcw className="w-5 h-5 text-orange-600" /> 积分全量校准
                       </h3>
-                      <button onClick={() => setRecalcModalOpen(false)}><X className="w-5 h-5 text-gray-400"/></button>
+                      {!isRecalculating && <button onClick={() => setRecalcModalOpen(false)}><X className="w-5 h-5 text-gray-400"/></button>}
                   </div>
+                  
                   <div className="p-6 space-y-4">
-                      <p className="text-xs text-gray-500 leading-relaxed bg-gray-50 p-2 rounded border border-gray-100">
-                          系统将基于所选日期前的 Rating 作为基准，依次重演该区间内的所有打卡记录，并修正所有加分日志。
-                      </p>
-                      <div>
-                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">开始日期</label>
-                          <input type="date" className="w-full border rounded-xl px-3 py-2 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-orange-500" value={recalcStartDate} onChange={e => setRecalcStartDate(e.target.value)} />
-                      </div>
-                      <div>
-                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">结束日期</label>
-                          <input type="date" className="w-full border rounded-xl px-3 py-2 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-orange-500" value={recalcEndDate} onChange={e => setRecalcEndDate(e.target.value)} />
-                      </div>
+                      {isRecalculating ? (
+                          <div className="flex flex-col items-center justify-center py-6">
+                              <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden mb-3">
+                                  <div className="h-full bg-orange-500 transition-all duration-300 ease-out" style={{ width: `${recalcProgress}%` }}></div>
+                              </div>
+                              <span className="text-orange-600 font-black text-2xl">{recalcProgress}%</span>
+                              <span className="text-gray-400 text-xs font-medium mt-1">正在重演历史记录，请勿关闭窗口...</span>
+                          </div>
+                      ) : (
+                          <>
+                              <p className="text-xs text-gray-500 leading-relaxed bg-gray-50 p-3 rounded-lg border border-gray-100">
+                                  ⚠️ <strong>高风险操作：</strong><br/>
+                                  系统将以“开始日期”前的积分为基准，<strong>重新模拟计算</strong>直到【今天】的所有历史记录。此操作不可撤销，旨在修复因规则变更导致的分数不一致。
+                              </p>
+                              <div>
+                                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">重算起点日期</label>
+                                  <input type="date" className="w-full border rounded-xl px-3 py-2 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-orange-500" value={recalcStartDate} onChange={e => setRecalcStartDate(e.target.value)} />
+                              </div>
+                              {/* Hidden End Date (implicitly "NOW") but keep UI if needed for visual, but clarify functionality */}
+                              <div>
+                                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1">结束日期 (默认为当前)</label>
+                                  <input type="date" disabled className="w-full border rounded-xl px-3 py-2 text-sm font-bold text-gray-400 bg-gray-50 cursor-not-allowed" value={new Date().toISOString().split('T')[0]} />
+                              </div>
+                          </>
+                      )}
                   </div>
+                  
                   <div className="p-4 border-t border-gray-100 flex gap-3">
-                      <button onClick={() => setRecalcModalOpen(false)} className="flex-1 py-2 rounded-xl text-gray-500 font-bold hover:bg-gray-100 transition-colors">取消</button>
-                      <button onClick={performRecalculation} disabled={isRecalculating} className="flex-1 py-2 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 shadow-lg shadow-orange-200 transition-all flex items-center justify-center gap-2">
+                      <button onClick={() => setRecalcModalOpen(false)} disabled={isRecalculating} className="flex-1 py-2 rounded-xl text-gray-500 font-bold hover:bg-gray-100 transition-colors disabled:opacity-50">取消</button>
+                      <button onClick={performRecalculation} disabled={isRecalculating} className="flex-1 py-2 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 shadow-lg shadow-orange-200 transition-all flex items-center justify-center gap-2 disabled:opacity-80">
                           {isRecalculating ? <Loader2 className="w-4 h-4 animate-spin"/> : <RotateCcw className="w-4 h-4"/>}
-                          确认重算
+                          {isRecalculating ? '计算中...' : '确认重算'}
                       </button>
                   </div>
               </div>
