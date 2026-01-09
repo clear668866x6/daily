@@ -321,27 +321,21 @@ export const deleteRatingHistoryRecord = async (historyId: number, userId: strin
 
         if (subsequentRecords && subsequentRecords.length > 0) {
             for (const record of subsequentRecords) {
-                // Calculate new rating snapshot for this point in time
                 const oldSnapshotRating = record.rating;
                 const newSnapshotRating = oldSnapshotRating + refundAmount;
 
                 let newReason = record.change_reason || '';
-
-                // Attempt to fix the text description "R: 1200 -> 1210" or "R:1200->1210"
                 const regex = /R:\s*(\d+)\s*->\s*(\d+)/;
                 const match = newReason.match(regex);
                 
                 if (match) {
                     const oldPrev = parseInt(match[1]);
                     const oldCurr = parseInt(match[2]);
-                    
                     const newPrev = oldPrev + refundAmount;
                     const newCurr = oldCurr + refundAmount;
-                    
                     newReason = newReason.replace(match[0], `R:${newPrev}->${newCurr}`);
                 }
 
-                // Execute Update
                 await supabase
                     .from('rating_history')
                     .update({ 
@@ -371,14 +365,14 @@ export const recalculateUserRating = async (userId: string, adminUser: User): Pr
     return correctRating;
 }
 
-// --- NEW FUNCTION: Recalculate Rating By Range (Replay Logic) ---
+// --- OPTIMIZED: Recalculate Rating By Range (Batch Replay Logic) ---
 export const recalculateUserRatingByRange = async (
     userId: string, 
     startDate: string, 
     endDate: string, 
     adminUser: User,
     onProgress?: (current: number, total: number) => void,
-    fullResetBaseRating?: number // If provided, completely ignore prior history and start from this
+    fullResetBaseRating?: number 
 ): Promise<number> => {
     const targetUser = await getUserById(userId);
     if (!targetUser) throw new Error("用户不存在");
@@ -386,22 +380,20 @@ export const recalculateUserRatingByRange = async (
     let runningRating = 1000;
 
     if (fullResetBaseRating !== undefined) {
-        // Full Reset Mode: Ignore history prior to start date
         runningRating = fullResetBaseRating;
     } else {
-        // 1. Determine Baseline Rating (Rating *before* startDate)
         const { data: priorHistory } = await supabase
             .from('rating_history')
             .select('*')
             .eq('user_id', userId)
             .lt('recorded_at', startDate)
-            .order('recorded_at', { ascending: false }) // Get closest previous record
+            .order('recorded_at', { ascending: false })
             .limit(1);
         
         runningRating = priorHistory && priorHistory.length > 0 ? priorHistory[0].rating : 1200;
     }
     
-    // 2. Fetch ALL records from StartDate to NOW (End of Time)
+    // 1. Fetch ALL records at once
     const { data: rangeHistory } = await supabase
         .from('rating_history')
         .select('*')
@@ -417,14 +409,15 @@ export const recalculateUserRatingByRange = async (
         .order('timestamp', { ascending: true });
 
     if (!rangeHistory || rangeHistory.length === 0) {
-        // If no history in range, just update user to baseline
         await supabase.from('users').update({ rating: runningRating }).eq('id', userId);
         return runningRating;
     }
 
     const totalRecords = rangeHistory.length;
+    const historyUpdates: any[] = [];
+    const checkInUpdates: any[] = [];
 
-    // 3. Replay Loop
+    // 2. In-Memory Replay Loop
     for (let i = 0; i < totalRecords; i++) {
         const record = rangeHistory[i];
         if (onProgress) onProgress(i + 1, totalRecords);
@@ -432,12 +425,10 @@ export const recalculateUserRatingByRange = async (
         let delta = 0;
         let reason = record.change_reason || '';
         
-        // Try to match with a check-in
         const recordTime = new Date(record.recorded_at).getTime();
         const matchedCheckIn = rangeCheckIns?.find(c => Math.abs(c.timestamp - recordTime) < 5000);
 
         if (matchedCheckIn) {
-            // It's a Check-In Log: Always RECALCULATE points based on the running rating
             const prevRating = runningRating;
             
             const duration = matchedCheckIn.duration || 0;
@@ -446,32 +437,29 @@ export const recalculateUserRatingByRange = async (
 
             delta = calculatePoints(prevRating, duration, subject, isPenalty);
             
-            // Reconstruct Reason string
             if (isPenalty) {
-                // Parse original content
                 reason = matchedCheckIn.content.split('\n')[0].replace(/\(R:.*\)/, '').trim(); 
-                
-                // If it's a variable penalty we previously logged as "扣分XX"
                 if (reason.includes('扣分')) {
-                     reason = reason.replace(/扣分\s*-?\d+/, `扣分${delta}`); // Update penalty amount in string
+                     reason = reason.replace(/扣分\s*-?\d+/, `扣分${delta}`); 
                 }
             } else {
                 reason = `学习 ${subject} ${duration}m (R:${prevRating}->${prevRating + delta})`;
             }
 
-            // Update CheckIn snapshot
-            await supabase.from('checkins').update({ user_rating: prevRating + delta }).eq('id', matchedCheckIn.id);
+            // Only update checkin if rating actually changes to save DB calls
+            if (matchedCheckIn.user_rating !== prevRating + delta) {
+                checkInUpdates.push({ 
+                    id: matchedCheckIn.id, 
+                    user_rating: prevRating + delta 
+                });
+            }
 
         } else {
-            // It's a Manual Adjustment / Bonus / System Penalty without check-in link
-            // For these, we PRESERVE the original relative delta
-            
-            const originalPrevRating = i > 0 ? rangeHistory[i - 1].rating : (fullResetBaseRating !== undefined ? fullResetBaseRating : 1200); // Approximation if no history
+            const originalPrevRating = i > 0 ? rangeHistory[i - 1].rating : (fullResetBaseRating !== undefined ? fullResetBaseRating : 1200);
             const originalDelta = record.rating - originalPrevRating;
             
             delta = originalDelta; 
             
-            // Update reason text if it contains "R: A->B" pattern
             const regex = /R:\s*(\d+)\s*->\s*(\d+)/;
             const match = reason.match(regex);
             if (match) {
@@ -479,23 +467,40 @@ export const recalculateUserRatingByRange = async (
             }
         }
 
-        // Apply Delta
         runningRating += delta;
 
-        // Update DB Record
-        await supabase
-            .from('rating_history')
-            .update({ 
-                rating: runningRating,
-                change_reason: reason
-            })
-            .eq('id', record.id);
+        historyUpdates.push({
+            id: record.id,
+            user_id: userId,
+            rating: runningRating,
+            change_reason: reason,
+            recorded_at: record.recorded_at
+        });
     }
 
-    // 4. Final User Update (Head)
+    // 3. Batch Updates (Safe Chunking)
+    const HISTORY_BATCH_SIZE = 50; 
+    for (let i = 0; i < historyUpdates.length; i += HISTORY_BATCH_SIZE) {
+        const chunk = historyUpdates.slice(i, i + HISTORY_BATCH_SIZE);
+        const { error } = await supabase.from('rating_history').upsert(chunk);
+        if (error) console.error("Batch update history error:", error);
+    }
+
+    // 4. Update CheckIns (Low Concurrency to avoid 429)
+    const CHECKIN_CONCURRENCY = 3; 
+    for (let i = 0; i < checkInUpdates.length; i += CHECKIN_CONCURRENCY) {
+        const chunk = checkInUpdates.slice(i, i + CHECKIN_CONCURRENCY);
+        await Promise.all(chunk.map(update => 
+            supabase.from('checkins').update({ user_rating: update.user_rating }).eq('id', update.id)
+        ));
+        // Small delay to let DB breathe
+        await new Promise(r => setTimeout(r, 50)); 
+    }
+
+    // 5. Final User Update
     await supabase.from('users').update({ rating: runningRating }).eq('id', userId);
 
-    // 5. Post Announcement (Only if NOT full reset batch job, to avoid spamming 100 announcements)
+    // 6. Post Announcement (Single User Mode)
     if (fullResetBaseRating === undefined) {
         const announcementCheckIn: CheckIn = {
             id: `sys-recalc-${Date.now()}`,
@@ -508,7 +513,7 @@ export const recalculateUserRatingByRange = async (
             content: `🔧 **系统操作公示**\n\n管理员对用户 **${targetUser.name}** 执行了积分全量校准。\n\n📅 **重算起点**: ${startDate}\n📊 **修正后 Rating**: \`${runningRating}\``,
             duration: 0,
             isAnnouncement: true,
-            expirationTimestamp: Date.now() + 24 * 60 * 60 * 1000, // 1 day expire
+            expirationTimestamp: Date.now() + 24 * 60 * 60 * 1000, 
             timestamp: Date.now(),
             likedBy: []
         };
@@ -518,37 +523,47 @@ export const recalculateUserRatingByRange = async (
     return runningRating;
 }
 
-// --- GLOBAL RECALCULATE ---
+// --- OPTIMIZED: GLOBAL RECALCULATE ---
 export const recalculateAllUsers = async (
     baseRating: number, 
     adminUser: User,
     onTotalProgress: (current: number, total: number) => void
 ): Promise<void> => {
     const users = await getAllUsers();
-    const totalUsers = users.filter(u => u.role !== 'admin').length;
+    const targetUsers = users.filter(u => u.role !== 'admin');
+    const totalUsers = targetUsers.length;
     let processed = 0;
 
-    // Use a very old start date to cover everything
     const startDate = '2020-01-01';
     const endDate = new Date().toISOString().split('T')[0];
 
-    for (const user of users) {
-        if (user.role === 'admin') continue;
+    // Sequential Processing for Safety (1 user at a time)
+    // The internal batching inside `recalculateUserRatingByRange` is already fast enough.
+    // Parallelizing users risks DB locks or rate limits.
+    const USER_CONCURRENCY = 1; 
+
+    for (let i = 0; i < targetUsers.length; i += USER_CONCURRENCY) {
+        const chunk = targetUsers.slice(i, i + USER_CONCURRENCY);
         
-        await recalculateUserRatingByRange(
-            user.id, 
-            startDate, 
-            endDate, 
-            adminUser, 
-            undefined, // No per-user progress callback to avoid noise
-            baseRating // Force reset with this base rating
-        );
-        
-        processed++;
-        onTotalProgress(processed, totalUsers);
+        await Promise.all(chunk.map(async (user) => {
+            try {
+                await recalculateUserRatingByRange(
+                    user.id, 
+                    startDate, 
+                    endDate, 
+                    adminUser, 
+                    undefined, 
+                    baseRating 
+                );
+            } catch (e) {
+                console.error(`Failed to recalculate for user ${user.name}`, e);
+            } finally {
+                processed++;
+                onTotalProgress(processed, totalUsers);
+            }
+        }));
     }
 
-    // Post ONE Global Announcement
     const announcementCheckIn: CheckIn = {
         id: `sys-global-recalc-${Date.now()}`,
         userId: adminUser.id,
@@ -560,7 +575,7 @@ export const recalculateAllUsers = async (
         content: `📢 **全站积分规则重置**\n\n为了优化积分生态，系统已执行全量回滚计算。\n\n🔸 **基础 Rating**: ${baseRating}\n🔸 **覆盖范围**: 所有历史记录\n\n用户的当前积分已根据最新规则（分段系数、科目权重）重新计算。如有疑问请联系管理员。`,
         duration: 0,
         isAnnouncement: true,
-        expirationTimestamp: Date.now() + 24 * 60 * 60 * 1000, // 1 Day Expiration
+        expirationTimestamp: Date.now() + 24 * 60 * 60 * 1000, 
         timestamp: Date.now(),
         likedBy: []
     };
