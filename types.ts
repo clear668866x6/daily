@@ -50,6 +50,7 @@ export interface CheckIn {
   
   wordCount?: number; // 新增：英语单词打卡数量
   isAnnouncement?: boolean; // 新增：是否为置顶公告
+  expirationTimestamp?: number; // 新增：公告过期时间 (毫秒时间戳)
   timestamp: number;
   likedBy: string[]; 
 }

@@ -503,13 +503,16 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
         const basePoints = Math.floor(durationVal / 10);
         const multiplier = SUBJECT_WEIGHTS[subjectVal] || 1.0;
         
+        // Updated Tier Logic (As requested)
         let tierMultiplier = 1.0;
-        if (newRating < 1200) tierMultiplier = 1.2;
-        else if (newRating < 1400) tierMultiplier = 1.0;
-        else if (newRating < 1600) tierMultiplier = 0.9;
-        else if (newRating < 1800) tierMultiplier = 0.8;
-        else if (newRating < 2000) tierMultiplier = 0.7;
-        else tierMultiplier = 0.5;
+        if (newRating < 1200) tierMultiplier = 1.0;
+        else if (newRating < 1400) tierMultiplier = 0.8;
+        else if (newRating < 1600) tierMultiplier = 0.7;
+        else if (newRating < 1900) tierMultiplier = 0.6;
+        else if (newRating < 2500) tierMultiplier = 0.5;
+        else if (newRating < 3000) tierMultiplier = 0.4;
+        else if (newRating < 4000) tierMultiplier = 0.3;
+        else tierMultiplier = 0.15; // 4000+
 
         ratingChange = Math.ceil(basePoints * multiplier * tierMultiplier) + 1; 
         newRating += ratingChange;
@@ -866,7 +869,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           onClose={() => setShowRules(false)}
           onConfirm={() => setShowRules(false)}
           title="奖惩机制说明"
-          message={`1. 每日目标: ${currentUser.dailyGoal || 90} 分钟。\n2. 每日结算: 凌晨4点。未达标扣 15 分，缺勤扣 50 分。\n3. 加分公式: 时长/10 * 科目权重 * 分段系数 + 1。\n4. 权重: 数学/专业课 1.2，英语 1.0，政治 0.8。\n5. 分段系数: \n   <1200分 x1.2\n   1200-1400分 x1.0\n   1400-1600分 x0.9\n   1600-1800分 x0.8\n   >2000分 x0.5 (高分段冲分更难)\n6. 连胜: 每7天连胜奖励，最高4分。\n7. 请假: >2天需审批，批准后免除惩罚但需补时。`}
+          message={`1. 每日目标: ${currentUser.dailyGoal || 90} 分钟。\n2. 每日结算: 凌晨4点。未达标扣 10~20 分，缺勤扣 50~60 分。\n3. 加分公式: 时长/10 * 科目权重 * 分段系数 + 1。\n4. 权重: 数学/专业课 1.2，英语 1.0，政治 0.8。\n5. 分段系数: \n   <1200分 x1.0\n   1200-1400分 x0.8\n   1400-1600分 x0.7\n   1600-1900分 x0.6\n   1900-2500分 x0.5\n   2500-3000分 x0.4\n   3000-4000分 x0.3\n   >4000分 x0.15 (高分段冲分更难)\n6. 请假: >2天需审批，批准后免除惩罚但需补时。`}
           confirmText="我明白了"
           cancelText="关闭"
       />

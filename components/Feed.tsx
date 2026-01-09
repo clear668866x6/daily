@@ -133,7 +133,13 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
 
   // Regular Feed Filtering
   const { announcements, regularPosts } = useMemo(() => {
-    const pinned = checkIns.filter(c => !!c.isAnnouncement);
+    const now = Date.now();
+    
+    const pinned = checkIns.filter(c => 
+        c.isAnnouncement && 
+        (!c.expirationTimestamp || c.expirationTimestamp > now)
+    );
+    
     const regular = checkIns.filter(c => !c.isAnnouncement);
     
     if (activeFilterId === 'ANNOUNCEMENT') {

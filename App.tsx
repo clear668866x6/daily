@@ -211,15 +211,18 @@ const App: React.FC = () => {
               let reason = '';
               
               if (duration === 0) {
-                  penalty = -50;
-                  reason = `[系统] 缺勤惩罚 (${checkDateStr})`;
+                  // Absent: -50 ~ -60
+                  const amount = Math.floor(Math.random() * 11) + 50; 
+                  penalty = -amount;
+                  reason = `[系统] 缺勤惩罚 (${checkDateStr}) 扣分${penalty}`;
               } else {
-                  penalty = -15;
-                  reason = `[系统] 时长不足 (${checkDateStr}): ${duration}/${dailyGoal}min`;
+                  // Short duration: -10 ~ -20
+                  const amount = Math.floor(Math.random() * 11) + 10;
+                  penalty = -amount;
+                  reason = `[系统] 时长不足 (${checkDateStr}): ${duration}/${dailyGoal}min 扣分${penalty}`;
               }
 
               // Double check we haven't already penalized this specific date
-              // (Prevent dups if local storage was cleared but DB remains)
               const alreadyPenalized = daysCheckIns.some(c => c.isPenalty && c.content.includes(checkDateStr));
               
               if (!alreadyPenalized) {

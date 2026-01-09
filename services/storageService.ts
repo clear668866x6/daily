@@ -43,12 +43,14 @@ const calculatePoints = (rating: number, duration: number, subject: string, isPe
         const multiplier = SUBJECT_WEIGHTS[subject] || 1.0;
         
         let tierMultiplier = 1.0;
-        if (rating < 1200) tierMultiplier = 1.2;
-        else if (rating < 1400) tierMultiplier = 1.0;
-        else if (rating < 1600) tierMultiplier = 0.9;
-        else if (rating < 1800) tierMultiplier = 0.8;
-        else if (rating < 2000) tierMultiplier = 0.7;
-        else tierMultiplier = 0.5;
+        if (rating < 1200) tierMultiplier = 1.0;
+        else if (rating < 1400) tierMultiplier = 0.8;
+        else if (rating < 1600) tierMultiplier = 0.7;
+        else if (rating < 1900) tierMultiplier = 0.6;
+        else if (rating < 2500) tierMultiplier = 0.5;
+        else if (rating < 3000) tierMultiplier = 0.4;
+        else if (rating < 4000) tierMultiplier = 0.3;
+        else tierMultiplier = 0.15; // 4000+
 
         return Math.ceil(basePoints * multiplier * tierMultiplier) + 1;
     }
@@ -85,12 +87,13 @@ export const getCurrentUser = (): User | null => {
 };
 
 export const loginGuest = (): User => {
+  const config = getSystemConfig();
   const guestUser: User = {
     id: 'guest-' + Date.now(),
     name: '访客',
     avatar: 'https://api.dicebear.com/7.x/notionists/svg?seed=Guest',
     role: 'guest',
-    rating: 1200 
+    rating: config.baseRating 
   };
   localStorage.setItem('kaoyan_current_user', JSON.stringify(guestUser));
   return guestUser;
@@ -139,7 +142,9 @@ export const loginUser = async (username: string, password?: string, inviteCode?
     if (inviteCode !== INVITE_CODE) throw new Error(`邀请码错误，请联系管理员获取。`);
     if (!password) throw new Error("注册新账号请设置密码");
 
-    const initialRating = Math.floor(Math.random() * 200) + 1100;
+    const config = getSystemConfig();
+    const initialRating = config.baseRating; // Use configured base rating
+
     const newUser: User = {
       id: crypto.randomUUID(),
       name: username,
@@ -201,9 +206,12 @@ export const adminUpdateUser = async (userId: string, updates: Partial<User>): P
     }
 };
 
-export const adminCreateUser = async (username: string, password?: string, initialRating: number = 1200): Promise<void> => {
+export const adminCreateUser = async (username: string, password?: string, initialRating?: number): Promise<void> => {
     const { data: existing } = await supabase.from('users').select('id').eq('name', username).single();
     if (existing) throw new Error("用户名已存在");
+
+    const config = getSystemConfig();
+    const startRating = initialRating !== undefined ? initialRating : config.baseRating;
 
     const newUser: User = {
         id: crypto.randomUUID(),
@@ -211,7 +219,7 @@ export const adminCreateUser = async (username: string, password?: string, initi
         avatar: `https://api.dicebear.com/7.x/notionists/svg?seed=${username}`,
         role: 'user',
         password: password,
-        rating: initialRating,
+        rating: startRating,
         dailyGoal: 90
     };
 
@@ -221,7 +229,7 @@ export const adminCreateUser = async (username: string, password?: string, initi
     });
     if (error) throw error;
     
-    await recordRatingHistory(newUser.id, initialRating, "Admin Created User");
+    await recordRatingHistory(newUser.id, startRating, "Admin Created User");
 }
 
 export const adminDeleteUser = async (userId: string): Promise<void> => {
@@ -236,14 +244,19 @@ export const adminDeleteUser = async (userId: string): Promise<void> => {
 // --- System Config ---
 export const getSystemConfig = () => {
     const startDate = localStorage.getItem('kaoyan_sys_start_date');
+    const baseRatingStr = localStorage.getItem('kaoyan_sys_base_rating');
+    const baseRating = baseRatingStr ? parseInt(baseRatingStr) : 1000; // Default to 1000
     return {
-        absentStartDate: startDate || ''
+        absentStartDate: startDate || '',
+        baseRating
     };
 };
 
-export const setSystemConfig = (key: string, value: string) => {
+export const setSystemConfig = (key: string, value: string | number) => {
     if (key === 'absentStartDate') {
-        localStorage.setItem('kaoyan_sys_start_date', value);
+        localStorage.setItem('kaoyan_sys_start_date', String(value));
+    } else if (key === 'baseRating') {
+        localStorage.setItem('kaoyan_sys_base_rating', String(value));
     }
 };
 
@@ -364,25 +377,31 @@ export const recalculateUserRatingByRange = async (
     startDate: string, 
     endDate: string, 
     adminUser: User,
-    onProgress?: (current: number, total: number) => void
+    onProgress?: (current: number, total: number) => void,
+    fullResetBaseRating?: number // If provided, completely ignore prior history and start from this
 ): Promise<number> => {
     const targetUser = await getUserById(userId);
     if (!targetUser) throw new Error("用户不存在");
 
-    // 1. Determine Baseline Rating (Rating *before* startDate)
-    const { data: priorHistory } = await supabase
-        .from('rating_history')
-        .select('*')
-        .eq('user_id', userId)
-        .lt('recorded_at', startDate)
-        .order('recorded_at', { ascending: false }) // Get closest previous record
-        .limit(1);
-    
-    let runningRating = priorHistory && priorHistory.length > 0 ? priorHistory[0].rating : 1200;
+    let runningRating = 1000;
+
+    if (fullResetBaseRating !== undefined) {
+        // Full Reset Mode: Ignore history prior to start date
+        runningRating = fullResetBaseRating;
+    } else {
+        // 1. Determine Baseline Rating (Rating *before* startDate)
+        const { data: priorHistory } = await supabase
+            .from('rating_history')
+            .select('*')
+            .eq('user_id', userId)
+            .lt('recorded_at', startDate)
+            .order('recorded_at', { ascending: false }) // Get closest previous record
+            .limit(1);
+        
+        runningRating = priorHistory && priorHistory.length > 0 ? priorHistory[0].rating : 1200;
+    }
     
     // 2. Fetch ALL records from StartDate to NOW (End of Time)
-    // CRITICAL FIX: We must process ALL future records to maintain consistency.
-    // The `endDate` param is technically used to define the "start of the replay", but we replay until now.
     const { data: rangeHistory } = await supabase
         .from('rating_history')
         .select('*')
@@ -398,7 +417,7 @@ export const recalculateUserRatingByRange = async (
         .order('timestamp', { ascending: true });
 
     if (!rangeHistory || rangeHistory.length === 0) {
-        // If no history in range, just update user to baseline (in case they were manually desynced)
+        // If no history in range, just update user to baseline
         await supabase.from('users').update({ rating: runningRating }).eq('id', userId);
         return runningRating;
     }
@@ -419,7 +438,6 @@ export const recalculateUserRatingByRange = async (
 
         if (matchedCheckIn) {
             // It's a Check-In Log: Always RECALCULATE points based on the running rating
-            // This ensures tiers (1200 vs 2000) are applied correctly based on the *new* timeline
             const prevRating = runningRating;
             
             const duration = matchedCheckIn.duration || 0;
@@ -430,9 +448,12 @@ export const recalculateUserRatingByRange = async (
             
             // Reconstruct Reason string
             if (isPenalty) {
+                // Parse original content
                 reason = matchedCheckIn.content.split('\n')[0].replace(/\(R:.*\)/, '').trim(); 
+                
+                // If it's a variable penalty we previously logged as "扣分XX"
                 if (reason.includes('扣分')) {
-                     reason = reason.replace(/扣分\s*-?\d+/, `扣分 ${delta}`);
+                     reason = reason.replace(/扣分\s*-?\d+/, `扣分${delta}`); // Update penalty amount in string
                 }
             } else {
                 reason = `学习 ${subject} ${duration}m (R:${prevRating}->${prevRating + delta})`;
@@ -444,13 +465,8 @@ export const recalculateUserRatingByRange = async (
         } else {
             // It's a Manual Adjustment / Bonus / System Penalty without check-in link
             // For these, we PRESERVE the original relative delta
-            // Example: Admin added 50 points manually. We keep adding 50 points, regardless of base.
             
-            // Find this record in the original fetched array to calculate its ORIGINAL delta
-            // Note: `rangeHistory` contains the *old* values before we started updating
-            // But we need the delta relative to the *old previous* value.
-            
-            const originalPrevRating = i > 0 ? rangeHistory[i - 1].rating : (priorHistory?.[0]?.rating || 1200);
+            const originalPrevRating = i > 0 ? rangeHistory[i - 1].rating : (fullResetBaseRating !== undefined ? fullResetBaseRating : 1200); // Approximation if no history
             const originalDelta = record.rating - originalPrevRating;
             
             delta = originalDelta; 
@@ -477,27 +493,78 @@ export const recalculateUserRatingByRange = async (
     }
 
     // 4. Final User Update (Head)
-    // CRITICAL: This ensures the user's current displayed rating matches the end of the replay chain.
     await supabase.from('users').update({ rating: runningRating }).eq('id', userId);
 
-    // 5. Post Announcement
+    // 5. Post Announcement (Only if NOT full reset batch job, to avoid spamming 100 announcements)
+    if (fullResetBaseRating === undefined) {
+        const announcementCheckIn: CheckIn = {
+            id: `sys-recalc-${Date.now()}`,
+            userId: adminUser.id,
+            userName: adminUser.name,
+            userAvatar: adminUser.avatar,
+            userRating: adminUser.rating,
+            userRole: 'admin',
+            subject: SubjectCategory.OTHER,
+            content: `🔧 **系统操作公示**\n\n管理员对用户 **${targetUser.name}** 执行了积分全量校准。\n\n📅 **重算起点**: ${startDate}\n📊 **修正后 Rating**: \`${runningRating}\``,
+            duration: 0,
+            isAnnouncement: true,
+            expirationTimestamp: Date.now() + 24 * 60 * 60 * 1000, // 1 day expire
+            timestamp: Date.now(),
+            likedBy: []
+        };
+        await addCheckIn(announcementCheckIn);
+    }
+
+    return runningRating;
+}
+
+// --- GLOBAL RECALCULATE ---
+export const recalculateAllUsers = async (
+    baseRating: number, 
+    adminUser: User,
+    onTotalProgress: (current: number, total: number) => void
+): Promise<void> => {
+    const users = await getAllUsers();
+    const totalUsers = users.filter(u => u.role !== 'admin').length;
+    let processed = 0;
+
+    // Use a very old start date to cover everything
+    const startDate = '2020-01-01';
+    const endDate = new Date().toISOString().split('T')[0];
+
+    for (const user of users) {
+        if (user.role === 'admin') continue;
+        
+        await recalculateUserRatingByRange(
+            user.id, 
+            startDate, 
+            endDate, 
+            adminUser, 
+            undefined, // No per-user progress callback to avoid noise
+            baseRating // Force reset with this base rating
+        );
+        
+        processed++;
+        onTotalProgress(processed, totalUsers);
+    }
+
+    // Post ONE Global Announcement
     const announcementCheckIn: CheckIn = {
-        id: `sys-recalc-${Date.now()}`,
+        id: `sys-global-recalc-${Date.now()}`,
         userId: adminUser.id,
         userName: adminUser.name,
         userAvatar: adminUser.avatar,
         userRating: adminUser.rating,
         userRole: 'admin',
         subject: SubjectCategory.OTHER,
-        content: `🔧 **系统操作公示**\n\n管理员对用户 **${targetUser.name}** 执行了积分全量校准。\n\n📅 **重算起点**: ${startDate}\n📊 **修正后 Rating**: \`${runningRating}\``,
+        content: `📢 **全站积分规则重置**\n\n为了优化积分生态，系统已执行全量回滚计算。\n\n🔸 **基础 Rating**: ${baseRating}\n🔸 **覆盖范围**: 所有历史记录\n\n用户的当前积分已根据最新规则（分段系数、科目权重）重新计算。如有疑问请联系管理员。`,
         duration: 0,
         isAnnouncement: true,
+        expirationTimestamp: Date.now() + 24 * 60 * 60 * 1000, // 1 Day Expiration
         timestamp: Date.now(),
         likedBy: []
     };
     await addCheckIn(announcementCheckIn);
-
-    return runningRating;
 }
 
 export const updateRatingHistoryRecord = async (historyId: number, updates: Partial<RatingHistory>): Promise<void> => {
@@ -536,6 +603,7 @@ export const getCheckIns = async (): Promise<CheckIn[]> => {
 
       wordCount: item.word_count || 0,
       isAnnouncement: item.is_announcement || false, 
+      expirationTimestamp: item.expiration_timestamp, // Map from DB
       timestamp: Number(item.timestamp), 
       likedBy: item.liked_by || []
   })) as CheckIn[];
@@ -571,6 +639,7 @@ export const getUserCheckIns = async (userId: string): Promise<CheckIn[]> => {
 
       wordCount: item.word_count || 0,
       isAnnouncement: item.is_announcement,
+      expirationTimestamp: item.expiration_timestamp,
       timestamp: Number(item.timestamp),
       likedBy: item.liked_by || []
   })) as CheckIn[];
@@ -620,6 +689,7 @@ export const addCheckIn = async (checkIn: CheckIn): Promise<void> => {
 
     word_count: checkIn.wordCount || 0,
     is_announcement: checkIn.isAnnouncement || false, 
+    expiration_timestamp: checkIn.expirationTimestamp || null, // Map to DB snake_case
     timestamp: checkIn.timestamp,
     liked_by: checkIn.likedBy || []
   };
@@ -650,10 +720,14 @@ export const deleteCheckIn = async (id: string, skipRatingReversal: boolean = fa
     // Only calculate rating impact if NOT skipping reversal (e.g. non-admin delete)
     if (!skipRatingReversal) {
         if (checkIn.is_penalty) {
-            if (checkIn.content.includes('缺勤') || checkIn.content.includes('偿还失败')) {
-                ratingDelta = 50; // Restore 50 points
+            // Try to extract dynamic penalty amount from content
+            const match = checkIn.content.match(/扣分\s*(-?\d+)/);
+            if (match) {
+                ratingDelta = Math.abs(parseInt(match[1]));
+            } else if (checkIn.content.includes('缺勤') || checkIn.content.includes('偿还失败')) {
+                ratingDelta = 50; // Restore 50 points (Legacy fallback)
             } else if (checkIn.content.includes('时长不足')) {
-                ratingDelta = 15; // Restore 15 points
+                ratingDelta = 15; // Restore 15 points (Legacy fallback)
             } else if (checkIn.duration) {
                 ratingDelta = Math.round((checkIn.duration / 10) * 1.5) + 1; 
             }
@@ -686,8 +760,12 @@ export const exemptPenalty = async (id: string): Promise<{ ratingDelta: number, 
     }
 
     let ratingDelta = 0;
-    // Calculate refund amount based on content heuristics (same as deleteCheckIn)
-    if (checkIn.content.includes('缺勤') || checkIn.content.includes('偿还失败')) {
+    
+    // Calculate refund amount based on content heuristics or parsed amount
+    const match = checkIn.content.match(/扣分\s*(-?\d+)/);
+    if (match) {
+        ratingDelta = Math.abs(parseInt(match[1]));
+    } else if (checkIn.content.includes('缺勤') || checkIn.content.includes('偿还失败')) {
         ratingDelta = 50; 
     } else if (checkIn.content.includes('时长不足')) {
         ratingDelta = 15;
