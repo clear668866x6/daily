@@ -17,13 +17,9 @@ export const GlobalAlerts: React.FC<Props> = ({ user, checkIns, algoTasks, onNav
   const day = String(today.getDate()).padStart(2, '0');
   const todayStr = `${year}-${month}-${day}`;
 
-  // 1. 获取所有置顶公告，只显示最新的一个 (Filter out expired)
+  // 1. 获取所有置顶公告，只显示最新的一个
   const latestAnnouncement = useMemo(() => {
-    const now = Date.now();
-    const all = checkIns.filter(c => 
-        c.isAnnouncement && 
-        (!c.expirationTimestamp || c.expirationTimestamp > now)
-    );
+    const all = checkIns.filter(c => c.isAnnouncement);
     if (all.length === 0) return null;
     return all.sort((a, b) => b.timestamp - a.timestamp)[0];
   }, [checkIns]);

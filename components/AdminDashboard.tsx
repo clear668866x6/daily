@@ -3,7 +3,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { CheckIn, User, SubjectCategory, RatingHistory, getUserStyle, AlgorithmTask } from '../types';
 import * as storage from '../services/storageService';
 import { AreaChart, Area, XAxis, Tooltip, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, YAxis, Legend } from 'recharts';
-import { Shield, CalendarOff, Save, ListTodo, UserPlus, Medal, Coffee, CheckCircle2, ChevronUp, MoreHorizontal, Edit3, Trash2, AlertCircle, ShieldCheck, BarChart3, PieChart as PieChartIcon, Search, X, History, TrendingUp, TrendingDown, Clock, BookOpen, Send, PlusCircle, Loader2, Calendar as CalendarIcon, Filter, RotateCcw, Flag } from 'lucide-react';
+import { Shield, CalendarOff, Save, ListTodo, UserPlus, Medal, Coffee, CheckCircle2, ChevronUp, MoreHorizontal, Edit3, Trash2, AlertCircle, ShieldCheck, BarChart3, PieChart as PieChartIcon, Search, X, History, TrendingUp, TrendingDown, Clock, BookOpen, Send, PlusCircle, Loader2, Calendar as CalendarIcon, Filter, RotateCcw } from 'lucide-react';
 import { ToastType } from './Toast';
 import { AdminUserModal } from './AdminUserModal';
 import { MarkdownText } from './MarkdownText';
@@ -34,7 +34,6 @@ const formatDateKey = (timestampOrDate: number | Date): string => {
 export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUsers: propAllUsers, onUpdateUser, onShowToast, onNavigateToUser }) => {
   const [allUsers, setAllUsers] = useState<User[]>(propAllUsers);
   const [sysAbsentStartDate, setSysAbsentStartDate] = useState('');
-  const [sysBaseRating, setSysBaseRating] = useState<number>(1000);
   const [showAdminUserModal, setShowAdminUserModal] = useState(false);
   const [expandedUserIds, setExpandedUserIds] = useState<string[]>([]);
   const [userPenaltyMap, setUserPenaltyMap] = useState<Record<string, CheckIn[]>>({});
@@ -69,9 +68,6 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
   const [recalcEndDate, setRecalcEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [isRecalculating, setIsRecalculating] = useState(false);
   const [recalcProgress, setRecalcProgress] = useState(0);
-  
-  // Global Rollback State
-  const [isGlobalRollback, setIsGlobalRollback] = useState(false);
 
   useEffect(() => {
       setAllUsers(propAllUsers);
@@ -81,7 +77,6 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
       const init = () => {
           const config = storage.getSystemConfig();
           setSysAbsentStartDate(config.absentStartDate);
-          setSysBaseRating(config.baseRating);
       }
       init();
   }, []);
@@ -139,7 +134,6 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
   // --- Actions ---
   const handleSaveSysConfig = () => {
       storage.setSystemConfig('absentStartDate', sysAbsentStartDate);
-      storage.setSystemConfig('baseRating', sysBaseRating);
       onShowToast("系统配置已保存", 'success');
   };
 
@@ -182,68 +176,40 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
   // Trigger Modal
   const openRecalcModal = (userId: string) => {
       setRecalcUserId(userId);
-      setIsGlobalRollback(false);
-      setRecalcProgress(0);
-      setRecalcModalOpen(true);
-  }
-
-  // Trigger Global Modal
-  const openGlobalRecalcModal = () => {
-      setRecalcUserId(null);
-      setIsGlobalRollback(true);
       setRecalcProgress(0);
       setRecalcModalOpen(true);
   }
 
   const performRecalculation = async () => {
+      if (!recalcUserId) return;
       setIsRecalculating(true);
       setRecalcProgress(0);
       try {
-          if (isGlobalRollback) {
-              await storage.recalculateAllUsers(
-                  sysBaseRating,
-                  currentUser,
-                  (current, total) => {
-                      setRecalcProgress(Math.round((current / total) * 100));
-                  }
-              );
-              onShowToast(`全量回滚完成！基础分已重置为 ${sysBaseRating}`, 'success');
-              // Refresh all users
-              const updatedUsers = await storage.getAllUsers();
-              setAllUsers(updatedUsers);
-              
-              // Force update self
-              const freshSelf = updatedUsers.find(u => u.id === currentUser.id);
-              if (freshSelf) {
-                  onUpdateUser(freshSelf);
-                  storage.updateUserLocal(freshSelf);
+          // Use the Range Recalculation logic with Progress
+          const newRating = await storage.recalculateUserRatingByRange(
+              recalcUserId, 
+              recalcStartDate, 
+              recalcEndDate, 
+              currentUser,
+              (current, total) => {
+                  setRecalcProgress(Math.round((current / total) * 100));
               }
-          } else {
-              if (!recalcUserId) return;
-              // Use the Range Recalculation logic with Progress
-              const newRating = await storage.recalculateUserRatingByRange(
-                  recalcUserId, 
-                  recalcStartDate, 
-                  recalcEndDate, 
-                  currentUser,
-                  (current, total) => {
-                      setRecalcProgress(Math.round((current / total) * 100));
-                  }
-              );
-              
-              onShowToast(`积分重算成功，当前 Rating: ${newRating}`, 'success');
+          );
+          
+          setRecalcProgress(100);
+          // Wait a moment for visual confirmation
+          setTimeout(() => {
+              onShowToast(`积分全量重算成功，当前 Rating: ${newRating}`, 'success');
               setAllUsers(prev => prev.map(u => u.id === recalcUserId ? { ...u, rating: newRating } : u));
               
               // CRITICAL: Update current user state if admin modified themselves
+              // This prevents next check-in from using stale rating
               if (recalcUserId === currentUser.id) {
                   const updatedUser = { ...currentUser, rating: newRating };
                   onUpdateUser(updatedUser);
                   storage.updateUserLocal(updatedUser);
               }
-          }
-          
-          setRecalcProgress(100);
-          setTimeout(() => {
+
               setRecalcModalOpen(false);
               setIsRecalculating(false);
           }, 800);
@@ -391,7 +357,7 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
                   <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-orange-50">
                       <h3 className="font-bold text-orange-900 flex items-center gap-2">
-                          <RotateCcw className="w-5 h-5 text-orange-600" /> {isGlobalRollback ? '全局积分重置' : '单用户积分校准'}
+                          <RotateCcw className="w-5 h-5 text-orange-600" /> 积分全量校准
                       </h3>
                       {!isRecalculating && <button onClick={() => setRecalcModalOpen(false)}><X className="w-5 h-5 text-gray-400"/></button>}
                   </div>
@@ -409,25 +375,16 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
                           <>
                               <p className="text-xs text-gray-500 leading-relaxed bg-gray-50 p-3 rounded-lg border border-gray-100">
                                   ⚠️ <strong>高风险操作：</strong><br/>
-                                  {isGlobalRollback 
-                                    ? `此操作将【所有用户】的 Rating 重置为 ${sysBaseRating}，并依据历史打卡记录从头重新计算。这通常用于修复全站规则变更后的积分不一致。`
-                                    : "系统将以“开始日期”前的积分为基准，重新模拟计算该用户直到【今天】的所有历史记录。"
-                                  }
+                                  系统将以“开始日期”前的积分为基准，<strong>重新模拟计算</strong>直到【今天】的所有历史记录。此操作不可撤销，旨在修复因规则变更导致的分数不一致。
                               </p>
-                              
-                              {!isGlobalRollback && (
-                                  <div>
-                                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1">重算起点日期</label>
-                                      <input type="date" className="w-full border rounded-xl px-3 py-2 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-orange-500" value={recalcStartDate} onChange={e => setRecalcStartDate(e.target.value)} />
-                                  </div>
-                              )}
-                              
-                              {isGlobalRollback && (
-                                  <div className="flex items-center gap-2 text-sm font-bold text-gray-600 bg-orange-100/50 p-2 rounded-lg">
-                                      <Flag className="w-4 h-4 text-orange-500"/>
-                                      <span>目标基础分: {sysBaseRating}</span>
-                                  </div>
-                              )}
+                              <div>
+                                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">重算起点日期</label>
+                                  <input type="date" className="w-full border rounded-xl px-3 py-2 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-orange-500" value={recalcStartDate} onChange={e => setRecalcStartDate(e.target.value)} />
+                              </div>
+                              <div>
+                                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1">结束日期 (默认为当前)</label>
+                                  <input type="date" disabled className="w-full border rounded-xl px-3 py-2 text-sm font-bold text-gray-400 bg-gray-50 cursor-not-allowed" value={new Date().toISOString().split('T')[0]} />
+                              </div>
                           </>
                       )}
                   </div>
@@ -436,7 +393,7 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
                       <button onClick={() => setRecalcModalOpen(false)} disabled={isRecalculating} className="flex-1 py-2 rounded-xl text-gray-500 font-bold hover:bg-gray-100 transition-colors disabled:opacity-50">取消</button>
                       <button onClick={performRecalculation} disabled={isRecalculating} className="flex-1 py-2 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 shadow-lg shadow-orange-200 transition-all flex items-center justify-center gap-2 disabled:opacity-80">
                           {isRecalculating ? <Loader2 className="w-4 h-4 animate-spin"/> : <RotateCcw className="w-4 h-4"/>}
-                          {isRecalculating ? '计算中...' : '确认执行'}
+                          {isRecalculating ? '计算中...' : '确认重算'}
                       </button>
                   </div>
               </div>
@@ -592,27 +549,13 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
            <h1 className="text-2xl font-black text-gray-800 flex items-center gap-2">
                <Shield className="w-7 h-7 text-indigo-600" /> 管理控制台
            </h1>
-           <div className="flex gap-2 items-center">
-               <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-sm">
-                   <Flag className="w-4 h-4 text-orange-500" />
-                   <span className="text-xs font-bold text-gray-500">Base Rating:</span>
-                   <input 
-                      type="number" 
-                      value={sysBaseRating} 
-                      onChange={e => setSysBaseRating(parseInt(e.target.value) || 1000)} 
-                      className="text-xs font-bold text-gray-800 outline-none border-b border-dashed border-gray-300 focus:border-indigo-500 w-12 text-center"
-                   />
-               </div>
+           <div className="flex gap-2">
                <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-sm">
                    <CalendarOff className="w-4 h-4 text-red-500" />
                    <span className="text-xs font-bold text-gray-500">惩罚起始日:</span>
                    <input type="date" value={sysAbsentStartDate} onChange={e => setSysAbsentStartDate(e.target.value)} className="text-xs font-bold text-gray-800 outline-none border-b border-dashed border-gray-300 focus:border-indigo-500 w-24"/>
                    <button onClick={handleSaveSysConfig} className="text-indigo-600 hover:text-indigo-800"><Save className="w-4 h-4"/></button>
                </div>
-               
-               <div className="h-6 w-px bg-gray-300 mx-2"></div>
-               
-               <button onClick={openGlobalRecalcModal} className="bg-orange-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow-lg shadow-orange-200 hover:bg-orange-600 flex items-center gap-1 transition-all"><RotateCcw className="w-4 h-4" /> 全局回滚</button>
                <button onClick={() => setShowAlgoModal(true)} className="bg-indigo-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 flex items-center gap-1"><PlusCircle className="w-4 h-4" /> 发布算法题</button>
            </div>
       </div>
