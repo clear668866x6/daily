@@ -132,7 +132,8 @@ const App: React.FC = () => {
 
   // 核心逻辑：检查每日惩罚 & 连胜奖励
   const checkDailyPenalties = async (currentUser: User) => {
-      if (currentUser.role === 'guest') return currentUser;
+      // 修改点：如果是访客或者管理员，直接跳过惩罚检查
+      if (currentUser.role === 'guest' || currentUser.role === 'admin') return currentUser;
       
       const sysConfig = storage.getSystemConfig();
       const startDateLimit = sysConfig.absentStartDate ? new Date(sysConfig.absentStartDate).getTime() : 0;
