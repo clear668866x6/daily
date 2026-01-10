@@ -444,7 +444,9 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       }
 
       const isPending = leaveDays > 2;
-      const makeup = isPending ? 0 : 30 * leaveDays; 
+      // Random makeup minutes between 30 and 60 per day
+      const dailyMakeup = Math.floor(Math.random() * (60 - 30 + 1)) + 30;
+      const makeup = isPending ? 0 : dailyMakeup * leaveDays; 
 
       const leaveCheckIn: CheckIn = {
           id: Date.now().toString(),
@@ -454,7 +456,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           userRating: currentUser.rating,
           userRole: currentUser.role,
           subject: SubjectCategory.OTHER,
-          content: `📜 **请假申请**\n\n**天数**: ${leaveDays} 天\n**理由**: ${leaveReason}\n\n${isPending ? '⏳ 超过2天，等待管理员审批...' : `✅ 系统自动批准 (需补时 ${makeup} 分钟)`}`,
+          content: `📜 **请假申请**\n\n**天数**: ${leaveDays} 天\n**理由**: ${leaveReason}\n\n${isPending ? '⏳ 超过2天，等待管理员审批...' : `✅ 系统自动批准 (需补时 ${makeup} 分钟，约 ${dailyMakeup} min/天)`}`,
           duration: 0,
           isLeave: true,
           leaveDays: leaveDays,
@@ -852,7 +854,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                   <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 text-xs text-blue-700 leading-relaxed">
                       💡 <strong>规则提示：</strong><br/>
                       1. 请假期间免除每日目标考核。<br/>
-                      2. 假期结束后，次日目标可能包含补习时长。<br/>
+                      2. 假期结束后，需偿还补习时长 (每日随机 30~60 min)。<br/>
                       3. 申请将公示在研友圈，接受研友监督。
                   </div>
               </div>
@@ -869,7 +871,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           onClose={() => setShowRules(false)}
           onConfirm={() => setShowRules(false)}
           title="奖惩机制说明"
-          message={`1. 每日目标: ${currentUser.dailyGoal || 90} 分钟。\n2. 每日结算: 凌晨4点。未达标扣 15 分，缺勤扣 50 分。\n3. 加分公式: 时长/10 * 科目权重 * 分段系数 + 1。\n4. 权重: 数学/专业课 1.2，英语 1.0，政治 0.8。\n5. 分段系数: \n   <1200分 x1.0\n   1200-1400分 x0.8\n   1400-1600分 x0.7\n   1600-1900分 x0.6\n   1900-2500分 x0.5\n   2500-3000分 x0.4\n   3000-4000分 x0.3\n   >4000分 x0.15 (高分段冲分更难)\n6. 连胜: 每7天连胜奖励，最高4分。\n7. 请假: >2天需审批，批准后免除惩罚但需补时。`}
+          message={`1. 每日目标: ${currentUser.dailyGoal || 90} 分钟。\n2. 每日结算: 凌晨4点。未达标扣 10~20 分，缺勤扣 45~60 分。\n3. 加分公式: 时长/10 * 科目权重 * 分段系数 + 1。\n4. 权重: 数学/专业课 1.2，英语 1.0，政治 0.8。\n5. 分段系数: \n   <1200分 x1.0\n   1200-1400分 x0.8\n   1400-1600分 x0.7\n   1600-1900分 x0.6\n   1900-2500分 x0.5\n   2500-3000分 x0.4\n   3000-4000分 x0.3\n   >4000分 x0.15 (高分段冲分更难)\n6. 请假: >2天需审批，批准后免除惩罚，但次日需补时(30~60分钟/天)。`}
           confirmText="我明白了"
           cancelText="关闭"
       />

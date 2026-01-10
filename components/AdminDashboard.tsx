@@ -3,7 +3,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { CheckIn, User, SubjectCategory, RatingHistory, getUserStyle, AlgorithmTask } from '../types';
 import * as storage from '../services/storageService';
 import { AreaChart, Area, XAxis, Tooltip, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, YAxis, Legend } from 'recharts';
-import { Shield, CalendarOff, Save, ListTodo, UserPlus, Medal, Coffee, CheckCircle2, ChevronUp, MoreHorizontal, Edit3, Trash2, AlertCircle, ShieldCheck, BarChart3, PieChart as PieChartIcon, Search, X, History, TrendingUp, TrendingDown, Clock, BookOpen, Send, PlusCircle, Loader2, Calendar as CalendarIcon, Filter, RotateCcw } from 'lucide-react';
+import { Shield, CalendarOff, Save, ListTodo, UserPlus, Medal, Coffee, CheckCircle2, ChevronUp, MoreHorizontal, Edit3, Trash2, AlertCircle, ShieldCheck, BarChart3, PieChart as PieChartIcon, Search, X, History, TrendingUp, TrendingDown, Clock, BookOpen, Send, PlusCircle, Loader2, Calendar as CalendarIcon, Filter, RotateCcw, Users } from 'lucide-react';
 import { ToastType } from './Toast';
 import { AdminUserModal } from './AdminUserModal';
 import { MarkdownText } from './MarkdownText';
@@ -66,8 +66,10 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
   const [recalcUserId, setRecalcUserId] = useState<string | null>(null);
   const [recalcStartDate, setRecalcStartDate] = useState(new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0]);
   const [recalcEndDate, setRecalcEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [recalcBaseScore, setRecalcBaseScore] = useState<string>(''); // NEW: Allow manual base score
   const [isRecalculating, setIsRecalculating] = useState(false);
   const [recalcProgress, setRecalcProgress] = useState(0);
+  const [isGlobalRecalc, setIsGlobalRecalc] = useState(false); // NEW: Toggle between single user and all users
 
   useEffect(() => {
       setAllUsers(propAllUsers);
@@ -176,43 +178,81 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
   // Trigger Modal
   const openRecalcModal = (userId: string) => {
       setRecalcUserId(userId);
+      setIsGlobalRecalc(false);
       setRecalcProgress(0);
+      setRecalcBaseScore('');
+      setRecalcModalOpen(true);
+  }
+
+  const openGlobalRecalcModal = () => {
+      setRecalcUserId(null);
+      setIsGlobalRecalc(true);
+      setRecalcProgress(0);
+      setRecalcBaseScore('');
       setRecalcModalOpen(true);
   }
 
   const performRecalculation = async () => {
-      if (!recalcUserId) return;
+      if (!isGlobalRecalc && !recalcUserId) return;
+      
+      const baseRatingVal = recalcBaseScore ? parseInt(recalcBaseScore) : undefined;
       setIsRecalculating(true);
       setRecalcProgress(0);
+      
       try {
-          // Use the Range Recalculation logic with Progress
-          const newRating = await storage.recalculateUserRatingByRange(
-              recalcUserId, 
-              recalcStartDate, 
-              recalcEndDate, 
-              currentUser,
-              (current, total) => {
-                  setRecalcProgress(Math.round((current / total) * 100));
-              }
-          );
-          
-          setRecalcProgress(100);
-          // Wait a moment for visual confirmation
-          setTimeout(() => {
-              onShowToast(`积分全量重算成功，当前 Rating: ${newRating}`, 'success');
+          if (isGlobalRecalc) {
+             // Global Mode
+             await storage.recalculateAllUsersRating(
+                 recalcStartDate,
+                 recalcEndDate,
+                 currentUser,
+                 baseRatingVal,
+                 (current, total, currentUserName) => {
+                     const pct = Math.round((current / total) * 100);
+                     setRecalcProgress(pct);
+                 }
+             );
+             onShowToast(`全员积分重算完成！`, 'success');
+             // Refresh all users
+             const refreshedUsers = await storage.getAllUsers();
+             setAllUsers(refreshedUsers);
+             
+             // Sync current user if changed
+             const myself = refreshedUsers.find(u => u.id === currentUser.id);
+             if (myself) {
+                 onUpdateUser(myself);
+                 storage.updateUserLocal(myself);
+             }
+
+          } else if (recalcUserId) {
+              // Single User Mode
+              const newRating = await storage.recalculateUserRatingByRange(
+                  recalcUserId, 
+                  recalcStartDate, 
+                  recalcEndDate, 
+                  currentUser,
+                  (current, total) => {
+                      setRecalcProgress(Math.round((current / total) * 100));
+                  },
+                  baseRatingVal
+              );
+              
+              onShowToast(`积分重算成功，当前 Rating: ${newRating}`, 'success');
               setAllUsers(prev => prev.map(u => u.id === recalcUserId ? { ...u, rating: newRating } : u));
               
-              // CRITICAL: Update current user state if admin modified themselves
-              // This prevents next check-in from using stale rating
               if (recalcUserId === currentUser.id) {
                   const updatedUser = { ...currentUser, rating: newRating };
                   onUpdateUser(updatedUser);
                   storage.updateUserLocal(updatedUser);
               }
-
+          }
+          
+          setRecalcProgress(100);
+          setTimeout(() => {
               setRecalcModalOpen(false);
               setIsRecalculating(false);
           }, 800);
+
       } catch(e) {
           console.error(e);
           onShowToast("重算失败", 'error');
@@ -357,7 +397,7 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
                   <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-orange-50">
                       <h3 className="font-bold text-orange-900 flex items-center gap-2">
-                          <RotateCcw className="w-5 h-5 text-orange-600" /> 积分全量校准
+                          <RotateCcw className="w-5 h-5 text-orange-600" /> {isGlobalRecalc ? '全员积分重算' : '单人积分重算'}
                       </h3>
                       {!isRecalculating && <button onClick={() => setRecalcModalOpen(false)}><X className="w-5 h-5 text-gray-400"/></button>}
                   </div>
@@ -369,21 +409,29 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
                                   <div className="h-full bg-orange-500 transition-all duration-300 ease-out" style={{ width: `${recalcProgress}%` }}></div>
                               </div>
                               <span className="text-orange-600 font-black text-2xl">{recalcProgress}%</span>
-                              <span className="text-gray-400 text-xs font-medium mt-1">正在重演历史记录，请勿关闭窗口...</span>
+                              <span className="text-gray-400 text-xs font-medium mt-1">
+                                  {isGlobalRecalc ? '正在处理所有用户，请稍候...' : '正在重演历史记录，请勿关闭窗口...'}
+                              </span>
                           </div>
                       ) : (
                           <>
                               <p className="text-xs text-gray-500 leading-relaxed bg-gray-50 p-3 rounded-lg border border-gray-100">
-                                  ⚠️ <strong>高风险操作：</strong><br/>
-                                  系统将以“开始日期”前的积分为基准，<strong>重新模拟计算</strong>直到【今天】的所有历史记录。此操作不可撤销，旨在修复因规则变更导致的分数不一致。
+                                  ⚠️ <strong>{isGlobalRecalc ? '高风险操作 (影响全员)' : '高风险操作'}：</strong><br/>
+                                  系统将以“开始日期”前的积分为基准（或使用指定基础分），<strong>重新模拟计算</strong>直到【今天】的所有历史记录。此操作不可撤销。
                               </p>
                               <div>
                                   <label className="block text-xs font-bold text-gray-500 uppercase mb-1">重算起点日期</label>
                                   <input type="date" className="w-full border rounded-xl px-3 py-2 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-orange-500" value={recalcStartDate} onChange={e => setRecalcStartDate(e.target.value)} />
                               </div>
                               <div>
-                                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1">结束日期 (默认为当前)</label>
-                                  <input type="date" disabled className="w-full border rounded-xl px-3 py-2 text-sm font-bold text-gray-400 bg-gray-50 cursor-not-allowed" value={new Date().toISOString().split('T')[0]} />
+                                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">指定基础分 (选填)</label>
+                                  <input 
+                                      type="number" 
+                                      placeholder="留空则使用起点前的历史分数" 
+                                      className="w-full border rounded-xl px-3 py-2 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-orange-500 placeholder:font-normal" 
+                                      value={recalcBaseScore} 
+                                      onChange={e => setRecalcBaseScore(e.target.value)} 
+                                  />
                               </div>
                           </>
                       )}
@@ -556,6 +604,7 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
                    <input type="date" value={sysAbsentStartDate} onChange={e => setSysAbsentStartDate(e.target.value)} className="text-xs font-bold text-gray-800 outline-none border-b border-dashed border-gray-300 focus:border-indigo-500 w-24"/>
                    <button onClick={handleSaveSysConfig} className="text-indigo-600 hover:text-indigo-800"><Save className="w-4 h-4"/></button>
                </div>
+               <button onClick={openGlobalRecalcModal} className="bg-orange-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow-lg shadow-orange-200 hover:bg-orange-600 flex items-center gap-1"><RotateCcw className="w-4 h-4" /> 全员重算</button>
                <button onClick={() => setShowAlgoModal(true)} className="bg-indigo-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 flex items-center gap-1"><PlusCircle className="w-4 h-4" /> 发布算法题</button>
            </div>
       </div>

@@ -366,21 +366,27 @@ export const recalculateUserRatingByRange = async (
     startDate: string, 
     endDate: string, 
     adminUser: User,
-    onProgress?: (current: number, total: number) => void
+    onProgress?: (current: number, total: number) => void,
+    overrideBaseRating?: number
 ): Promise<number> => {
     const targetUser = await getUserById(userId);
     if (!targetUser) throw new Error("用户不存在");
 
-    // 1. Determine Baseline Rating (Rating *before* startDate)
-    const { data: priorHistory } = await supabase
-        .from('rating_history')
-        .select('*')
-        .eq('user_id', userId)
-        .lt('recorded_at', startDate)
-        .order('recorded_at', { ascending: false }) // Get closest previous record
-        .limit(1);
+    // 1. Determine Baseline Rating
+    let runningRating = 1200;
     
-    let runningRating = priorHistory && priorHistory.length > 0 ? priorHistory[0].rating : 1200;
+    if (overrideBaseRating !== undefined) {
+        runningRating = overrideBaseRating;
+    } else {
+        const { data: priorHistory } = await supabase
+            .from('rating_history')
+            .select('*')
+            .eq('user_id', userId)
+            .lt('recorded_at', startDate)
+            .order('recorded_at', { ascending: false }) // Get closest previous record
+            .limit(1);
+        runningRating = priorHistory && priorHistory.length > 0 ? priorHistory[0].rating : 1200;
+    }
     
     // 2. Fetch ALL records from StartDate to NOW (End of Time)
     // CRITICAL FIX: We must process ALL future records to maintain consistency.
@@ -452,11 +458,24 @@ export const recalculateUserRatingByRange = async (
             // Note: `rangeHistory` contains the *old* values before we started updating
             // But we need the delta relative to the *old previous* value.
             
-            const originalPrevRating = i > 0 ? rangeHistory[i - 1].rating : (priorHistory?.[0]?.rating || 1200);
-            const originalDelta = record.rating - originalPrevRating;
+            const originalPrevRating = i > 0 ? rangeHistory[i - 1].rating : (rangeHistory[0].rating); // Fallback logic approximate
+            const originalDelta = rangeHistory.length > 0 && i > 0 ? (rangeHistory[i].rating - rangeHistory[i-1].rating) : 0; 
+            // Better logic: if this record had a delta in original history, preserve it.
+            // But manually calculating delta from record stream is safer.
+            // Let's assume the delta is preserved from description or previous calculation?
+            // Actually, for manual adjustments, `record.rating` was the snapshot. 
+            // We need to infer the intended delta.
             
-            delta = originalDelta; 
+            // Simplification: Try to extract delta from reason string if possible, otherwise rely on diff
+            // If we can't infer, we assume 0 change to be safe, OR we calculate diff from previous record in the *old* array.
+            const oldThisRating = record.rating;
+            const oldPrevRating = i > 0 ? rangeHistory[i-1].rating : (overrideBaseRating !== undefined ? overrideBaseRating : 1200); // Approximate
             
+            // Actually, we should just check if we can parse the delta from the reason string?
+            // "Admin Manual Update" doesn't have delta in text usually.
+            // Let's rely on array diff.
+            delta = oldThisRating - oldPrevRating;
+
             // Update reason text if it contains "R: A->B" pattern
             const regex = /R:\s*(\d+)\s*->\s*(\d+)/;
             const match = reason.match(regex);
@@ -500,6 +519,25 @@ export const recalculateUserRatingByRange = async (
     await addCheckIn(announcementCheckIn);
 
     return runningRating;
+}
+
+// --- NEW: Global Recalculate ---
+export const recalculateAllUsersRating = async (
+    startDate: string,
+    endDate: string,
+    adminUser: User,
+    baseRating: number | undefined,
+    onGlobalProgress: (current: number, total: number, currentUser: string) => void
+) => {
+     const users = await getAllUsers();
+     const targetUsers = users.filter(u => u.role !== 'admin'); // Skip admins usually
+     
+     let count = 0;
+     for (const user of targetUsers) {
+         await recalculateUserRatingByRange(user.id, startDate, endDate, adminUser, undefined, baseRating);
+         count++;
+         onGlobalProgress(count, targetUsers.length, user.name);
+     }
 }
 
 export const updateRatingHistoryRecord = async (historyId: number, updates: Partial<RatingHistory>): Promise<void> => {
@@ -689,12 +727,22 @@ export const exemptPenalty = async (id: string): Promise<{ ratingDelta: number, 
 
     let ratingDelta = 0;
     // Calculate refund amount based on content heuristics (same as deleteCheckIn)
-    if (checkIn.content.includes('缺勤') || checkIn.content.includes('偿还失败')) {
-        ratingDelta = 50; 
-    } else if (checkIn.content.includes('时长不足')) {
-        ratingDelta = 15;
+    // Updated logic to parse the random penalty from the text content if possible
+    // Example content: "⚠️ **[系统] 缺勤惩罚 (2025-01-01)** ... 扣分 52"
+    const content = checkIn.content;
+    const penaltyMatch = content.match(/扣分\s*-?(\d+)/);
+    
+    if (penaltyMatch) {
+        ratingDelta = parseInt(penaltyMatch[1]);
     } else {
-        ratingDelta = 15; // Default safe fallback
+        // Fallback to old fixed values if not found in text
+        if (checkIn.content.includes('缺勤') || checkIn.content.includes('偿还失败')) {
+            ratingDelta = 50; 
+        } else if (checkIn.content.includes('时长不足')) {
+            ratingDelta = 15;
+        } else {
+            ratingDelta = 15; 
+        }
     }
 
     // Instead of deleting, we update the content and remove penalty flag

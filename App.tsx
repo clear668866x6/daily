@@ -211,11 +211,13 @@ const App: React.FC = () => {
               let reason = '';
               
               if (duration === 0) {
-                  penalty = -50;
-                  reason = `[系统] 缺勤惩罚 (${checkDateStr})`;
+                  // Random penalty between 45 and 60 for absence
+                  penalty = -(Math.floor(Math.random() * (60 - 45 + 1)) + 45);
+                  reason = `[系统] 缺勤惩罚 (${checkDateStr}) 扣分 ${Math.abs(penalty)}`;
               } else {
-                  penalty = -15;
-                  reason = `[系统] 时长不足 (${checkDateStr}): ${duration}/${dailyGoal}min`;
+                  // Random penalty between 10 and 20 for missing target
+                  penalty = -(Math.floor(Math.random() * (20 - 10 + 1)) + 10);
+                  reason = `[系统] 时长不足 (${checkDateStr}): ${duration}/${dailyGoal}min 扣分 ${Math.abs(penalty)}`;
               }
 
               // Double check we haven't already penalized this specific date
