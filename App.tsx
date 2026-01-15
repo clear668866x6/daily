@@ -210,15 +210,18 @@ const App: React.FC = () => {
           if (duration < dailyGoal) {
               let penalty = 0;
               let reason = '';
+              const newRating = updatedRating + penalty;
               
               if (duration === 0) {
                   // Random penalty between 45 and 60 for absence
                   penalty = -(Math.floor(Math.random() * (60 - 45 + 1)) + 45);
-                  reason = `[系统] 缺勤惩罚 (${checkDateStr}) 扣分 ${Math.abs(penalty)}`;
+                  // UPDATED: Include (R: A->B) format
+                  reason = `[系统] 缺勤惩罚 (${checkDateStr}) 扣分 ${Math.abs(penalty)} (R:${updatedRating}->${updatedRating + penalty})`;
               } else {
                   // Random penalty between 10 and 20 for missing target
                   penalty = -(Math.floor(Math.random() * (20 - 10 + 1)) + 10);
-                  reason = `[系统] 时长不足 (${checkDateStr}): ${duration}/${dailyGoal}min 扣分 ${Math.abs(penalty)}`;
+                  // UPDATED: Include (R: A->B) format
+                  reason = `[系统] 时长不足 (${checkDateStr}): ${duration}/${dailyGoal}min 扣分 ${Math.abs(penalty)} (R:${updatedRating}->${updatedRating + penalty})`;
               }
 
               // Double check we haven't already penalized this specific date
@@ -241,6 +244,7 @@ const App: React.FC = () => {
                       likedBy: []
                   };
                   await storage.addCheckIn(penaltyCheckIn);
+                  // Note: reason passed to updateRating is saved in rating_history
                   await storage.updateRating(currentUser.id, updatedRating + penalty, reason);
                   updatedRating += penalty;
                   hasUpdated = true;

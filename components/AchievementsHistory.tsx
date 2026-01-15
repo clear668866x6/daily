@@ -26,6 +26,33 @@ export const AchievementsHistory: React.FC<Props> = ({ user }) => {
     loadData();
   }, [user.id]);
 
+  // Helper to extract the true delta from text description if possible
+  const getDisplayDelta = (record: RatingHistory, prevRecord: RatingHistory | undefined): number => {
+      const reason = record.change_reason || '';
+      
+      // 1. Try parsing "R: 1350->1354" pattern (Most accurate for all logs)
+      const rangeMatch = reason.match(/R:\s*(\d+)\s*->\s*(\d+)/);
+      if (rangeMatch) {
+          return parseInt(rangeMatch[2]) - parseInt(rangeMatch[1]);
+      }
+
+      // 2. Try parsing "扣分 20" pattern (For older penalties)
+      const penaltyMatch = reason.match(/扣分\s*-?(\d+)/);
+      if (penaltyMatch) {
+          return -parseInt(penaltyMatch[1]);
+      }
+
+      // 3. Try parsing "Rating +XX" pattern (For exemptions/bonuses)
+      const bonusMatch = reason.match(/Rating \+(\d+)/);
+      if (bonusMatch) {
+          return parseInt(bonusMatch[1]);
+      }
+
+      // 4. Fallback to mathematical difference (for manual adjustments or unknown formats)
+      // Note: This might show weird jumps if recalculation happened, but it's the fallback.
+      return prevRecord ? record.rating - prevRecord.rating : 0;
+  };
+
   return (
     <div className="space-y-6 animate-fade-in pb-12">
         {/* Achievements Section */}
@@ -70,11 +97,9 @@ export const AchievementsHistory: React.FC<Props> = ({ user }) => {
                 <div className="absolute left-[27px] top-4 bottom-4 w-px bg-gray-100"></div>
                 {history.length > 0 ? (
                     history.map((record, idx) => {
-                        // Heuristic to guess delta. 
-                        // Real implementation should ideally store delta. 
-                        // We will just compare with next record (which is previous in time)
                         const prevRecord = history[idx + 1];
-                        const delta = prevRecord ? record.rating - prevRecord.rating : 0; // First record delta unknown/0
+                        const delta = getDisplayDelta(record, prevRecord);
+                        
                         const isPositive = delta > 0;
                         const isNeutral = delta === 0;
 

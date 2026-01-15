@@ -440,7 +440,13 @@ export const recalculateUserRatingByRange = async (
             if (isPenalty) {
                 reason = matchedCheckIn.content.split('\n')[0].replace(/\(R:.*\)/, '').trim(); 
                 if (reason.includes('扣分')) {
-                     reason = reason.replace(/扣分\s*-?\d+/, `扣分 ${delta}`);
+                     // UPDATED: Include (R: A->B) in penalty string even during recalculation
+                     reason = reason.replace(/扣分\s*-?\d+/, `扣分 ${Math.abs(delta)}`);
+                     if (!reason.includes('(R:')) {
+                         reason += ` (R:${prevRating}->${prevRating + delta})`;
+                     } else {
+                         reason = reason.replace(/R:\s*(\d+)\s*->\s*(\d+)/, `R:${prevRating}->${prevRating + delta}`);
+                     }
                 }
             } else {
                 reason = `学习 ${subject} ${duration}m (R:${prevRating}->${prevRating + delta})`;

@@ -468,7 +468,6 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       };
       
       try {
-          await storage.addCheckIn(leaveCheckIn); 
           if (onAddCheckIn) onAddCheckIn(leaveCheckIn); 
           setShowLeaveModal(false);
           setLeaveReason('');

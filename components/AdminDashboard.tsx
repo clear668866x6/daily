@@ -31,6 +31,21 @@ const formatDateKey = (timestampOrDate: number | Date): string => {
     return `${year}-${month}-${day}`;
 };
 
+// Helper to extract the true delta from text description if possible
+const getDisplayDelta = (record: RatingHistory, prevRecord: RatingHistory | undefined): number => {
+    const reason = record.change_reason || '';
+    const rMatch = reason.match(/R:\s*(\d+)\s*->\s*(\d+)/);
+    if (rMatch) return parseInt(rMatch[2]) - parseInt(rMatch[1]);
+    
+    const penaltyMatch = reason.match(/扣分\s*-?(\d+)/);
+    if (penaltyMatch) return -parseInt(penaltyMatch[1]);
+
+    const bonusMatch = reason.match(/Rating \+(\d+)/);
+    if (bonusMatch) return parseInt(bonusMatch[1]);
+
+    return prevRecord ? record.rating - prevRecord.rating : 0;
+};
+
 export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUsers: propAllUsers, onUpdateUser, onShowToast, onNavigateToUser }) => {
   const [allUsers, setAllUsers] = useState<User[]>(propAllUsers);
   const [sysAbsentStartDate, setSysAbsentStartDate] = useState('');
@@ -524,8 +539,10 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
                       {analysisTab === 'rating' && (
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               {getFilteredRatingHistory().map((h, idx) => {
+                                  // Use getDisplayDelta helper to fix jump issues
                                   const prev = userRatingHistory[userRatingHistory.findIndex(r => r.id === h.id) + 1];
-                                  const delta = prev ? h.rating - prev.rating : 0;
+                                  const delta = getDisplayDelta(h, prev);
+                                  
                                   return (
                                       <div key={h.id} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all group flex flex-col justify-between">
                                           <div className="flex justify-between items-start mb-3">
