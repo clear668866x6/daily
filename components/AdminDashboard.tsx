@@ -1,9 +1,9 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { CheckIn, User, SubjectCategory, RatingHistory, getUserStyle, AlgorithmTask } from '../types';
+import { CheckIn, User, SubjectCategory, RatingHistory, getUserStyle, AlgorithmTask, LeaveStatus } from '../types';
 import * as storage from '../services/storageService';
 import { AreaChart, Area, XAxis, Tooltip, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, YAxis, Legend } from 'recharts';
-import { Shield, CalendarOff, Save, ListTodo, UserPlus, Medal, Coffee, CheckCircle2, ChevronUp, MoreHorizontal, Edit3, Trash2, AlertCircle, ShieldCheck, BarChart3, PieChart as PieChartIcon, Search, X, History, TrendingUp, TrendingDown, Clock, BookOpen, Send, PlusCircle, Loader2, Calendar as CalendarIcon, Filter, RotateCcw, Users } from 'lucide-react';
+import { Shield, CalendarOff, Save, ListTodo, UserPlus, Medal, Coffee, CheckCircle2, ChevronUp, MoreHorizontal, Edit3, Trash2, AlertCircle, ShieldCheck, BarChart3, PieChart as PieChartIcon, Search, X, History, TrendingUp, TrendingDown, Clock, BookOpen, Send, PlusCircle, Loader2, Calendar as CalendarIcon, Filter, RotateCcw, Users, XCircle, Check } from 'lucide-react';
 import { ToastType } from './Toast';
 import { AdminUserModal } from './AdminUserModal';
 import { MarkdownText } from './MarkdownText';
@@ -19,7 +19,7 @@ interface Props {
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
 
-// Use strict date formatting
+// Use strict date formatting (4 AM Cut-off)
 const formatDateKey = (timestampOrDate: number | Date): string => {
     const d = typeof timestampOrDate === 'number' ? new Date(timestampOrDate) : new Date(timestampOrDate);
     if (d.getHours() < 4) {
@@ -52,6 +52,7 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
   const [showAdminUserModal, setShowAdminUserModal] = useState(false);
   const [expandedUserIds, setExpandedUserIds] = useState<string[]>([]);
   const [userPenaltyMap, setUserPenaltyMap] = useState<Record<string, CheckIn[]>>({});
+  const [userLeaveMap, setUserLeaveMap] = useState<Record<string, CheckIn[]>>({}); // New: Store leaves per user
   
   // Analysis Modal State
   const [analyzingUser, setAnalyzingUser] = useState<User | null>(null);
@@ -86,6 +87,12 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
   const [recalcProgress, setRecalcProgress] = useState(0);
   const [isGlobalRecalc, setIsGlobalRecalc] = useState(false); // NEW: Toggle between single user and all users
 
+  // Trigger re-render when checkIns change (important for status updates)
+  const [localCheckIns, setLocalCheckIns] = useState<CheckIn[]>(checkIns);
+  useEffect(() => {
+      setLocalCheckIns(checkIns);
+  }, [checkIns]);
+
   useEffect(() => {
       setAllUsers(propAllUsers);
   }, [propAllUsers]);
@@ -104,19 +111,19 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
   const adminStats = useMemo(() => {
       const todayStr = formatDateKey(new Date());
       
-      const totalDuration = checkIns.reduce((acc, c) => acc + (c.isPenalty ? 0 : (c.duration || 0)), 0);
-      const activeUsersToday = new Set(checkIns.filter(c => formatDateKey(c.timestamp) === todayStr && !c.isPenalty).map(c => c.userId)).size;
+      const totalDuration = localCheckIns.reduce((acc, c) => acc + (c.isPenalty ? 0 : (c.duration || 0)), 0);
+      const activeUsersToday = new Set(localCheckIns.filter(c => formatDateKey(c.timestamp) === todayStr && !c.isPenalty).map(c => c.userId)).size;
       const totalUsers = usersList.length;
       const absentUsersToday = Math.max(0, totalUsers - activeUsersToday);
-      const totalPenalties = checkIns.filter(c => c.isPenalty).length;
+      const totalPenalties = localCheckIns.filter(c => c.isPenalty).length;
       
       const totalRating = usersList.reduce((acc, u) => acc + (u.rating || 1200), 0);
       const avgRating = totalUsers > 0 ? Math.round(totalRating / totalUsers) : 1200;
-      const pendingLeaves = checkIns.filter(c => c.isLeave && c.leaveStatus === 'pending').length;
+      const pendingLeaves = localCheckIns.filter(c => c.isLeave && c.leaveStatus === 'pending').length;
 
       // Global Subject Distribution
       const subjectMap: Record<string, number> = {};
-      checkIns.filter(c => !c.isPenalty && !c.isLeave).forEach(c => {
+      localCheckIns.filter(c => !c.isPenalty && !c.isLeave).forEach(c => {
           subjectMap[c.subject] = (subjectMap[c.subject] || 0) + (c.duration || 0);
       });
       const subjectData = Object.entries(subjectMap)
@@ -133,7 +140,7 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
           trendMap[k] = 0;
           dates.push(k);
       }
-      checkIns.forEach(c => {
+      localCheckIns.forEach(c => {
           if (c.isPenalty || c.isLeave) return;
           const k = formatDateKey(c.timestamp);
           if (trendMap[k] !== undefined) {
@@ -146,7 +153,7 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
       }));
 
       return { totalDuration, activeUsersToday, absentUsersToday, totalPenalties, avgRating, pendingLeaves, subjectData, trendData };
-  }, [checkIns, usersList]);
+  }, [localCheckIns, usersList]);
 
   // --- Actions ---
   const handleSaveSysConfig = () => {
@@ -156,11 +163,28 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
 
   const calculateUserStats = (user: User) => {
       const todayStr = formatDateKey(new Date());
-      const todayCheckIns = checkIns.filter(c => c.userId === user.id && formatDateKey(c.timestamp) === todayStr && !c.isPenalty);
+      const todayCheckIns = localCheckIns.filter(c => c.userId === user.id && formatDateKey(c.timestamp) === todayStr && !c.isPenalty);
       const todayDuration = todayCheckIns.reduce((acc, c) => acc + (c.duration || 0), 0);
-      const penalties = checkIns.filter(p => p.userId === user.id && p.isPenalty);
+      const penalties = localCheckIns.filter(p => p.userId === user.id && p.isPenalty);
       const absentCount = penalties.filter(p => p.content.includes('缺勤') || p.content.includes('时长不足')).length;
-      const activeLeave = checkIns.find(c => c.userId === user.id && c.isLeave && (c.leaveStatus === 'pending' || c.leaveStatus === 'approved'));
+      
+      // FIXED: Strictly check if TODAY falls within the leave range
+      const activeLeave = localCheckIns.find(c => {
+          if (c.userId !== user.id || !c.isLeave || c.leaveStatus === 'rejected') return false;
+          
+          const days = c.leaveDays || 1;
+          const startBusinessDateStr = formatDateKey(c.timestamp);
+          const [y, m, d] = startBusinessDateStr.split('-').map(Number);
+          
+          // Check if todayStr matches any date in the leave range
+          for (let i = 0; i < days; i++) {
+              // Create date at Noon to avoid boundary issues
+              const checkDate = new Date(y, m - 1, d + i, 12, 0, 0);
+              if (formatDateKey(checkDate) === todayStr) return true;
+          }
+          return false;
+      });
+
       return { todayDuration, absentCount, isLeaveToday: !!activeLeave };
   }
 
@@ -169,8 +193,12 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
           setExpandedUserIds(prev => prev.filter(id => id !== userId));
       } else {
           setExpandedUserIds(prev => [...prev, userId]);
-          const penalties = checkIns.filter(c => c.userId === userId && c.isPenalty).sort((a, b) => b.timestamp - a.timestamp);
+          // Load Penalties
+          const penalties = localCheckIns.filter(c => c.userId === userId && c.isPenalty).sort((a, b) => b.timestamp - a.timestamp);
           setUserPenaltyMap(prev => ({ ...prev, [userId]: penalties }));
+          // Load Leaves
+          const leaves = localCheckIns.filter(c => c.userId === userId && c.isLeave).sort((a, b) => b.timestamp - a.timestamp);
+          setUserLeaveMap(prev => ({ ...prev, [userId]: leaves }));
       }
   };
 
@@ -178,8 +206,13 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
       try {
           const { ratingDelta } = await storage.exemptPenalty(checkInId);
           onShowToast(`已豁免，Rating +${ratingDelta}`, 'success');
+          // Update local state to reflect change immediately
           const updatedPenalties = userPenaltyMap[userId].map(p => p.id === checkInId ? { ...p, isPenalty: false, content: p.content + ' [已豁免]' } : p);
           setUserPenaltyMap(prev => ({ ...prev, [userId]: updatedPenalties }));
+          
+          // Update global checkins for charts/stats
+          setLocalCheckIns(prev => prev.map(c => c.id === checkInId ? { ...c, isPenalty: false } : c));
+
           const updatedUser = await storage.getUserById(userId);
           if (updatedUser) {
               setAllUsers(prev => prev.map(u => u.id === userId ? updatedUser : u));
@@ -187,6 +220,88 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
       } catch(e) {
           console.error(e);
           onShowToast("操作失败", 'error');
+      }
+  }
+
+  const handleUpdateLeave = async (checkInId: string, userId: string, status: LeaveStatus) => {
+      try {
+          const makeup = status === 'approved' ? 60 : 0; // Default makeup
+          await storage.updateLeaveStatus(checkInId, status, makeup);
+          
+          let toastMsg = `请假状态已更新为: ${status === 'approved' ? '批准' : '驳回'}`;
+
+          // --- Auto-Exempt Penalties Logic ---
+          if (status === 'approved') {
+              const leaveRecord = localCheckIns.find(c => c.id === checkInId);
+              if (leaveRecord) {
+                  const days = leaveRecord.leaveDays || 1;
+                  // Get the business start date of the leave
+                  // Parse YYYY-MM-DD from the timestamp using the consistent business logic
+                  const startString = formatDateKey(leaveRecord.timestamp);
+                  const [y, m, d] = startString.split('-').map(Number);
+                  
+                  const coveredDates = new Set<string>();
+                  for (let i = 0; i < days; i++) {
+                      // Create a date at Noon to safely represent the "Business Day" 
+                      // This avoids 4AM shift complications when iterating dates
+                      const dateIter = new Date(y, m - 1, d + i, 12, 0, 0); 
+                      coveredDates.add(formatDateKey(dateIter));
+                  }
+
+                  // Find penalties for this user that fall on these business days
+                  const penalties = localCheckIns.filter(c => 
+                      c.userId === userId && 
+                      c.isPenalty && 
+                      coveredDates.has(formatDateKey(c.timestamp)) &&
+                      !c.content.includes('已豁免')
+                  );
+
+                  if (penalties.length > 0) {
+                      let exemptCount = 0;
+                      for (const p of penalties) {
+                          await storage.exemptPenalty(p.id);
+                          exemptCount++;
+                      }
+                      
+                      // Update local state to reflect exemptions immediately
+                      setLocalCheckIns(prev => prev.map(c => {
+                          if (c.userId === userId && c.isPenalty && coveredDates.has(formatDateKey(c.timestamp))) {
+                              return { ...c, isPenalty: false, content: c.content + ' [请假自动豁免]' };
+                          }
+                          return c;
+                      }));
+                      
+                      // Update User Penalty Map for the expanded row
+                      setUserPenaltyMap(prev => {
+                          const userPenalties = prev[userId] || [];
+                          return {
+                              ...prev,
+                              [userId]: userPenalties.map(p => 
+                                  coveredDates.has(formatDateKey(p.timestamp)) 
+                                  ? { ...p, isPenalty: false, content: p.content + ' [请假自动豁免]' } 
+                                  : p
+                              )
+                          };
+                      });
+
+                      toastMsg += ` (自动豁免 ${exemptCount} 条期间违规)`;
+                  }
+              }
+          }
+          // -----------------------------------
+
+          onShowToast(toastMsg, status === 'approved' ? 'success' : 'info');
+          
+          // Update local map for leave status
+          const updatedLeaves = userLeaveMap[userId].map(l => l.id === checkInId ? { ...l, leaveStatus: status, makeupMinutes: makeup } : l);
+          setUserLeaveMap(prev => ({ ...prev, [userId]: updatedLeaves }));
+          
+          // Update global checkins 
+          setLocalCheckIns(prev => prev.map(c => c.id === checkInId ? { ...c, leaveStatus: status, makeupMinutes: makeup } : c));
+
+      } catch (e) {
+          console.error(e);
+          onShowToast("更新失败", 'error');
       }
   }
 
@@ -327,7 +442,7 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
 
   const getUserAnalysisData = () => {
       if (!analyzingUser) return { pieData: [] };
-      const userCheckIns = checkIns.filter(c => {
+      const userCheckIns = localCheckIns.filter(c => {
           if (c.userId !== analyzingUser.id || c.isPenalty || c.isLeave) return false;
           const date = formatDateKey(c.timestamp);
           return date >= analysisDateRange.start && date <= analysisDateRange.end;
@@ -340,7 +455,7 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
 
   const getFilteredLogs = () => {
       if (!analyzingUser) return [];
-      return checkIns.filter(c => {
+      return localCheckIns.filter(c => {
           if (c.userId !== analyzingUser.id) return false;
           const date = formatDateKey(c.timestamp);
           return date >= analysisDateRange.start && date <= analysisDateRange.end;
@@ -707,7 +822,7 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
                                    {isExpanded && (
                                        <tr className="bg-indigo-50/30 animate-fade-in">
                                            <td colSpan={7} className="p-4 pt-0">
-                                               <div className="bg-white rounded-xl border border-indigo-100 p-4 shadow-sm grid grid-cols-1 md:grid-cols-2 gap-6">
+                                               <div className="bg-white rounded-xl border border-indigo-100 p-4 shadow-sm grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                                    <div className="space-y-4">
                                                        <h4 className="text-xs font-bold text-indigo-900 uppercase tracking-wider flex items-center gap-2"><Edit3 className="w-3 h-3" /> 快速编辑 & 分析</h4>
                                                        <div className="grid grid-cols-2 gap-3">
@@ -721,6 +836,41 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
                                                            <button onClick={() => handleDeleteUser(u.id)} className="text-red-500 text-xs font-bold flex items-center gap-1 hover:text-red-700"><Trash2 className="w-3 h-3" /> 删除用户</button>
                                                        </div>
                                                    </div>
+                                                   {/* Leaves Section */}
+                                                   <div className="space-y-2">
+                                                       <h4 className="text-xs font-bold text-yellow-700 uppercase tracking-wider flex items-center gap-2"><Coffee className="w-3 h-3 text-yellow-600" /> 请假管理</h4>
+                                                       <div className="bg-gray-50 rounded-lg p-2 max-h-40 overflow-y-auto custom-scrollbar border border-gray-100">
+                                                           {userLeaveMap[u.id] && userLeaveMap[u.id].length > 0 ? (
+                                                               userLeaveMap[u.id].map(l => (
+                                                                   <div key={l.id} className="flex flex-col p-2 mb-1 bg-white rounded border border-gray-100 last:mb-0 gap-1.5">
+                                                                       <div className="flex justify-between items-center">
+                                                                           <div className="text-[10px] text-gray-400 font-mono">{new Date(l.timestamp).toLocaleDateString()} ({l.leaveDays}天)</div>
+                                                                           <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                                                                               l.leaveStatus === 'approved' ? 'bg-green-50 text-green-600' : 
+                                                                               l.leaveStatus === 'rejected' ? 'bg-red-50 text-red-600' : 'bg-yellow-50 text-yellow-600'
+                                                                           }`}>
+                                                                               {l.leaveStatus === 'approved' ? '已批准' : l.leaveStatus === 'rejected' ? '已驳回' : '待审核'}
+                                                                           </span>
+                                                                       </div>
+                                                                       <div className="text-xs font-medium text-gray-700 truncate" title={l.leaveReason}>{l.leaveReason}</div>
+                                                                       <div className="flex justify-end gap-2 pt-1">
+                                                                           {l.leaveStatus !== 'rejected' && (
+                                                                               <button onClick={() => handleUpdateLeave(l.id, u.id, 'rejected')} className="text-[10px] text-red-500 border border-red-100 bg-red-50 px-2 py-0.5 rounded hover:bg-red-100 flex items-center gap-1">
+                                                                                   <XCircle className="w-3 h-3" /> {l.leaveStatus === 'pending' ? '驳回' : '撤销'}
+                                                                               </button>
+                                                                           )}
+                                                                           {l.leaveStatus === 'pending' && (
+                                                                               <button onClick={() => handleUpdateLeave(l.id, u.id, 'approved')} className="text-[10px] text-green-600 border border-green-100 bg-green-50 px-2 py-0.5 rounded hover:bg-green-100 flex items-center gap-1">
+                                                                                   <CheckCircle2 className="w-3 h-3" /> 批准
+                                                                               </button>
+                                                                           )}
+                                                                       </div>
+                                                                   </div>
+                                                               ))
+                                                           ) : <div className="text-center text-xs text-gray-400 py-4">无请假记录</div>}
+                                                       </div>
+                                                   </div>
+                                                   {/* Penalties Section */}
                                                    <div className="space-y-2">
                                                        <h4 className="text-xs font-bold text-red-900 uppercase tracking-wider flex items-center gap-2"><AlertCircle className="w-3 h-3 text-red-500" /> 待处理违规</h4>
                                                        <div className="bg-gray-50 rounded-lg p-2 max-h-40 overflow-y-auto custom-scrollbar border border-gray-100">
