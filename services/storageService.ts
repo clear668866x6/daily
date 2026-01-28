@@ -1,4 +1,5 @@
 
+
 import { supabase } from './supabase';
 import { CheckIn, User, AlgorithmTask, AlgorithmSubmission, Goal, RatingHistory, LeaveStatus, SubjectCategory } from "../types";
 
@@ -830,6 +831,8 @@ export const getAlgorithmTasks = async (): Promise<AlgorithmTask[]> => {
         title: t.title,
         description: t.description,
         difficulty: t.difficulty,
+        type: t.type || 'Problem', // New field mapped
+        totalCount: t.total_count || 1, // New field mapped
         date: t.date,
         assignedTo: t.assigned_to
     }));
@@ -841,6 +844,8 @@ export const addAlgorithmTask = async (task: AlgorithmTask) => {
         title: task.title,
         description: task.description,
         difficulty: task.difficulty,
+        type: task.type || 'Problem', // New
+        total_count: task.totalCount || 1, // New
         date: task.date,
         assigned_to: task.assignedTo
     });
@@ -853,6 +858,10 @@ export const updateAlgorithmTask = async (id: string, updates: Partial<Algorithm
         payload.assigned_to = updates.assignedTo;
         delete payload.assignedTo;
     }
+    // Handle new fields
+    if (updates.type) payload.type = updates.type;
+    if (updates.totalCount) payload.total_count = updates.totalCount;
+
     const { error } = await supabase.from('algorithm_tasks').update(payload).eq('id', id);
     if (error) throw error;
 };
@@ -876,6 +885,7 @@ export const getAllAlgorithmSubmissions = async (): Promise<AlgorithmSubmission[
     return data.map((s: any) => ({
         id: s.id.toString(),
         taskId: s.task_id,
+        problemIndex: s.problem_index, // New
         userId: s.user_id,
         userName: s.user_name,
         userAvatar: s.user_avatar,
@@ -898,6 +908,7 @@ export const getAlgorithmSubmissions = async (userId: string): Promise<Algorithm
     return data.map((s: any) => ({
         id: s.id.toString(),
         taskId: s.task_id,
+        problemIndex: s.problem_index, // New
         userId: s.user_id,
         userName: s.user_name,
         userAvatar: s.user_avatar,
@@ -912,6 +923,7 @@ export const getAlgorithmSubmissions = async (userId: string): Promise<Algorithm
 export const submitAlgorithmCode = async (submission: AlgorithmSubmission) => {
     const { error } = await supabase.from('algorithm_submissions').insert({
         task_id: submission.taskId,
+        problem_index: submission.problemIndex, // New
         user_id: submission.userId,
         user_name: submission.userName,
         user_avatar: submission.userAvatar,

@@ -1,11 +1,12 @@
+
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { User, AlgorithmTask, AlgorithmSubmission, SubjectCategory } from '../types';
 import * as storage from '../services/storageService';
-import { Code, CheckCircle, Send, Play, Lock, FileCode, Loader2, ChevronDown, ChevronLeft, ChevronRight, Megaphone, PlusCircle, Terminal, Zap, Trophy, Layout, Cpu, Award, X, Moon, Star, Flame, Clock, Users, Trash2, Edit2, Save, Eye, History, Filter, Calendar } from 'lucide-react';
+import { Code, CheckCircle, Send, Play, Lock, FileCode, Loader2, ChevronDown, ChevronLeft, ChevronRight, Megaphone, PlusCircle, Terminal, Zap, Trophy, Layout, Cpu, Award, X, Moon, Star, Flame, Clock, Users, Trash2, Edit2, Edit3, Save, Eye, History, Filter, Calendar, Flag } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { ToastType } from './Toast';
 import { ACHIEVEMENTS } from '../constants';
-import { FullScreenEditor } from './FullScreenEditor'; // Assuming reusing or similar
 
 interface Props {
   user: User;
@@ -69,6 +70,9 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
 
   const [activeTask, setActiveTask] = useState<string | null>(null);
   
+  // Contest Mode State
+  const [activeProblemIndex, setActiveProblemIndex] = useState<string>('A'); // A, B, C...
+
   // Calendar State
   const todayStr = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
@@ -104,7 +108,9 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   // Admin State
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDesc, setNewTaskDesc] = useState('');
-  const [newTaskDate, setNewTaskDate] = useState(todayStr); // Added Date selection for Admin
+  const [newTaskDate, setNewTaskDate] = useState(todayStr); 
+  const [newTaskType, setNewTaskType] = useState<'Problem' | 'Contest'>('Problem'); // NEW
+  const [newTaskTotalCount, setNewTaskTotalCount] = useState<number>(6); // NEW
   const [assignedUsers, setAssignedUsers] = useState<string[]>([]); 
   const [allUsers, setAllUsers] = useState<User[]>([]); 
   const [isPublishing, setIsPublishing] = useState(false);
@@ -122,18 +128,27 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   // --- Persistence Logic ---
   useEffect(() => {
       if (!activeTask) return;
-      const draftKey = `kaoyan_algo_draft_${user.id}_${activeTask}_${language}`;
+      const currentTask = tasks.find(t => t.id === activeTask);
+      
+      // Determine unique key based on task type and sub-problem
+      const suffix = currentTask?.type === 'Contest' ? `_${activeProblemIndex}` : '';
+      const draftKey = `kaoyan_algo_draft_${user.id}_${activeTask}_${language}${suffix}`;
+      
       const savedCode = localStorage.getItem(draftKey);
       setCode(savedCode || LANGUAGES[language].template);
-      setStartTime(Date.now()); 
-      setElapsedTime(0);
-  }, [activeTask, language, user.id]);
+      
+      // Only reset timer if switching MAIN task, not sub-problem (optional preference)
+      // For simplicity, let's just let timer run globally for the session
+      if (!startTime) setStartTime(Date.now());
+  }, [activeTask, activeProblemIndex, language, user.id, tasks]);
 
   useEffect(() => {
       if (!activeTask) return;
-      const draftKey = `kaoyan_algo_draft_${user.id}_${activeTask}_${language}`;
+      const currentTask = tasks.find(t => t.id === activeTask);
+      const suffix = currentTask?.type === 'Contest' ? `_${activeProblemIndex}` : '';
+      const draftKey = `kaoyan_algo_draft_${user.id}_${activeTask}_${language}${suffix}`;
       localStorage.setItem(draftKey, code);
-  }, [code, activeTask, language, user.id]);
+  }, [code, activeTask, activeProblemIndex, language, user.id, tasks]);
 
   // Timer Tick
   useEffect(() => {
@@ -224,6 +239,8 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
               title: newTaskTitle,
               description: newTaskDesc,
               date: newTaskDate,
+              type: newTaskType,
+              totalCount: newTaskTotalCount,
               assignedTo: assignedUsers.length > 0 ? assignedUsers : undefined
           });
           onShowToast("✅ 题目更新成功！", 'success');
@@ -234,6 +251,8 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
             title: newTaskTitle,
             description: newTaskDesc,
             difficulty: 'Medium',
+            type: newTaskType,
+            totalCount: newTaskTotalCount,
             date: newTaskDate,
             assignedTo: assignedUsers.length > 0 ? assignedUsers : undefined
           };
@@ -244,6 +263,8 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       setNewTaskTitle('');
       setNewTaskDesc('');
       setNewTaskDate(todayStr);
+      setNewTaskType('Problem');
+      setNewTaskTotalCount(6);
       setAssignedUsers([]);
       setShowAdminPanel(false);
       await refreshData();
@@ -261,11 +282,16 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
         onShowToast("代码不能为空", 'error');
         return;
     }
+    
+    const currentTask = tasks.find(t => t.id === activeTask);
+    const isContest = currentTask?.type === 'Contest';
+    
     setIsRunning(true);
     setTimeout(async () => {
       const duration = Math.max(1, Math.floor((Date.now() - startTime) / 60000));
       const submission: AlgorithmSubmission = {
         taskId: activeTask,
+        problemIndex: isContest ? activeProblemIndex : undefined, // Save index
         userId: user.id,
         userName: user.name,
         userAvatar: user.avatar,
@@ -279,7 +305,11 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
           await storage.submitAlgorithmCode(submission);
           await refreshData();
           setIsRunning(false);
-          setShowBossModal(true);
+          if (!isContest) {
+              setShowBossModal(true); // Only show boss modal for single problems immediately
+          } else {
+              onShowToast(`✅ Problem ${activeProblemIndex} Submitted!`, 'success');
+          }
           const updatedMySubs = [...mySubmissions, submission];
           checkAchievements(updatedMySubs);
       } catch(e) {
@@ -291,16 +321,38 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   };
 
   // ... (Helpers and Memos)
-  const handleOpenCheckInModal = () => {
-      setCheckInDuration(30); 
+  const handleOpenCheckInModal = (isContestFinish: boolean = false) => {
+      setCheckInDuration(elapsedTime > 0 ? elapsedTime : 30); 
       setShowCheckInModal(true);
   };
 
   const confirmCheckIn = () => {
-      const content = `## 算法训练打卡 (${selectedDate})\n\n完成了今日所有指定算法任务！\n\n**耗时**: ${checkInDuration} 分钟\n\n继续加油！`;
+      const currentTask = tasks.find(t => t.id === activeTask);
+      let content = '';
+      
+      if (currentTask?.type === 'Contest') {
+          // Calculate stats
+          const solvedIndices = new Set(
+              mySubmissions
+                  .filter(s => s.taskId === activeTask && s.status === 'Passed')
+                  .map(s => s.problemIndex)
+          );
+          const solvedCount = solvedIndices.size;
+          const total = currentTask.totalCount || 6;
+          
+          content = `## 🏆 算法比赛打卡: ${currentTask.title}\n\n在本次模拟比赛中，我完成了 **${solvedCount} / ${total}** 道题目。\n\n**已解决**: ${Array.from(solvedIndices).sort().join(', ') || '无'}\n**耗时**: ${checkInDuration} 分钟\n\n${solvedCount === total ? '🎉 AK 全场！' : '💪 继续努力，下次更好！'}`;
+      } else {
+          content = `## 算法训练打卡 (${selectedDate})\n\n完成了今日所有指定算法任务！\n\n**耗时**: ${checkInDuration} 分钟\n\n继续加油！`;
+      }
+
       onCheckIn(SubjectCategory.ALGORITHM, content, checkInDuration);
       setShowCheckInModal(false);
       onShowToast("打卡成功！", 'success');
+      
+      // If it was a contest, maybe show the boss modal now?
+      if (currentTask?.type === 'Contest') {
+          setShowBossModal(true);
+      }
   };
 
   const getDaysInMonth = (date: Date) => {
@@ -319,11 +371,26 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       uniqueDates.forEach(date => {
           const dateTasks = visibleTasks.filter(t => t.date === date);
           if (dateTasks.length === 0) return;
-          const passedCount = dateTasks.filter(t => 
-              mySubmissions.some(s => s.taskId === t.id && s.status === 'Passed')
-          ).length;
-          if (passedCount === dateTasks.length) map[date] = 'all';
-          else if (passedCount > 0) map[date] = 'partial';
+          
+          // Check if tasks are completed. For contest, need to check if ANY submission exists? 
+          // Or strictly all? Let's say partial if > 0 subs.
+          let doneCount = 0;
+          let totalRequired = 0;
+          
+          dateTasks.forEach(t => {
+             totalRequired++;
+             const subs = mySubmissions.filter(s => s.taskId === t.id && s.status === 'Passed');
+             if (t.type === 'Contest') {
+                 // For status map, we consider contest "done" if at least 1 problem solved? 
+                 // Or we can just treat it as a task.
+                 if (subs.length > 0) doneCount++;
+             } else {
+                 if (subs.length > 0) doneCount++;
+             }
+          });
+
+          if (doneCount === totalRequired) map[date] = 'all';
+          else if (doneCount > 0) map[date] = 'partial';
           else map[date] = 'none';
       });
       return map;
@@ -331,16 +398,35 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
 
   const selectedDateTasks = useMemo(() => visibleTasks.filter(t => t.date === selectedDate), [visibleTasks, selectedDate]);
   const isSelectedDateToday = selectedDate === todayStr;
-  const passedCountForSelectedDate = selectedDateTasks.filter(t => 
-    mySubmissions.find(s => s.taskId === t.id && s.status === 'Passed')
-  ).length;
-  const isSelectedDateAllDone = selectedDateTasks.length > 0 && passedCountForSelectedDate === selectedDateTasks.length;
+  
+  // Logic to determine if "One Click Check In" is enabled for Single Problems
+  const isSelectedDateAllDone = useMemo(() => {
+      if (selectedDateTasks.length === 0) return false;
+      return selectedDateTasks.every(t => {
+          if (t.type === 'Contest') return false; // Contests are checked in manually via button
+          return mySubmissions.some(s => s.taskId === t.id && s.status === 'Passed');
+      });
+  }, [selectedDateTasks, mySubmissions]);
 
   const totalAcCount = useMemo(() => {
-      const visibleTaskIds = new Set(visibleTasks.map(t => t.id));
-      const uniqueSolvedTaskIds = new Set(mySubmissions.filter(s => s.status === 'Passed' && visibleTaskIds.has(s.taskId)).map(s => s.taskId));
-      return uniqueSolvedTaskIds.size;
-  }, [mySubmissions, visibleTasks]);
+      // For single problems: count unique taskIds
+      // For contests: count unique (taskId + problemIndex)
+      let count = 0;
+      const seen = new Set<string>();
+      
+      mySubmissions.filter(s => s.status === 'Passed').forEach(s => {
+          const task = tasks.find(t => t.id === s.taskId);
+          if (!task) return;
+          
+          if (task.type === 'Contest') {
+              const key = `${s.taskId}_${s.problemIndex}`;
+              if (!seen.has(key)) { seen.add(key); count++; }
+          } else {
+              if (!seen.has(s.taskId)) { seen.add(s.taskId); count++; }
+          }
+      });
+      return count;
+  }, [mySubmissions, tasks]);
 
   // History Filter
   const filteredHistory = useMemo(() => {
@@ -353,8 +439,17 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
       }
       return filtered.sort((a, b) => b.timestamp - a.timestamp);
   }, [mySubmissions, historyFilterDate]);
+  
+  const currentTaskObj = useMemo(() => tasks.find(t => t.id === activeTask), [activeTask, tasks]);
 
-  // ... (Render Functions like Calendar, TaskItem - kept same logic)
+  // Generate sub-problems array for Contest
+  const contestProblems = useMemo(() => {
+      if (!currentTaskObj || currentTaskObj.type !== 'Contest') return [];
+      const count = currentTaskObj.totalCount || 6;
+      return Array.from({ length: count }, (_, i) => String.fromCharCode(65 + i)); // A, B, C...
+  }, [currentTaskObj]);
+
+  // --- Render Functions ---
   const renderCalendar = () => {
       const { daysInMonth, firstDayOfWeek, year, month } = getDaysInMonth(currentMonth);
       const cells = [];
@@ -381,9 +476,19 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
   };
 
   const renderTaskItem = (task: AlgorithmTask) => {
-    const isDone = mySubmissions.some(s => s.taskId === task.id && s.status === 'Passed');
+    // Logic for badge
+    const isContest = task.type === 'Contest';
+    let isDone = false;
+    
+    if (isContest) {
+        // Done if at least one problem solved? Or just show progress?
+        // Let's show specific contest badge
+    } else {
+        isDone = mySubmissions.some(s => s.taskId === task.id && s.status === 'Passed');
+    }
+    
     const isActive = activeTask === task.id;
-    // ... Global stats logic ...
+    // Stats logic
     const taskSubmissions = allSubmissions.filter(s => s.taskId === task.id && s.status === 'Passed');
     const uniquePassers = new Set(taskSubmissions.map(s => s.userId)).size;
 
@@ -401,12 +506,14 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                             setNewTaskTitle(task.title); 
                             setNewTaskDesc(task.description); 
                             setNewTaskDate(task.date); 
+                            setNewTaskType(task.type || 'Problem');
+                            setNewTaskTotalCount(task.totalCount || 6);
                             setAssignedUsers(task.assignedTo || []); 
                             setShowAdminPanel(true); 
                         }} 
                         className="p-1.5 bg-white text-indigo-600 rounded-md shadow-sm border border-gray-200 hover:bg-indigo-50"
                     >
-                        <Edit2 className="w-3 h-3" />
+                        <Edit3 className="w-3 h-3" />
                     </button>
                     <button 
                         onClick={(e) => { e.stopPropagation(); if(confirm('确认删除?')) { storage.deleteAlgorithmTask(task.id).then(refreshData); } }} 
@@ -418,13 +525,17 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
             )}
             <div className="p-3 w-full text-left cursor-pointer" onClick={() => setActiveTask(task.id)}>
                 <div className="flex justify-between items-center relative z-10">
-                    <span className={`font-bold text-sm truncate pr-2 ${isActive ? 'text-indigo-900' : 'text-gray-700'}`}>{task.title}</span>
-                    {isDone ? <div className="bg-green-100 text-green-700 p-0.5 rounded-full"><CheckCircle className="w-3.5 h-3.5" /></div> : <div className="w-4 h-4 rounded-full border-2 border-gray-200 group-hover:border-indigo-200 transition-colors"></div>}
+                    <span className={`font-bold text-sm truncate pr-2 flex items-center gap-1 ${isActive ? 'text-indigo-900' : 'text-gray-700'}`}>
+                        {isContest && <Flag className="w-3.5 h-3.5 text-orange-500" />}
+                        {task.title}
+                    </span>
+                    {!isContest && (isDone ? <div className="bg-green-100 text-green-700 p-0.5 rounded-full"><CheckCircle className="w-3.5 h-3.5" /></div> : <div className="w-4 h-4 rounded-full border-2 border-gray-200 group-hover:border-indigo-200 transition-colors"></div>)}
                 </div>
                 <div className="flex justify-between items-center mt-2">
                     <div className="flex items-center gap-1">
                         <span className={`text-[10px] px-2 py-0.5 rounded font-medium border ${task.difficulty === 'Easy' ? 'bg-green-50 text-green-600 border-green-100' : task.difficulty === 'Medium' ? 'bg-yellow-50 text-yellow-600 border-yellow-100' : 'bg-red-50 text-red-600 border-red-100'}`}>{task.difficulty}</span>
-                        <button onClick={(e) => { e.stopPropagation(); if (isDone || isAdmin) { setSelectedTaskForSolutions(task); setShowSolutionsModal(true); } else { onShowToast("🔒 完成题目后方可查看他人代码", 'info'); } }} className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border transition-colors ${isDone || isAdmin ? 'bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-100 cursor-pointer' : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-70'}`} title={isDone ? "查看通过记录" : "完成题目后解锁"}>{isDone || isAdmin ? <Users className="w-3 h-3" /> : <Lock className="w-3 h-3" />}{uniquePassers}</button>
+                        {isContest && <span className="text-[10px] bg-purple-50 text-purple-600 border border-purple-100 px-1.5 py-0.5 rounded font-bold">Contest</span>}
+                        <button onClick={(e) => { e.stopPropagation(); if (isDone || isAdmin || isContest) { setSelectedTaskForSolutions(task); setShowSolutionsModal(true); } else { onShowToast("🔒 完成题目后方可查看他人代码", 'info'); } }} className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border transition-colors ${isDone || isAdmin || isContest ? 'bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-100 cursor-pointer' : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-70'}`} title={isDone ? "查看通过记录" : "完成题目后解锁"}>{isDone || isAdmin || isContest ? <Users className="w-3 h-3" /> : <Lock className="w-3 h-3" />}{uniquePassers}</button>
                     </div>
                 </div>
             </div>
@@ -433,7 +544,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
     );
   };
 
-  // ... (Render Main Component)
+  // --- Render Main Component ---
   return (
     <div className="flex flex-col gap-6 animate-fade-in pb-12 relative">
       
@@ -444,9 +555,9 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                   <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-indigo-50/50">
                       <h3 className="font-bold text-indigo-900 flex items-center gap-2">
                           <Megaphone className="w-5 h-5 text-indigo-600" /> 
-                          {editingTaskId ? '编辑题目' : '发布新题'}
+                          {editingTaskId ? '编辑任务' : '发布任务'}
                       </h3>
-                      <button onClick={() => { setShowAdminPanel(false); setEditingTaskId(null); setNewTaskTitle(''); setNewTaskDesc(''); }} className="p-2 hover:bg-gray-100 rounded-full text-gray-500">
+                      <button onClick={() => { setShowAdminPanel(false); setEditingTaskId(null); }} className="p-2 hover:bg-gray-100 rounded-full text-gray-500">
                           <X className="w-5 h-5" />
                       </button>
                   </div>
@@ -459,11 +570,11 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                                   value={newTaskTitle}
                                   onChange={e => setNewTaskTitle(e.target.value)}
                                   className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-gray-800"
-                                  placeholder="例如: 两数之和"
+                                  placeholder="例如: AtCoder Beginner Contest 333"
                               />
                           </div>
                           <div>
-                              <label className="block text-sm font-bold text-gray-700 mb-1">发布日期</label>
+                              <label className="block text-sm font-bold text-gray-700 mb-1">日期</label>
                               <div className="relative">
                                   <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                                   <input 
@@ -475,19 +586,44 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                               </div>
                           </div>
                       </div>
+
+                      <div className="flex gap-4">
+                           <div className="flex-1">
+                               <label className="block text-sm font-bold text-gray-700 mb-1">类型</label>
+                               <select 
+                                  value={newTaskType}
+                                  onChange={e => setNewTaskType(e.target.value as any)}
+                                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-medium"
+                               >
+                                   <option value="Problem">单道题目 (Single)</option>
+                                   <option value="Contest">套题/比赛 (Contest)</option>
+                               </select>
+                           </div>
+                           {newTaskType === 'Contest' && (
+                               <div className="w-32">
+                                   <label className="block text-sm font-bold text-gray-700 mb-1">题目数量</label>
+                                   <input 
+                                      type="number"
+                                      value={newTaskTotalCount}
+                                      onChange={e => setNewTaskTotalCount(parseInt(e.target.value))}
+                                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                   />
+                               </div>
+                           )}
+                      </div>
                       
                       <div>
-                          <label className="block text-sm font-bold text-gray-700 mb-1">题目描述 (Markdown)</label>
+                          <label className="block text-sm font-bold text-gray-700 mb-1">描述 (Markdown)</label>
                           <textarea 
                               value={newTaskDesc}
                               onChange={e => setNewTaskDesc(e.target.value)}
                               className="w-full h-40 border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-mono leading-relaxed resize-none"
-                              placeholder="描述题目要求、输入输出样例..."
+                              placeholder="描述题目/比赛链接..."
                           />
                       </div>
 
                       <div>
-                          <label className="block text-sm font-bold text-gray-700 mb-2">指定人员 (选填，留空则全员可见)</label>
+                          <label className="block text-sm font-bold text-gray-700 mb-2">指定人员 (选填)</label>
                           <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto border border-gray-100 p-2 rounded-xl bg-gray-50">
                               {allUsers.filter(u => u.role !== 'admin').map(u => (
                                   <button
@@ -532,10 +668,10 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
           </div>
       )}
 
-      {/* ... Other Modals ... (Keep existing code) */}
+      {/* ... Other Modals ... */}
       {showBossModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black cursor-pointer animate-fade-in" onClick={() => setShowBossModal(false)}>
-              <div className="text-white text-center"><h1 className="text-8xl md:text-9xl font-black mb-4 tracking-tighter animate-bounce">你太强了</h1><p className="text-gray-400 text-lg">点击任意处关闭</p></div>
+              <div className="text-white text-center"><h1 className="text-8xl md:text-9xl font-black mb-4 tracking-tighter animate-bounce">AC !!!</h1><p className="text-gray-400 text-lg">点击任意处关闭</p></div>
           </div>
       )}
       {/* ... Solutions List Modal ... */}
@@ -546,7 +682,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                   <div className="flex-1 overflow-y-auto p-4 space-y-2">
                       {allSubmissions.filter(s => s.taskId === selectedTaskForSolutions.id && s.status === 'Passed').length === 0 ? <div className="text-center text-gray-400 py-8">暂无通过记录</div> : allSubmissions.filter(s => s.taskId === selectedTaskForSolutions.id && s.status === 'Passed').sort((a, b) => b.timestamp - a.timestamp).map(sub => (
                               <div key={sub.id} onClick={() => setViewingSubmission(sub)} className="flex items-center justify-between p-3 rounded-xl border border-gray-100 hover:bg-indigo-50 hover:border-indigo-100 transition-all cursor-pointer group">
-                                  <div className="flex items-center gap-3"><img src={sub.userAvatar || 'https://api.dicebear.com/7.x/notionists/svg?seed=Unknown'} className="w-8 h-8 rounded-full bg-gray-100" /><div><div className="font-bold text-sm text-gray-800">{sub.userName || 'Unknown'}</div><div className="text-xs text-gray-400 font-mono">{new Date(sub.timestamp).toLocaleDateString()}</div></div></div>
+                                  <div className="flex items-center gap-3"><img src={sub.userAvatar || 'https://api.dicebear.com/7.x/notionists/svg?seed=Unknown'} className="w-8 h-8 rounded-full bg-gray-100" /><div><div className="font-bold text-sm text-gray-800">{sub.userName || 'Unknown'} {sub.problemIndex && <span className="bg-orange-100 text-orange-600 px-1 rounded text-xs">Prob {sub.problemIndex}</span>}</div><div className="text-xs text-gray-400 font-mono">{new Date(sub.timestamp).toLocaleDateString()}</div></div></div>
                                   <div className="text-right"><div className="text-xs font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded">{sub.duration || '?'} min</div><div className="text-[10px] text-gray-400 mt-1 uppercase">{sub.language}</div></div>
                               </div>
                           ))}
@@ -554,16 +690,16 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
               </div>
           </div>
       )}
-      {/* ... Viewer Modal ... */}
+      {/* ... Viewer Modal ... (Keep existing) */}
       {viewingSubmission && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
               <div className="bg-[#1e1e1e] rounded-2xl shadow-2xl w-full max-w-3xl h-[80vh] flex flex-col overflow-hidden border border-gray-700">
-                  <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-[#252526]"><div className="flex items-center gap-3"><img src={viewingSubmission.userAvatar} className="w-8 h-8 rounded-full bg-gray-600" /><div><div className="font-bold text-gray-200 text-sm">{viewingSubmission.userName} 的提交代码</div><div className="text-xs text-gray-400 flex gap-2"><span>{new Date(viewingSubmission.timestamp).toLocaleString()}</span><span>•</span><span>耗时: {viewingSubmission.duration || '?'} min</span></div></div></div><button onClick={() => setViewingSubmission(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors text-white"><X className="w-5 h-5"/></button></div>
+                  <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-[#252526]"><div className="flex items-center gap-3"><img src={viewingSubmission.userAvatar} className="w-8 h-8 rounded-full bg-gray-600" /><div><div className="font-bold text-gray-200 text-sm">{viewingSubmission.userName} 的提交代码 {viewingSubmission.problemIndex && `(${viewingSubmission.problemIndex})`}</div><div className="text-xs text-gray-400 flex gap-2"><span>{new Date(viewingSubmission.timestamp).toLocaleString()}</span><span>•</span><span>耗时: {viewingSubmission.duration || '?'} min</span></div></div></div><button onClick={() => setViewingSubmission(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors text-white"><X className="w-5 h-5"/></button></div>
                   <div className="flex-1 overflow-auto p-6 bg-[#1e1e1e] font-mono text-sm leading-6 text-gray-300"><pre>{viewingSubmission.code}</pre></div>
               </div>
           </div>
       )}
-      {/* ... Achievement Modal ... */}
+      {/* ... Achievement Modal ... (Keep existing) */}
       {showAchievementModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/95 backdrop-blur-md animate-fade-in p-6">
               <div className="w-full max-w-5xl h-full flex flex-col">
@@ -577,14 +713,14 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
               </div>
           </div>
       )}
-      {/* ... CheckIn Modal ... (Keep existing) */}
+      {/* ... CheckIn Modal ... */}
       {showCheckInModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in"><div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 transform scale-100 transition-all"><div className="text-center mb-6"><div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3"><Clock className="w-6 h-6 text-green-600" /></div><h3 className="text-lg font-bold text-gray-800">恭喜全部 AC！</h3><p className="text-gray-500 text-sm mt-1">记录一下今天攻克这些难题花了多久吧</p></div><div className="flex items-center justify-center gap-2 mb-6"><input type="number" value={checkInDuration} onChange={(e) => setCheckInDuration(parseInt(e.target.value) || 0)} className="w-24 text-center text-2xl font-bold border-b-2 border-indigo-200 focus:border-indigo-500 focus:outline-none text-indigo-600" autoFocus /><span className="text-gray-400 font-bold">分钟</span></div><div className="flex gap-3"><button onClick={() => setShowCheckInModal(false)} className="flex-1 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors">稍后</button><button onClick={confirmCheckIn} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">确认打卡</button></div></div></div>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in"><div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 transform scale-100 transition-all"><div className="text-center mb-6"><div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3"><Clock className="w-6 h-6 text-green-600" /></div><h3 className="text-lg font-bold text-gray-800">{currentTaskObj?.type === 'Contest' ? '结束比赛并打卡?' : '恭喜全部 AC！'}</h3><p className="text-gray-500 text-sm mt-1">{currentTaskObj?.type === 'Contest' ? '提交后将生成比赛总结日志，不可再更改提交记录。' : '记录一下今天攻克这些难题花了多久吧'}</p></div><div className="flex items-center justify-center gap-2 mb-6"><input type="number" value={checkInDuration} onChange={(e) => setCheckInDuration(parseInt(e.target.value) || 0)} className="w-24 text-center text-2xl font-bold border-b-2 border-indigo-200 focus:border-indigo-500 focus:outline-none text-indigo-600" autoFocus /><span className="text-gray-400 font-bold">分钟</span></div><div className="flex gap-3"><button onClick={() => setShowCheckInModal(false)} className="flex-1 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors">取消</button><button onClick={confirmCheckIn} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">确认打卡</button></div></div></div>
       )}
 
       {/* Header Bar */}
       <div className="flex items-center justify-between bg-white rounded-2xl p-6 border border-gray-100 shadow-sm sticky top-0 z-40 backdrop-blur-md bg-white/90">
-          <div className="flex items-center gap-4"><div className="bg-indigo-100 p-3 rounded-xl text-indigo-600 shadow-sm"><Terminal className="w-6 h-6" /></div><div><h1 className="text-xl font-bold text-gray-800">算法训练营</h1><p className="text-xs text-gray-500 mt-0.5">LeetCode Style Practice</p></div></div>
+          <div className="flex items-center gap-4"><div className="bg-indigo-100 p-3 rounded-xl text-indigo-600 shadow-sm"><Terminal className="w-6 h-6" /></div><div><h1 className="text-xl font-bold text-gray-800">算法训练营</h1><p className="text-xs text-gray-500 mt-0.5">LeetCode & Contest Practice</p></div></div>
           <div className="flex items-center gap-6">
               {isAdmin && (
                   <button onClick={() => { setShowAdminPanel(true); setEditingTaskId(null); setNewTaskTitle(''); setNewTaskDesc(''); setNewTaskDate(todayStr); }} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all font-bold text-sm active:scale-95">
@@ -598,7 +734,7 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
           </div>
       </div>
 
-      {/* Main Workspace (Keep existing) */}
+      {/* Main Workspace */}
       <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-280px)] min-h-[600px]">
         {/* Left Sidebar */}
         <div className="w-full lg:w-80 flex flex-col gap-4 shrink-0">
@@ -613,18 +749,33 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                 <div className="flex-1 overflow-y-auto p-3 custom-scrollbar bg-gray-50/30">
                     {isLoading ? <div className="flex justify-center p-10"><Loader2 className="animate-spin text-indigo-400"/></div> : (selectedDateTasks.length > 0 ? selectedDateTasks.map(renderTaskItem) : <div className="flex flex-col items-center justify-center py-12 text-gray-300 gap-2 opacity-60"><Cpu className="w-8 h-8" /><p className="text-xs">今日无指定任务</p></div>)}
                 </div>
-                {isSelectedDateToday && selectedDateTasks.length > 0 && <div className="p-3 border-t border-gray-100 bg-white"><button disabled={!isSelectedDateAllDone || isGuest} onClick={handleOpenCheckInModal} className={`w-full py-3 rounded-xl font-bold text-sm flex justify-center items-center gap-2 transition-all shadow-sm ${isSelectedDateAllDone && !isGuest ? 'bg-green-600 text-white hover:bg-green-700 shadow-green-200' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>{isGuest ? <Lock className="w-3 h-3"/> : <Send className="w-3 h-3" />}{isGuest ? '访客不可打卡' : (isSelectedDateAllDone ? '一键算法打卡' : '待完成')}</button></div>}
+                {/* Check In Button Logic */}
+                {isSelectedDateToday && (
+                     // If it's a contest, show different button in the right panel usually, but here maybe hide?
+                     // Actually, if activeTask is Contest, we show button in Editor area.
+                     // If activeTask is Single Problem, we show button here if ALL done.
+                     currentTaskObj?.type !== 'Contest' && selectedDateTasks.length > 0 && (
+                        <div className="p-3 border-t border-gray-100 bg-white"><button disabled={!isSelectedDateAllDone || isGuest} onClick={() => handleOpenCheckInModal()} className={`w-full py-3 rounded-xl font-bold text-sm flex justify-center items-center gap-2 transition-all shadow-sm ${isSelectedDateAllDone && !isGuest ? 'bg-green-600 text-white hover:bg-green-700 shadow-green-200' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>{isGuest ? <Lock className="w-3 h-3"/> : <Send className="w-3 h-3" />}{isGuest ? '访客不可打卡' : (isSelectedDateAllDone ? '一键算法打卡' : '待完成')}</button></div>
+                     )
+                )}
             </div>
         </div>
 
-        {/* Right Editor (Keep existing) */}
+        {/* Right Editor */}
         <div className="flex-1 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden relative">
             {activeTask ? (
             <>
-                {/* Description */}
+                {/* Description Header */}
                 <div className="h-1/3 min-h-[150px] flex flex-col border-b border-gray-200">
                      <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50/50">
-                        <div className="flex items-center gap-3"><h3 className="text-lg font-bold text-gray-800">{visibleTasks.find(t => t.id === activeTask)?.title}</h3><span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded border border-gray-200">Problem</span></div>
+                        <div className="flex items-center gap-3">
+                            {currentTaskObj?.type === 'Contest' ? (
+                                <span className="bg-orange-100 text-orange-600 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">Contest Mode</span>
+                            ) : (
+                                <span className="bg-gray-100 text-gray-500 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">Single Problem</span>
+                            )}
+                            <h3 className="text-lg font-bold text-gray-800 truncate max-w-md">{currentTaskObj?.title}</h3>
+                        </div>
                         <div className="relative group">
                             <select 
                                 value={language} 
@@ -640,11 +791,51 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                             <ChevronDown className="w-3 h-3 text-gray-400 absolute right-2.5 top-1/2 transform -translate-y-1/2 pointer-events-none" />
                         </div>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-5 custom-scrollbar bg-white prose prose-sm max-w-none prose-indigo"><MarkdownText content={visibleTasks.find(t => t.id === activeTask)?.description || ''} /></div>
+                    <div className="flex-1 overflow-y-auto p-5 custom-scrollbar bg-white prose prose-sm max-w-none prose-indigo"><MarkdownText content={currentTaskObj?.description || ''} /></div>
                 </div>
+
+                {/* Contest Sub-problem Tabs */}
+                {currentTaskObj?.type === 'Contest' && (
+                    <div className="flex items-center px-4 py-2 bg-gray-100 border-b border-gray-200 gap-2 overflow-x-auto custom-scrollbar">
+                        <span className="text-xs font-bold text-gray-500 uppercase mr-2">Problems:</span>
+                        {contestProblems.map(pIndex => {
+                             const isSolved = mySubmissions.some(s => s.taskId === activeTask && s.problemIndex === pIndex && s.status === 'Passed');
+                             return (
+                                <button
+                                    key={pIndex}
+                                    onClick={() => setActiveProblemIndex(pIndex)}
+                                    className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold transition-all relative ${
+                                        activeProblemIndex === pIndex 
+                                        ? 'bg-indigo-600 text-white shadow-md' 
+                                        : 'bg-white text-gray-600 hover:bg-gray-200 border border-gray-200'
+                                    }`}
+                                >
+                                    {pIndex}
+                                    {isSolved && <div className="absolute -top-1 -right-1 bg-green-500 rounded-full p-[2px] border border-white"><CheckCircle className="w-2 h-2 text-white" /></div>}
+                                </button>
+                             );
+                        })}
+                        <div className="flex-1"></div>
+                        <button 
+                             onClick={() => handleOpenCheckInModal(true)}
+                             className="text-xs bg-green-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-green-700 shadow-sm flex items-center gap-1 transition-colors"
+                        >
+                            <Flag className="w-3 h-3" /> 结束比赛并打卡
+                        </button>
+                    </div>
+                )}
+
                 {/* Code Editor */}
                 <div className="flex-1 flex flex-col relative bg-[#1e1e1e] min-h-0 text-gray-300">
-                    <div className="h-8 bg-[#252526] border-b border-[#3e3e42] flex items-center px-4 gap-4 text-xs select-none"><span className="flex items-center gap-1.5 text-blue-400"><FileCode className="w-3 h-3"/> main.{language === 'python' ? 'py' : language === 'javascript' ? 'js' : language === 'java' ? 'java' : 'cpp'}</span><span className="text-gray-600">|</span><span className="text-gray-500">UTF-8</span><span className="ml-auto text-green-500 flex items-center gap-1"><Zap className="w-3 h-3"/> Auto-saved</span></div>
+                    <div className="h-8 bg-[#252526] border-b border-[#3e3e42] flex items-center px-4 gap-4 text-xs select-none">
+                        <span className="flex items-center gap-1.5 text-blue-400">
+                            <FileCode className="w-3 h-3"/> 
+                            {currentTaskObj?.type === 'Contest' ? `Problem ${activeProblemIndex}` : 'main'}.{language === 'python' ? 'py' : language === 'javascript' ? 'js' : language === 'java' ? 'java' : 'cpp'}
+                        </span>
+                        <span className="text-gray-600">|</span>
+                        <span className="text-gray-500">UTF-8</span>
+                        <span className="ml-auto text-green-500 flex items-center gap-1"><Zap className="w-3 h-3"/> Auto-saved</span>
+                    </div>
                     <div className="flex-1 relative overflow-hidden flex text-sm font-mono group min-h-0">
                         <div ref={lineNumbersRef} className="w-10 bg-[#1e1e1e] border-r border-[#3e3e42] text-gray-600 text-right py-4 pr-2 select-none shrink-0 leading-6 z-10 overflow-hidden">{(code || '').split('\n').map((_, i) => <div key={i}>{i + 1}</div>)}</div>
                         <div className="flex-1 relative overflow-hidden">
@@ -655,7 +846,13 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                     </div>
                 </div>
                 {/* Footer */}
-                <div className="p-3 border-t border-gray-200 bg-white flex justify-end items-center gap-3"><button className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-gray-700 transition-colors" onClick={() => setCode('')}>清空代码</button><button onClick={handleSubmitCode} disabled={isRunning || !code.trim() || isGuest} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-all active:scale-95 flex items-center gap-2 shadow-md shadow-indigo-200 disabled:opacity-50 disabled:shadow-none">{isRunning ? <Loader2 className="w-4 h-4 animate-spin"/> : <Play className="w-4 h-4 fill-current" />}<span>{isRunning ? '运行中...' : '提交运行'}</span></button></div>
+                <div className="p-3 border-t border-gray-200 bg-white flex justify-end items-center gap-3">
+                    <button className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-gray-700 transition-colors" onClick={() => setCode('')}>清空代码</button>
+                    <button onClick={handleSubmitCode} disabled={isRunning || !code.trim() || isGuest} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-all active:scale-95 flex items-center gap-2 shadow-md shadow-indigo-200 disabled:opacity-50 disabled:shadow-none">
+                        {isRunning ? <Loader2 className="w-4 h-4 animate-spin"/> : <Play className="w-4 h-4 fill-current" />}
+                        <span>{isRunning ? '运行中...' : '提交本题'}</span>
+                    </button>
+                </div>
             </>
             ) : <div className="flex-1 flex flex-col items-center justify-center text-gray-300 bg-gray-50/30"><div className="bg-white p-6 rounded-full shadow-sm mb-4"><Code className="w-12 h-12 text-gray-200" /></div><p className="font-medium text-gray-400">请从左侧选择一道题目开始编码</p></div>}
         </div>
@@ -699,7 +896,10 @@ export const AlgorithmTutor: React.FC<Props> = ({ user, onCheckIn, onShowToast }
                                           {sub.status === 'Passed' ? <CheckCircle className="w-4 h-4" /> : <X className="w-4 h-4" />}
                                       </div>
                                       <div>
-                                          <div className="font-bold text-sm text-gray-800">{taskTitle}</div>
+                                          <div className="font-bold text-sm text-gray-800 flex items-center gap-2">
+                                              {taskTitle} 
+                                              {sub.problemIndex && <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px] font-mono">{sub.problemIndex}</span>}
+                                          </div>
                                           <div className="text-xs text-gray-400 font-mono mt-0.5">{new Date(sub.timestamp).toLocaleString()}</div>
                                       </div>
                                   </div>

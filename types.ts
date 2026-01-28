@@ -1,4 +1,5 @@
 
+
 export enum SubjectCategory {
   MATH = '数学',
   ENGLISH = '英语',
@@ -85,6 +86,8 @@ export interface AlgorithmTask {
   title: string;
   description: string;
   difficulty: 'Easy' | 'Medium' | 'Hard';
+  type?: 'Problem' | 'Contest'; // New: Task type
+  totalCount?: number; // New: For contests (e.g., 6 problems)
   date: string;
   assignedTo?: string[]; 
 }
@@ -92,6 +95,7 @@ export interface AlgorithmTask {
 export interface AlgorithmSubmission {
   id?: string;
   taskId: string;
+  problemIndex?: string; // New: For contests (e.g., 'A', 'B')
   userId: string;
   userName?: string; 
   userAvatar?: string;
