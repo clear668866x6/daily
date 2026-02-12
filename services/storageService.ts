@@ -30,7 +30,7 @@ const SUBJECT_WEIGHTS: Record<string, number> = {
     [SubjectCategory.POLITICS]: 0.8,
     [SubjectCategory.DAILY]: 0.8,
     [SubjectCategory.OTHER]: 0.8,
-    [SubjectCategory.ALGORITHM]: 1.0, 
+    [SubjectCategory.ALGORITHM]: 1.15, // Updated to 1.15 as requested
 };
 
 // Helper: Calculate Points (Replicating Logic from Dashboard.tsx)
@@ -459,28 +459,10 @@ export const recalculateUserRatingByRange = async (
         } else {
             // It's a Manual Adjustment / Bonus / System Penalty without check-in link
             // For these, we PRESERVE the original relative delta
-            // Example: Admin added 50 points manually. We keep adding 50 points, regardless of base.
             
-            // Find this record in the original fetched array to calculate its ORIGINAL delta
-            // Note: `rangeHistory` contains the *old* values before we started updating
-            // But we need the delta relative to the *old previous* value.
-            
-            const originalPrevRating = i > 0 ? rangeHistory[i - 1].rating : (rangeHistory[0].rating); // Fallback logic approximate
-            const originalDelta = rangeHistory.length > 0 && i > 0 ? (rangeHistory[i].rating - rangeHistory[i-1].rating) : 0; 
-            // Better logic: if this record had a delta in original history, preserve it.
-            // But manually calculating delta from record stream is safer.
-            // Let's assume the delta is preserved from description or previous calculation?
-            // Actually, for manual adjustments, `record.rating` was the snapshot. 
-            // We need to infer the intended delta.
-            
-            // Simplification: Try to extract delta from reason string if possible, otherwise rely on diff
-            // If we can't infer, we assume 0 change to be safe, OR we calculate diff from previous record in the *old* array.
             const oldThisRating = record.rating;
             const oldPrevRating = i > 0 ? rangeHistory[i-1].rating : (overrideBaseRating !== undefined ? overrideBaseRating : 1200); // Approximate
             
-            // Actually, we should just check if we can parse the delta from the reason string?
-            // "Admin Manual Update" doesn't have delta in text usually.
-            // Let's rely on array diff.
             delta = oldThisRating - oldPrevRating;
 
             // Update reason text if it contains "R: A->B" pattern

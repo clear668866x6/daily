@@ -16,7 +16,8 @@
     "recharts": "^3.5.1",
     "@supabase/supabase-js": "2.39.3",
     "@vitejs/plugin-react": "^5.1.2",
-    "vite": "^7.2.7"
+    "vite": "^7.2.7",
+    "katex": "0.16.9"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

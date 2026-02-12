@@ -1,8 +1,9 @@
 
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { User, CheckIn, SubjectCategory, getUserStyle, getTitleName, RatingHistory } from '../types';
 import { MarkdownText } from './MarkdownText';
-import { Calendar, Filter, Clock, MapPin, X, Search, User as UserIcon, TrendingUp, ChevronLeft, ArrowLeft, History, Trash2, Edit2, Sparkles, ChevronRight, ChevronDown, Save, ShieldCheck, BarChart3 } from 'lucide-react';
+import { Calendar, Filter, Clock, MapPin, X, Search, User as UserIcon, TrendingUp, ChevronLeft, ArrowLeft, History, Trash2, Edit2, Sparkles, ChevronRight, ChevronDown, Save, ShieldCheck, BarChart3, Download } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import * as storage from '../services/storageService';
 import { FullScreenEditor } from './FullScreenEditor';
@@ -195,6 +196,27 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
       } catch (e) {
           console.error("Failed to update goal");
       }
+  }
+
+  const handleDownloadData = () => {
+      const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + 
+          "Date,Subject,Duration(min),Rating Impact,Content\n" +
+          myCheckIns.map(c => {
+              const date = new Date(c.timestamp).toLocaleString();
+              const subject = c.subject;
+              const duration = c.duration || 0;
+              const ratingImpact = c.isPenalty ? 'Penalty' : (c.userRating ? `~${c.userRating}` : 'N/A');
+              const content = `"${c.content.replace(/"/g, '""').replace(/\n/g, ' ')}"`;
+              return `${date},${subject},${duration},${ratingImpact},${content}`;
+          }).join("\n");
+
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `kaoyan_logs_${user.name}_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
   }
 
   const myCheckIns = useMemo(() => {
@@ -411,7 +433,16 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
                     </button>
                 )}
             </div>
-            <div className="absolute top-6 right-6 z-10">
+            <div className="absolute top-6 right-6 z-10 flex gap-2">
+                {user.id === currentUser.id && (
+                    <button 
+                        onClick={handleDownloadData}
+                        className="bg-white/20 backdrop-blur-md p-2.5 rounded-xl text-white hover:bg-white/30 transition-colors border border-white/20 shadow-lg"
+                        title="下载数据"
+                    >
+                        <Download className="w-5 h-5" />
+                    </button>
+                )}
                 <button 
                     onClick={() => setIsSearchOpen(true)}
                     className="bg-white/20 backdrop-blur-md p-2.5 rounded-xl text-white hover:bg-white/30 transition-colors border border-white/20 shadow-lg"

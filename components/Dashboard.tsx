@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { CheckIn, User } from '../types';
 import { ToastType } from './Toast';
@@ -41,7 +42,7 @@ const SUBJECT_WEIGHTS: Record<string, number> = {
     [SubjectCategory.POLITICS]: 0.8,
     [SubjectCategory.DAILY]: 0.8,
     [SubjectCategory.OTHER]: 0.8,
-    [SubjectCategory.ALGORITHM]: 1.0, 
+    [SubjectCategory.ALGORITHM]: 1.15, // Sync with storageService
 };
 
 // Updated: Business Day Logic (4 AM cut-off) - Strictly Local Time
@@ -223,6 +224,12 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [leaveDays, setLeaveDays] = useState(1);
   const [leaveReason, setLeaveReason] = useState('');
+  const [leaveStartDate, setLeaveStartDate] = useState(() => {
+      // Default to tomorrow
+      const t = new Date();
+      t.setDate(t.getDate() + 1);
+      return t.toISOString().split('T')[0];
+  });
   
   // Rule Modal
   const [showRules, setShowRules] = useState(false);
@@ -238,6 +245,24 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           setSelectedUserId(initialSelectedUserId);
       }
   }, [initialSelectedUserId]);
+
+  // Load Draft from LocalStorage
+  useEffect(() => {
+      const savedContent = localStorage.getItem('ky_draft_content');
+      const savedSubject = localStorage.getItem('ky_draft_subject');
+      const savedDuration = localStorage.getItem('ky_draft_duration');
+      
+      if (savedContent) setLogContent(savedContent);
+      if (savedSubject) setLogSubject(savedSubject as SubjectCategory);
+      if (savedDuration) setLogDuration(parseInt(savedDuration));
+  }, []);
+
+  // Save Draft to LocalStorage
+  useEffect(() => {
+      localStorage.setItem('ky_draft_content', logContent);
+      localStorage.setItem('ky_draft_subject', logSubject);
+      localStorage.setItem('ky_draft_duration', logDuration.toString());
+  }, [logContent, logSubject, logDuration]);
 
   // Sync Calendar Click to Chart Filter
   useEffect(() => {
@@ -448,6 +473,10 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       const dailyMakeup = Math.floor(Math.random() * (60 - 30 + 1)) + 30;
       const makeup = isPending ? 0 : dailyMakeup * leaveDays; 
 
+      // Use the selected start date for the timestamp. 
+      // Set to noon to avoid timezone overlaps.
+      const startTimestamp = new Date(leaveStartDate).setHours(12, 0, 0, 0);
+
       const leaveCheckIn: CheckIn = {
           id: Date.now().toString(),
           userId: currentUser.id,
@@ -456,14 +485,14 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           userRating: currentUser.rating,
           userRole: currentUser.role,
           subject: SubjectCategory.OTHER,
-          content: `📜 **请假申请**\n\n**天数**: ${leaveDays} 天\n**理由**: ${leaveReason}\n\n${isPending ? '⏳ 超过2天，等待管理员审批...' : `✅ 系统自动批准 (需补时 ${makeup} 分钟，约 ${dailyMakeup} min/天)`}`,
+          content: `📜 **请假申请**\n\n**开始日期**: ${leaveStartDate}\n**天数**: ${leaveDays} 天\n**理由**: ${leaveReason}\n\n${isPending ? '⏳ 超过2天，等待管理员审批...' : `✅ 系统自动批准 (需补时 ${makeup} 分钟，约 ${dailyMakeup} min/天)`}`,
           duration: 0,
           isLeave: true,
           leaveDays: leaveDays,
           leaveReason: leaveReason,
           leaveStatus: isPending ? 'pending' : 'approved',
           makeupMinutes: makeup,
-          timestamp: Date.now(),
+          timestamp: startTimestamp,
           likedBy: []
       };
       
@@ -472,6 +501,10 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           setShowLeaveModal(false);
           setLeaveReason('');
           setLeaveDays(1);
+          // Reset Date to tomorrow
+          const t = new Date();
+          t.setDate(t.getDate() + 1);
+          setLeaveStartDate(t.toISOString().split('T')[0]);
       } catch(e) {
           onShowToast("申请提交失败", 'error');
       }
@@ -552,6 +585,10 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       storage.updateUserLocal(updatedUser);
       
       setLogContent('');
+      localStorage.removeItem('ky_draft_content'); // Clear Draft on Success
+      localStorage.removeItem('ky_draft_subject');
+      localStorage.removeItem('ky_draft_duration');
+
       if (logMode === 'study') {
           onShowToast(`✅ 学习记录已提交！Rating +${ratingChange}`, 'success');
       } else {
@@ -823,6 +860,16 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
               
               <div className="p-6 space-y-4">
                   <div>
+                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1">开始日期</label>
+                      <input 
+                          type="date"
+                          value={leaveStartDate}
+                          onChange={e => setLeaveStartDate(e.target.value)}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                      />
+                  </div>
+                  
+                  <div>
                       <label className="block text-xs font-bold text-gray-500 uppercase mb-1">请假天数</label>
                       <div className="flex items-center gap-2">
                           <input 
@@ -870,7 +917,7 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           onClose={() => setShowRules(false)}
           onConfirm={() => setShowRules(false)}
           title="奖惩机制说明"
-          message={`1. 每日目标: ${currentUser.dailyGoal || 90} 分钟。\n2. 每日结算: 凌晨4点。未达标扣 10~20 分，缺勤扣 45~60 分。\n3. 加分公式: 时长/10 * 科目权重 * 分段系数 + 1。\n4. 权重: 数学/专业课 1.2，英语 1.0，政治 0.8。\n5. 分段系数: \n   <1200分 x1.0\n   1200-1400分 x0.8\n   1400-1600分 x0.7\n   1600-1900分 x0.6\n   1900-2500分 x0.5\n   2500-3000分 x0.4\n   3000-4000分 x0.3\n   >4000分 x0.15 (高分段冲分更难)\n6. 请假: >2天需审批，批准后免除惩罚，但次日需补时(30~60分钟/天)。`}
+          message={`1. 每日目标: ${currentUser.dailyGoal || 90} 分钟。\n2. 每日结算: 凌晨4点。未达标扣 10~20 分，缺勤扣 45~60 分。\n3. 加分公式: 时长/10 * 科目权重 * 分段系数 + 1。\n4. 权重: 数学/专业课 1.2，算法 1.15，英语 1.0，政治 0.8。\n5. 分段系数: \n   <1200分 x1.0\n   1200-1400分 x0.8\n   1400-1600分 x0.7\n   1600-1900分 x0.6\n   1900-2500分 x0.5\n   2500-3000分 x0.4\n   3000-4000分 x0.3\n   >4000分 x0.15 (高分段冲分更难)\n6. 请假: >2天需审批，批准后免除惩罚，但次日需补时(30~60分钟/天)。`}
           confirmText="我明白了"
           cancelText="关闭"
       />

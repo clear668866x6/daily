@@ -1,5 +1,7 @@
 
+
 import React from 'react';
+import katex from 'katex';
 
 interface Props {
   content: string;
@@ -39,6 +41,12 @@ export const MarkdownText: React.FC<Props> = ({ content }) => {
     if (inCodeBlock) {
       codeBlockContent.push(line);
       continue;
+    }
+
+    // --- Horizontal Rule ---
+    if (line.trim() === '---') {
+        elements.push(<hr key={idx} className="my-4 border-gray-200" />);
+        continue;
     }
 
     // --- Standard Markdown parsing ---
@@ -123,17 +131,55 @@ export const MarkdownText: React.FC<Props> = ({ content }) => {
   );
 };
 
-// Helper for inline styles (bold, code)
+// Helper for inline styles (bold, code, math)
 const parseInline = (text: string) => {
-  // Simple regex to split by bold (**text**) and code (`text`)
-  const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g);
-  return parts.map((part, pIdx) => {
-    if (part.startsWith('**') && part.endsWith('**')) {
-      return <strong key={pIdx} className="font-bold text-gray-900">{part.slice(2, -2)}</strong>;
-    }
-    if (part.startsWith('`') && part.endsWith('`')) {
-      return <code key={pIdx} className="bg-gray-100 text-red-500 px-1.5 py-0.5 rounded font-mono text-xs border border-gray-200 mx-0.5">{part.slice(1, -1)}</code>;
-    }
-    return part;
+  // Regex to split by bold (**text**), code (`text`), inline math ($...$) and block math ($$...$$)
+  // Note: Simple split might be fragile for complex nesting, but works for basic cases.
+  // We prioritize Math first.
+  
+  // Split by $$...$$ first (Block Math)
+  const blockParts = text.split(/(\$\$.*?\$\$)/g);
+  
+  return blockParts.map((blockPart, bIdx) => {
+      if (blockPart.startsWith('$$') && blockPart.endsWith('$$')) {
+          const math = blockPart.slice(2, -2);
+          try {
+              const html = katex.renderToString(math, { displayMode: true, throwOnError: false });
+              return <div key={bIdx} dangerouslySetInnerHTML={{ __html: html }} />;
+          } catch(e) {
+              return <code key={bIdx} className="text-red-500">{blockPart}</code>;
+          }
+      }
+
+      // Split by $...$ (Inline Math)
+      const inlineParts = blockPart.split(/(\$.*?\$)/g);
+      return inlineParts.map((part, pIdx) => {
+          if (part.startsWith('$') && part.endsWith('$') && !part.startsWith('$$')) {
+              const math = part.slice(1, -1);
+              try {
+                  const html = katex.renderToString(math, { displayMode: false, throwOnError: false });
+                  return <span key={`${bIdx}-${pIdx}`} dangerouslySetInnerHTML={{ __html: html }} />;
+              } catch (e) {
+                  return <code key={`${bIdx}-${pIdx}`} className="text-red-500">{part}</code>;
+              }
+          }
+
+          // Split by Bold
+          const boldParts = part.split(/(\*\*.*?\*\*)/g);
+          return boldParts.map((subPart, sIdx) => {
+              if (subPart.startsWith('**') && subPart.endsWith('**')) {
+                  return <strong key={`${bIdx}-${pIdx}-${sIdx}`} className="font-bold text-gray-900">{subPart.slice(2, -2)}</strong>;
+              }
+              
+              // Split by Code
+              const codeParts = subPart.split(/(`.*?`)/g);
+              return codeParts.map((finalPart, cIdx) => {
+                  if (finalPart.startsWith('`') && finalPart.endsWith('`')) {
+                      return <code key={`${bIdx}-${pIdx}-${sIdx}-${cIdx}`} className="bg-gray-100 text-red-500 px-1.5 py-0.5 rounded font-mono text-xs border border-gray-200 mx-0.5">{finalPart.slice(1, -1)}</code>;
+                  }
+                  return finalPart;
+              });
+          });
+      });
   });
 };

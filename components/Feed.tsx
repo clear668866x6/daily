@@ -1,5 +1,6 @@
 
-import React, { useState, useRef, useMemo } from 'react';
+
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckIn, SubjectCategory, User, getUserStyle } from '../types'; 
 import { MarkdownText } from './MarkdownText';
@@ -47,6 +48,23 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
 
   const isGuest = user.role === 'guest';
   const isAdmin = user.role === 'admin';
+
+  // Load Draft from LocalStorage
+  useEffect(() => {
+      const savedContent = localStorage.getItem('ky_feed_draft_content');
+      const savedSubject = localStorage.getItem('ky_feed_draft_subject');
+      
+      if (savedContent) setContent(savedContent);
+      if (savedSubject) setSubject(savedSubject as SubjectCategory);
+  }, []);
+
+  // Save Draft to LocalStorage
+  useEffect(() => {
+      if (isPostModalOpen) {
+          localStorage.setItem('ky_feed_draft_content', content);
+          localStorage.setItem('ky_feed_draft_subject', subject);
+      }
+  }, [content, subject, isPostModalOpen]);
 
   const getSubjectTheme = (sub: string) => {
     if (sub === SubjectCategory.MATH) return 'bg-blue-50 text-blue-700 border-blue-200';
@@ -98,6 +116,11 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
     setImage(null);
     setIsAnnouncement(false);
     setIsPostModalOpen(false);
+    
+    // Clear draft
+    localStorage.removeItem('ky_feed_draft_content');
+    localStorage.removeItem('ky_feed_draft_subject');
+
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
