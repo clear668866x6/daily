@@ -13,6 +13,7 @@ interface Props {
   initialDuration?: number;
   allowDurationEdit?: boolean; // If false, duration is hidden or read-only
   onSave: (content: string, subject: SubjectCategory, duration: number) => void;
+  onChange?: (data: { content: string; subject: SubjectCategory; duration: number }) => void;
   title?: string;
   submitLabel?: string;
 }
@@ -25,6 +26,7 @@ export const FullScreenEditor: React.FC<Props> = ({
   initialDuration = 45,
   allowDurationEdit = true,
   onSave,
+  onChange,
   title = "全屏沉浸编辑",
   submitLabel = "提交"
 }) => {
@@ -35,15 +37,26 @@ export const FullScreenEditor: React.FC<Props> = ({
   
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Sync state when props change (re-opening)
+  // Initialize state when opening. 
+  // IMPORTANT: We only depend on `isOpen` changing to true to load initials.
+  // We DO NOT depend on `initialContent` changing, because if we sync back to parent, 
+  // `initialContent` will update, and re-setting state here would cause cursor jumps.
   useEffect(() => {
     if (isOpen) {
       setContent(initialContent);
-      setSubject(initialSubject);
-      setDuration(initialDuration);
+      setSubject(initialSubject || SubjectCategory.OTHER);
+      setDuration(initialDuration || 45);
       setIsSaving(false);
     }
-  }, [isOpen, initialContent, initialSubject, initialDuration]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]); 
+
+  // Sync changes back to parent if onChange is provided
+  useEffect(() => {
+      if (isOpen && onChange) {
+          onChange({ content, subject, duration });
+      }
+  }, [content, subject, duration, isOpen, onChange]);
 
   if (!isOpen) return null;
 

@@ -1,5 +1,4 @@
 
-
 import React from 'react';
 import { CheckIn, User } from '../types';
 import { ToastType } from './Toast';
@@ -788,6 +787,11 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
           initialSubject={logSubject}
           initialDuration={logDuration}
           onSave={executeLogStudy}
+          onChange={(data) => {
+              setLogContent(data.content);
+              setLogSubject(data.subject);
+              setLogDuration(data.duration);
+          }}
       />
 
       <ImageViewer 
@@ -1069,13 +1073,13 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
                       onClick={() => { setLogMode('study'); setIsFullScreen(true); }}
                       className="flex-1 bg-gradient-to-r from-blue-500 to-blue-600 text-white p-4 rounded-2xl shadow-lg shadow-blue-100 hover:-translate-y-1 transition-transform flex items-center justify-center gap-2 font-bold"
                   >
-                      <Edit3 className="w-5 h-5" /> 写日记 / 复盘
+                      <Edit3 className="w-5 h-5" /> 打卡
                   </button>
                   <button 
                       onClick={() => { setLogMode('penalty'); setLogContent('摸鱼 / 休息'); setIsFullScreen(true); }}
                       className="flex-1 bg-white text-gray-600 border border-gray-200 p-4 rounded-2xl hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 font-bold"
                   >
-                      <Coffee className="w-5 h-5 text-gray-400" /> 记录摸鱼 (扣分)
+                      <Coffee className="w-5 h-5 text-gray-400" /> 摸鱼
                   </button>
                   <button 
                       onClick={() => setShowLeaveModal(true)}
