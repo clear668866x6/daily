@@ -668,7 +668,17 @@ export const updateLeaveStatus = async (checkInId: string, status: LeaveStatus, 
     if (error) throw error;
 }
 
-// NEW: Update CheckIn Timestamp (specifically for admin editing leave dates)
+// NEW: Update Leave Details (Date + Days)
+export const updateLeaveDetails = async (checkInId: string, newTimestamp: number, newDays: number, newContent: string) => {
+    const { error } = await supabase.from('checkins').update({
+        timestamp: newTimestamp,
+        leave_days: newDays,
+        content: newContent
+    }).eq('id', checkInId);
+    if (error) throw error;
+}
+
+// Update CheckIn Timestamp (legacy)
 export const updateCheckInTimestamp = async (checkInId: string, newTimestamp: number, contentUpdate?: string) => {
     const updates: any = { timestamp: newTimestamp };
     if (contentUpdate) updates.content = contentUpdate;

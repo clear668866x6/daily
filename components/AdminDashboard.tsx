@@ -92,7 +92,13 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
   const [newLeaveDate, setNewLeaveDate] = useState(new Date().toISOString().split('T')[0]);
   const [newLeaveDays, setNewLeaveDays] = useState(1);
   const [newLeaveReason, setNewLeaveReason] = useState('');
-  const [editingLeaveDate, setEditingLeaveDate] = useState<{id: string, date: string} | null>(null);
+  
+  // Edit Leave Modal State
+  const [leaveEditModalOpen, setLeaveEditModalOpen] = useState(false);
+  const [leaveEditId, setLeaveEditId] = useState<string | null>(null);
+  const [leaveEditDate, setLeaveEditDate] = useState('');
+  const [leaveEditDays, setLeaveEditDays] = useState(1);
+  const [leaveEditUser, setLeaveEditUser] = useState<string>('');
 
   // Trigger re-render when checkIns change (important for status updates)
   const [localCheckIns, setLocalCheckIns] = useState<CheckIn[]>(checkIns);
@@ -231,7 +237,7 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
       }
   }
 
-  const handleUpdateLeave = async (checkInId: string, userId: string, status: LeaveStatus) => {
+  const handleUpdateLeaveStatus = async (checkInId: string, userId: string, status: LeaveStatus) => {
       try {
           const makeup = status === 'approved' ? 60 : 0; // Default makeup
           await storage.updateLeaveStatus(checkInId, status, makeup);
@@ -356,27 +362,47 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
       }
   }
 
-  const handleEditLeaveDate = async (checkInId: string, userId: string) => {
-      if (!editingLeaveDate || editingLeaveDate.id !== checkInId) return;
+  const openLeaveEdit = (leave: CheckIn, userId: string) => {
+      setLeaveEditId(leave.id);
+      setLeaveEditDate(formatDateKey(leave.timestamp));
+      setLeaveEditDays(leave.leaveDays || 1);
+      setLeaveEditUser(userId);
+      setLeaveEditModalOpen(true);
+  }
+
+  const handleSaveLeaveEdit = async () => {
+      if (!leaveEditId || !leaveEditUser) return;
+      
       try {
-          const newTs = new Date(editingLeaveDate.date).setHours(12, 0, 0, 0);
+          const newTs = new Date(leaveEditDate).setHours(12, 0, 0, 0);
           
-          // We also need to update the content text because it contains the date string
-          const currentLeave = userLeaveMap[userId].find(l => l.id === checkInId);
+          // Fetch existing to get base content
+          const currentLeave = userLeaveMap[leaveEditUser].find(l => l.id === leaveEditId);
           let newContent = currentLeave?.content || '';
           
-          // Replace date string in content: "**开始日期**: YYYY-MM-DD"
-          newContent = newContent.replace(/\*\*开始日期\*\*: \d{4}-\d{2}-\d{2}/, `**开始日期**: ${editingLeaveDate.date}`);
+          // Update Text Content with Regex
+          // Replace Date
+          newContent = newContent.replace(/\*\*开始日期\*\*: \d{4}-\d{2}-\d{2}/, `**开始日期**: ${leaveEditDate}`);
+          // Replace Days
+          newContent = newContent.replace(/\*\*天数\*\*: \d+ 天/, `**天数**: ${leaveEditDays} 天`);
 
-          await storage.updateCheckInTimestamp(checkInId, newTs, newContent);
+          await storage.updateLeaveDetails(leaveEditId, newTs, leaveEditDays, newContent);
           
-          onShowToast("日期已修改", 'success');
-          setEditingLeaveDate(null);
+          onShowToast("请假信息已更新", 'success');
+          setLeaveEditModalOpen(false);
           
           // Update local state
-          const updatedLeaves = userLeaveMap[userId].map(l => l.id === checkInId ? { ...l, timestamp: newTs, content: newContent } : l);
-          setUserLeaveMap(prev => ({ ...prev, [userId]: updatedLeaves }));
-          setLocalCheckIns(prev => prev.map(c => c.id === checkInId ? { ...c, timestamp: newTs, content: newContent } : c));
+          const updatedLeaves = userLeaveMap[leaveEditUser].map(l => 
+              l.id === leaveEditId 
+              ? { ...l, timestamp: newTs, leaveDays: leaveEditDays, content: newContent } 
+              : l
+          );
+          setUserLeaveMap(prev => ({ ...prev, [leaveEditUser]: updatedLeaves }));
+          setLocalCheckIns(prev => prev.map(c => 
+              c.id === leaveEditId 
+              ? { ...c, timestamp: newTs, leaveDays: leaveEditDays, content: newContent } 
+              : c
+          ));
 
       } catch(e) {
           onShowToast("修改失败", 'error');
@@ -599,6 +625,50 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
   return (
     <div className="space-y-6 pb-20 animate-fade-in relative">
       
+      {/* --- Edit Leave Modal --- */}
+      {leaveEditModalOpen && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in" onClick={() => setLeaveEditModalOpen(false)}>
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+                  <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-yellow-50">
+                      <h3 className="font-bold text-yellow-900 flex items-center gap-2">
+                          <Edit3 className="w-5 h-5 text-yellow-600" /> 修改请假信息
+                      </h3>
+                      <button onClick={() => setLeaveEditModalOpen(false)}><X className="w-5 h-5 text-gray-400"/></button>
+                  </div>
+                  <div className="p-6 space-y-4">
+                      <div>
+                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">开始日期</label>
+                          <input 
+                              type="date" 
+                              value={leaveEditDate}
+                              onChange={e => setLeaveEditDate(e.target.value)}
+                              className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-yellow-500"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">请假天数</label>
+                          <div className="flex items-center gap-2">
+                              <input 
+                                  type="number" 
+                                  min="1"
+                                  value={leaveEditDays}
+                                  onChange={e => setLeaveEditDays(parseInt(e.target.value) || 1)}
+                                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-yellow-500"
+                              />
+                              <span className="text-gray-400 font-bold text-xs shrink-0">天</span>
+                          </div>
+                      </div>
+                  </div>
+                  <div className="p-4 border-t border-gray-100 flex gap-3">
+                      <button onClick={() => setLeaveEditModalOpen(false)} className="flex-1 py-2.5 rounded-xl text-gray-500 font-bold hover:bg-gray-100 transition-colors">取消</button>
+                      <button onClick={handleSaveLeaveEdit} className="flex-1 py-2.5 bg-yellow-500 text-white rounded-xl font-bold hover:bg-yellow-600 shadow-lg shadow-yellow-200 transition-all flex items-center justify-center gap-2 active:scale-95">
+                          <Save className="w-4 h-4"/> 保存修改
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* --- Recalculate Modal --- */}
       {recalcModalOpen && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in p-4" onClick={() => !isRecalculating && setRecalcModalOpen(false)}>
@@ -938,18 +1008,13 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
                                                                userLeaveMap[u.id].map(l => (
                                                                    <div key={l.id} className="flex flex-col p-2 mb-1 bg-white rounded border border-gray-100 last:mb-0 gap-1.5">
                                                                        <div className="flex justify-between items-center">
-                                                                           {editingLeaveDate?.id === l.id ? (
-                                                                               <div className="flex items-center gap-1">
-                                                                                   <input type="date" value={editingLeaveDate.date} onChange={e => setEditingLeaveDate({...editingLeaveDate, date: e.target.value})} className="text-[10px] border rounded px-1 py-0.5" />
-                                                                                   <button onClick={() => handleEditLeaveDate(l.id, u.id)} className="text-green-600 bg-green-50 p-0.5 rounded"><Check className="w-3 h-3"/></button>
-                                                                                   <button onClick={() => setEditingLeaveDate(null)} className="text-gray-400 bg-gray-50 p-0.5 rounded"><X className="w-3 h-3"/></button>
-                                                                               </div>
-                                                                           ) : (
-                                                                               <div className="text-[10px] text-gray-400 font-mono flex items-center gap-1 group/date">
-                                                                                   {new Date(l.timestamp).toLocaleDateString()} ({l.leaveDays}天)
-                                                                                   <Edit3 className="w-3 h-3 text-gray-300 opacity-0 group-hover/date:opacity-100 cursor-pointer hover:text-indigo-500" onClick={() => setEditingLeaveDate({id: l.id, date: formatDateKey(l.timestamp)})} />
-                                                                               </div>
-                                                                           )}
+                                                                           <div className="text-[10px] text-gray-400 font-mono flex items-center gap-1 group/date">
+                                                                               {new Date(l.timestamp).toLocaleDateString()} ({l.leaveDays || 1}天)
+                                                                               <Edit3 
+                                                                                   className="w-3 h-3 text-gray-300 opacity-0 group-hover/date:opacity-100 cursor-pointer hover:text-indigo-500" 
+                                                                                   onClick={() => openLeaveEdit(l, u.id)} 
+                                                                               />
+                                                                           </div>
                                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
                                                                                l.leaveStatus === 'approved' ? 'bg-green-50 text-green-600' : 
                                                                                l.leaveStatus === 'rejected' ? 'bg-red-50 text-red-600' : 'bg-yellow-50 text-yellow-600'
@@ -960,12 +1025,12 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
                                                                        <div className="text-xs font-medium text-gray-700 truncate" title={l.leaveReason}>{l.leaveReason}</div>
                                                                        <div className="flex justify-end gap-2 pt-1">
                                                                            {l.leaveStatus !== 'rejected' && (
-                                                                               <button onClick={() => handleUpdateLeave(l.id, u.id, 'rejected')} className="text-[10px] text-red-500 border border-red-100 bg-red-50 px-2 py-0.5 rounded hover:bg-red-100 flex items-center gap-1">
+                                                                               <button onClick={() => handleUpdateLeaveStatus(l.id, u.id, 'rejected')} className="text-[10px] text-red-500 border border-red-100 bg-red-50 px-2 py-0.5 rounded hover:bg-red-100 flex items-center gap-1">
                                                                                    <XCircle className="w-3 h-3" /> {l.leaveStatus === 'pending' ? '驳回' : '撤销'}
                                                                                </button>
                                                                            )}
                                                                            {l.leaveStatus === 'pending' && (
-                                                                               <button onClick={() => handleUpdateLeave(l.id, u.id, 'approved')} className="text-[10px] text-green-600 border border-green-100 bg-green-50 px-2 py-0.5 rounded hover:bg-green-100 flex items-center gap-1">
+                                                                               <button onClick={() => handleUpdateLeaveStatus(l.id, u.id, 'approved')} className="text-[10px] text-green-600 border border-green-100 bg-green-50 px-2 py-0.5 rounded hover:bg-green-100 flex items-center gap-1">
                                                                                    <CheckCircle2 className="w-3 h-3" /> 批准
                                                                                </button>
                                                                            )}

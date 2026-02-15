@@ -3,7 +3,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckIn, SubjectCategory, User, getUserStyle } from '../types'; 
 import { MarkdownText } from './MarkdownText';
-import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Clock, Search, User as UserIcon, Calendar as CalendarIcon, ArrowLeft, Pin, Trash2, Users, Coffee, Check, XCircle, Maximize2, ShieldCheck, Plus, PenTool } from 'lucide-react';
+import { Image as ImageIcon, Send, ThumbsUp, X, Filter, Eye, Edit2, Lock, Megaphone, Clock, Search, User as UserIcon, Calendar as CalendarIcon, ArrowLeft, Pin, Trash2, Users, Coffee, Check, XCircle, Maximize2, ShieldCheck, Plus, PenTool, Download } from 'lucide-react';
 import { FullScreenEditor } from './FullScreenEditor';
 import { FILTER_GROUPS } from '../constants';
 import { compressImage } from '../services/imageUtils';
@@ -137,6 +137,38 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
       setViewerImages([imgUrl]);
       setIsViewerOpen(true);
   }
+
+  const handleExportFeed = () => {
+      const allPosts = [...checkIns].sort((a, b) => b.timestamp - a.timestamp);
+      
+      let md = `# 🌟 研友圈动态导出\n`;
+      md += `> 导出时间: ${new Date().toLocaleString()}\n\n---\n\n`;
+
+      allPosts.forEach(c => {
+          const dateStr = new Date(c.timestamp).toLocaleString('zh-CN', { 
+              year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
+          });
+          const typeLabel = c.isPenalty ? '⚠️ 惩罚' : c.isLeave ? '☕ 请假' : `📝 ${c.subject}`;
+          const ratingInfo = c.userRating ? `(R: ${c.userRating})` : '';
+          
+          md += `### [${typeLabel}] ${c.userName} ${ratingInfo} @ ${dateStr}\n\n`;
+          md += `${c.content}\n\n`;
+          
+          if (c.imageUrl) {
+              md += `![Image](${c.imageUrl})\n\n`;
+          }
+          md += `---\n\n`;
+      });
+
+      const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `KaoyanMate_Feed_Export_${new Date().toISOString().split('T')[0]}.md`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  };
 
   // Admin Approval
   const handleApproveLeave = async (checkIn: CheckIn) => {
@@ -615,6 +647,13 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
                   <p className="text-xs text-gray-500 font-medium">交流心得，共同进步</p>
               </div>
           </div>
+          <button 
+              onClick={handleExportFeed}
+              className="bg-white text-gray-500 p-2 rounded-xl shadow-sm border border-gray-100 hover:text-brand-600 hover:border-brand-200 transition-colors"
+              title="导出全部动态"
+          >
+              <Download className="w-5 h-5" />
+          </button>
       </div>
 
       {/* Filter Bar */}
