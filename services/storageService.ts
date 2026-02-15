@@ -1,5 +1,4 @@
 
-
 import { supabase } from './supabase';
 import { CheckIn, User, AlgorithmTask, AlgorithmSubmission, Goal, RatingHistory, LeaveStatus, SubjectCategory } from "../types";
 
@@ -666,6 +665,15 @@ export const updateLeaveStatus = async (checkInId: string, status: LeaveStatus, 
         leave_status: status,
         makeup_minutes: makeupMinutes
     }).eq('id', checkInId);
+    if (error) throw error;
+}
+
+// NEW: Update CheckIn Timestamp (specifically for admin editing leave dates)
+export const updateCheckInTimestamp = async (checkInId: string, newTimestamp: number, contentUpdate?: string) => {
+    const updates: any = { timestamp: newTimestamp };
+    if (contentUpdate) updates.content = contentUpdate;
+    
+    const { error } = await supabase.from('checkins').update(updates).eq('id', checkInId);
     if (error) throw error;
 }
 

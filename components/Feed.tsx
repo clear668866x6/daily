@@ -1,5 +1,4 @@
 
-
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckIn, SubjectCategory, User, getUserStyle } from '../types'; 
@@ -45,6 +44,9 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
   // Viewer State
   const [viewerImages, setViewerImages] = useState<string[]>([]);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
+
+  // Pagination State
+  const [visibleCount, setVisibleCount] = useState(20);
 
   const isGuest = user.role === 'guest';
   const isAdmin = user.role === 'admin';
@@ -155,12 +157,12 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
   }
 
   // Regular Feed Filtering
-  const { announcements, regularPosts } = useMemo(() => {
+  const { announcements, regularPosts, totalRegularPosts } = useMemo(() => {
     const pinned = checkIns.filter(c => !!c.isAnnouncement);
     const regular = checkIns.filter(c => !c.isAnnouncement);
     
     if (activeFilterId === 'ANNOUNCEMENT') {
-        return { announcements: [], regularPosts: pinned };
+        return { announcements: [], regularPosts: pinned, totalRegularPosts: pinned.length };
     }
 
     let filteredRegular = regular;
@@ -171,8 +173,17 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
         }
     }
     
-    return { announcements: pinned, regularPosts: filteredRegular };
-  }, [activeFilterId, checkIns]);
+    return { announcements: pinned, regularPosts: filteredRegular.slice(0, visibleCount), totalRegularPosts: filteredRegular.length };
+  }, [activeFilterId, checkIns, visibleCount]);
+
+  // Handle Show More logic
+  const handleShowMore = () => {
+      // Increment by 5% of total, but minimum 5 items
+      const increment = Math.max(5, Math.ceil(totalRegularPosts * 0.05));
+      setVisibleCount(prev => prev + increment);
+  };
+
+  const hasMore = visibleCount < totalRegularPosts;
 
   // Advanced Search Filtering
   const searchResults = useMemo(() => {
@@ -655,7 +666,24 @@ export const Feed: React.FC<Props> = ({ checkIns, user, onAddCheckIn, onLike, on
           )}
 
           {regularPosts.length > 0 ? (
-              regularPosts.map(checkIn => renderCard(checkIn, checkIn.isAnnouncement))
+              <>
+                  {regularPosts.map(checkIn => renderCard(checkIn, checkIn.isAnnouncement))}
+                  {hasMore && (
+                      <div className="text-center py-4">
+                          <button 
+                              onClick={handleShowMore}
+                              className="px-6 py-2 bg-white text-gray-500 rounded-full text-xs font-bold hover:bg-gray-50 transition-colors border border-gray-200 shadow-sm"
+                          >
+                              展开更多动态 (+{Math.max(5, Math.ceil(totalRegularPosts * 0.05))})
+                          </button>
+                      </div>
+                  )}
+                  {!hasMore && totalRegularPosts > 20 && (
+                        <div className="text-center py-4 text-xs text-gray-300">
+                            已无更多动态
+                        </div>
+                  )}
+              </>
           ) : (
               <div className="py-20 flex flex-col items-center justify-center text-gray-300 bg-white rounded-3xl border border-dashed border-gray-200">
                   <Filter className="w-12 h-12 mb-4 opacity-20" />

@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { User, CheckIn, SubjectCategory, getUserStyle, getTitleName, RatingHistory } from '../types';
 import { MarkdownText } from './MarkdownText';
-import { Calendar, Filter, Clock, MapPin, X, Search, User as UserIcon, TrendingUp, ChevronLeft, ArrowLeft, History, Trash2, Edit2, Sparkles, ChevronRight, ChevronDown, Save, ShieldCheck, BarChart3, Download, FileText } from 'lucide-react';
+import { Calendar, Filter, Clock, MapPin, X, Search, User as UserIcon, TrendingUp, ChevronLeft, ArrowLeft, History, Trash2, Edit2, Sparkles, ChevronRight, ChevronDown, Save, ShieldCheck, BarChart3, Download, FileText, ChevronDown as ChevronDownIcon } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import * as storage from '../services/storageService';
 import { FullScreenEditor } from './FullScreenEditor';
@@ -131,6 +131,9 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
       return d.toISOString().split('T')[0];
   });
   const [exportEndDate, setExportEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+
+  // Pagination State
+  const [visibleCount, setVisibleCount] = useState(20);
 
   const subjectButtonRef = useRef<HTMLButtonElement>(null);
   const calendarButtonRef = useRef<HTMLButtonElement>(null);
@@ -304,6 +307,17 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
     }
     return list;
   }, [myCheckIns, filterSubject, filterDate]);
+
+  // Handle Show More logic
+  const handleShowMore = () => {
+      const total = filteredCheckIns.length;
+      // Increment by 5% of total, but minimum 5 items
+      const increment = Math.max(5, Math.ceil(total * 0.05));
+      setVisibleCount(prev => prev + increment);
+  };
+
+  const displayCheckIns = filteredCheckIns.slice(0, visibleCount);
+  const hasMore = visibleCount < filteredCheckIns.length;
 
   const totalDays = new Set(myCheckIns.map(c => formatDateKey(c.timestamp))).size;
   const totalDuration = myCheckIns.filter(c => !c.isPenalty).reduce((acc, curr) => acc + (curr.duration || 0), 0);
@@ -720,7 +734,7 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
                     className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50 transition-colors shadow-sm"
                 >
                     {filterSubject === 'ALL' ? '全部科目' : filterSubject}
-                    <ChevronDown className="w-3 h-3" />
+                    <ChevronDownIcon className="w-3 h-3" />
                 </button>
                 
                 {showSubjectMenu && (
@@ -787,99 +801,117 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
 
         {/* Timeline Content */}
         <div className="px-4 md:px-8 py-8 space-y-0 bg-white min-h-[500px]">
-            {filteredCheckIns.length > 0 ? (
-                filteredCheckIns.map((checkIn, index) => {
-                    const isLast = index === filteredCheckIns.length - 1;
-                    const dateObj = new Date(checkIn.timestamp);
-                    const timeStr = dateObj.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-                    // Display calendar date, even if grouped under previous business day
-                    const displayDateStr = dateObj.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
-                    
-                    const canEdit = currentUser.id === checkIn.userId || currentUser.role === 'admin';
-                    const isAdmin = currentUser.role === 'admin';
-                    const isPenalty = checkIn.isPenalty;
+            {displayCheckIns.length > 0 ? (
+                <>
+                    {displayCheckIns.map((checkIn, index) => {
+                        const isLast = index === displayCheckIns.length - 1;
+                        const dateObj = new Date(checkIn.timestamp);
+                        const timeStr = dateObj.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+                        // Display calendar date, even if grouped under previous business day
+                        const displayDateStr = dateObj.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+                        
+                        const canEdit = currentUser.id === checkIn.userId || currentUser.role === 'admin';
+                        const isAdmin = currentUser.role === 'admin';
+                        const isPenalty = checkIn.isPenalty;
 
-                    return (
-                        <div key={checkIn.id} className="flex gap-4 md:gap-6 group">
-                            {/* Timeline Column */}
-                            <div className="flex flex-col items-center shrink-0 w-16 pt-1">
-                                <span className="text-xs font-black text-gray-800">{timeStr}</span>
-                                <span className="text-[10px] text-gray-400 font-mono mb-2">{displayDateStr}</span>
-                                <div className={`w-3 h-3 rounded-full border-2 z-10 bg-white ${checkIn.isPenalty ? 'border-red-500 ring-2 ring-red-100' : 'border-brand-500 ring-2 ring-brand-100'}`}></div>
-                                {!isLast && <div className="w-0.5 flex-1 bg-gray-100 group-hover:bg-brand-100 transition-colors my-2 rounded-full"></div>}
-                            </div>
-                            
-                            {/* Card Column */}
-                            <div className="flex-1 pb-8 max-w-2xl">
-                                <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5 group-hover:border-brand-100 relative">
-                                    {/* Duration Badge & Actions */}
-                                    <div className="flex justify-between items-start mb-3">
-                                        <div className="flex items-center gap-2">
-                                            <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border flex items-center gap-1.5 ${
-                                                checkIn.isPenalty 
-                                                ? 'bg-red-50 text-red-600 border-red-100' 
-                                                : (checkIn.isLeave ? 'bg-yellow-100 text-yellow-600 border-yellow-200' : 'bg-brand-50 text-brand-600 border-brand-100')
-                                            }`}>
-                                                <div className="w-1.5 h-1.5 rounded-full bg-current opacity-60"></div>
-                                                {checkIn.isLeave ? '请假申请' : checkIn.subject}
-                                            </span>
-                                            {!checkIn.isLeave && checkIn.duration > 0 && (
-                                                <span className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border ${
-                                                    checkIn.isPenalty ? 'text-red-500 bg-white border-red-100' : 'text-gray-500 bg-gray-50 border-gray-100'
+                        return (
+                            <div key={checkIn.id} className="flex gap-4 md:gap-6 group">
+                                {/* Timeline Column */}
+                                <div className="flex flex-col items-center shrink-0 w-16 pt-1">
+                                    <span className="text-xs font-black text-gray-800">{timeStr}</span>
+                                    <span className="text-[10px] text-gray-400 font-mono mb-2">{displayDateStr}</span>
+                                    <div className={`w-3 h-3 rounded-full border-2 z-10 bg-white ${checkIn.isPenalty ? 'border-red-500 ring-2 ring-red-100' : 'border-brand-500 ring-2 ring-brand-100'}`}></div>
+                                    {!isLast && <div className="w-0.5 flex-1 bg-gray-100 group-hover:bg-brand-100 transition-colors my-2 rounded-full"></div>}
+                                </div>
+                                
+                                {/* Card Column */}
+                                <div className="flex-1 pb-8 max-w-2xl">
+                                    <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5 group-hover:border-brand-100 relative">
+                                        {/* Duration Badge & Actions */}
+                                        <div className="flex justify-between items-start mb-3">
+                                            <div className="flex items-center gap-2">
+                                                <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border flex items-center gap-1.5 ${
+                                                    checkIn.isPenalty 
+                                                    ? 'bg-red-50 text-red-600 border-red-100' 
+                                                    : (checkIn.isLeave ? 'bg-yellow-100 text-yellow-600 border-yellow-200' : 'bg-brand-50 text-brand-600 border-brand-100')
                                                 }`}>
-                                                    <Clock className="w-3 h-3"/> {checkIn.duration} min
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-current opacity-60"></div>
+                                                    {checkIn.isLeave ? '请假申请' : checkIn.subject}
                                                 </span>
-                                            )}
-                                        </div>
-                                        
-                                        {/* Edit/Delete Actions */}
-                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            {/* Admin Exempt Button */}
-                                            {isAdmin && isPenalty && onExemptPenalty && (
-                                                <button 
-                                                    onClick={() => onExemptPenalty(checkIn.id)}
-                                                    className="text-indigo-500 bg-indigo-50 hover:bg-indigo-100 transition-colors px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 mr-2"
-                                                    title="免除扣分"
-                                                >
-                                                    <ShieldCheck className="w-4 h-4" /> 豁免
-                                                </button>
-                                            )}
-                                        
-                                            {canEdit && (
-                                                <>
+                                                {!checkIn.isLeave && checkIn.duration > 0 && (
+                                                    <span className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border ${
+                                                        checkIn.isPenalty ? 'text-red-500 bg-white border-red-100' : 'text-gray-500 bg-gray-50 border-gray-100'
+                                                    }`}>
+                                                        <Clock className="w-3 h-3"/> {checkIn.duration} min
+                                                    </span>
+                                                )}
+                                            </div>
+                                            
+                                            {/* Edit/Delete Actions */}
+                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {/* Admin Exempt Button */}
+                                                {isAdmin && isPenalty && onExemptPenalty && (
                                                     <button 
-                                                        onClick={() => setEditingCheckIn(checkIn)}
-                                                        className="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
-                                                        title="编辑"
+                                                        onClick={() => onExemptPenalty(checkIn.id)}
+                                                        className="text-indigo-500 bg-indigo-50 hover:bg-indigo-100 transition-colors px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 mr-2"
+                                                        title="免除扣分"
                                                     >
-                                                        <Edit2 className="w-3.5 h-3.5" />
+                                                        <ShieldCheck className="w-4 h-4" /> 豁免
                                                     </button>
-                                                    <button 
-                                                        onClick={() => onDeleteCheckIn(checkIn.id)}
-                                                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                                        title="删除"
-                                                    >
-                                                        <Trash2 className="w-3.5 h-3.5" />
-                                                    </button>
-                                                </>
-                                            )}
+                                                )}
+                                            
+                                                {canEdit && (
+                                                    <>
+                                                        <button 
+                                                            onClick={() => setEditingCheckIn(checkIn)}
+                                                            className="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                                                            title="编辑"
+                                                        >
+                                                            <Edit2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => onDeleteCheckIn(checkIn.id)}
+                                                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                            title="删除"
+                                                        >
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </>
+                                                )}
+                                            </div>
                                         </div>
-                                    </div>
 
-                                    <div className="text-gray-800 text-sm leading-relaxed">
-                                        <MarkdownText content={checkIn.content} />
-                                    </div>
-                                    
-                                    {checkIn.imageUrl && (
-                                        <div className="mt-4">
-                                            <img src={checkIn.imageUrl} alt="Log" className="rounded-xl max-h-64 w-full object-cover border border-gray-100" />
+                                        <div className="text-gray-800 text-sm leading-relaxed">
+                                            <MarkdownText content={checkIn.content} />
                                         </div>
-                                    )}
+                                        
+                                        {checkIn.imageUrl && (
+                                            <div className="mt-4">
+                                                <img src={checkIn.imageUrl} alt="Log" className="rounded-xl max-h-64 w-full object-cover border border-gray-100" />
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
+                        );
+                    })}
+                    
+                    {hasMore && (
+                        <div className="text-center py-4">
+                            <button 
+                                onClick={handleShowMore}
+                                className="px-6 py-2 bg-gray-50 text-gray-500 rounded-full text-xs font-bold hover:bg-gray-100 transition-colors border border-gray-200"
+                            >
+                                加载更多记录 ({filteredCheckIns.length - visibleCount})
+                            </button>
                         </div>
-                    );
-                })
+                    )}
+                    {!hasMore && filteredCheckIns.length > 20 && (
+                        <div className="text-center py-4 text-xs text-gray-300">
+                            已无更多数据
+                        </div>
+                    )}
+                </>
             ) : (
                 <div className="flex flex-col items-center justify-center py-20 text-gray-400">
                     <Search className="w-12 h-12 mb-4 opacity-20" />

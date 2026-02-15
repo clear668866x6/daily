@@ -87,6 +87,13 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
   const [recalcProgress, setRecalcProgress] = useState(0);
   const [isGlobalRecalc, setIsGlobalRecalc] = useState(false); // NEW: Toggle between single user and all users
 
+  // Leave Management State
+  const [creatingLeaveForUser, setCreatingLeaveForUser] = useState<string | null>(null);
+  const [newLeaveDate, setNewLeaveDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newLeaveDays, setNewLeaveDays] = useState(1);
+  const [newLeaveReason, setNewLeaveReason] = useState('');
+  const [editingLeaveDate, setEditingLeaveDate] = useState<{id: string, date: string} | null>(null);
+
   // Trigger re-render when checkIns change (important for status updates)
   const [localCheckIns, setLocalCheckIns] = useState<CheckIn[]>(checkIns);
   useEffect(() => {
@@ -191,6 +198,7 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
   const toggleRowExpand = (userId: string) => {
       if (expandedUserIds.includes(userId)) {
           setExpandedUserIds(prev => prev.filter(id => id !== userId));
+          setCreatingLeaveForUser(null); // Close leave form if open
       } else {
           setExpandedUserIds(prev => [...prev, userId]);
           // Load Penalties
@@ -236,19 +244,15 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
               if (leaveRecord) {
                   const days = leaveRecord.leaveDays || 1;
                   // Get the business start date of the leave
-                  // Parse YYYY-MM-DD from the timestamp using the consistent business logic
                   const startString = formatDateKey(leaveRecord.timestamp);
                   const [y, m, d] = startString.split('-').map(Number);
                   
                   const coveredDates = new Set<string>();
                   for (let i = 0; i < days; i++) {
-                      // Create a date at Noon to safely represent the "Business Day" 
-                      // This avoids 4AM shift complications when iterating dates
                       const dateIter = new Date(y, m - 1, d + i, 12, 0, 0); 
                       coveredDates.add(formatDateKey(dateIter));
                   }
 
-                  // Find penalties for this user that fall on these business days
                   const penalties = localCheckIns.filter(c => 
                       c.userId === userId && 
                       c.isPenalty && 
@@ -263,7 +267,6 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
                           exemptCount++;
                       }
                       
-                      // Update local state to reflect exemptions immediately
                       setLocalCheckIns(prev => prev.map(c => {
                           if (c.userId === userId && c.isPenalty && coveredDates.has(formatDateKey(c.timestamp))) {
                               return { ...c, isPenalty: false, content: c.content + ' [请假自动豁免]' };
@@ -271,7 +274,6 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
                           return c;
                       }));
                       
-                      // Update User Penalty Map for the expanded row
                       setUserPenaltyMap(prev => {
                           const userPenalties = prev[userId] || [];
                           return {
@@ -302,6 +304,82 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
       } catch (e) {
           console.error(e);
           onShowToast("更新失败", 'error');
+      }
+  }
+
+  const handleAdminCreateLeave = async (userId: string) => {
+      if (!newLeaveReason.trim()) { onShowToast("请输入请假理由", 'error'); return; }
+      
+      const targetUser = allUsers.find(u => u.id === userId);
+      if (!targetUser) return;
+
+      const dailyMakeup = 60;
+      const makeup = dailyMakeup * newLeaveDays;
+      const startTimestamp = new Date(newLeaveDate).setHours(12, 0, 0, 0);
+
+      const leaveCheckIn: CheckIn = {
+          id: Date.now().toString(),
+          userId: targetUser.id,
+          userName: targetUser.name,
+          userAvatar: targetUser.avatar,
+          userRating: targetUser.rating,
+          userRole: targetUser.role,
+          subject: SubjectCategory.OTHER,
+          content: `📜 **请假申请 (管理员代办)**\n\n**开始日期**: ${newLeaveDate}\n**天数**: ${newLeaveDays} 天\n**理由**: ${newLeaveReason}\n\n✅ 已批准 (需补时 ${makeup} 分钟)`,
+          duration: 0,
+          isLeave: true,
+          leaveDays: newLeaveDays,
+          leaveReason: newLeaveReason,
+          leaveStatus: 'approved',
+          makeupMinutes: makeup,
+          timestamp: startTimestamp,
+          likedBy: []
+      };
+
+      try {
+          await storage.addCheckIn(leaveCheckIn);
+          onShowToast("代请假成功", 'success');
+          setCreatingLeaveForUser(null);
+          setNewLeaveReason('');
+          setNewLeaveDays(1);
+          setNewLeaveDate(new Date().toISOString().split('T')[0]);
+          
+          // Reload leaves for this user
+          const leaves = await storage.getUserCheckIns(userId);
+          const filteredLeaves = leaves.filter(c => c.isLeave).sort((a, b) => b.timestamp - a.timestamp);
+          setUserLeaveMap(prev => ({ ...prev, [userId]: filteredLeaves }));
+          setLocalCheckIns(prev => [leaveCheckIn, ...prev]);
+
+      } catch(e) {
+          console.error(e);
+          onShowToast("创建失败", 'error');
+      }
+  }
+
+  const handleEditLeaveDate = async (checkInId: string, userId: string) => {
+      if (!editingLeaveDate || editingLeaveDate.id !== checkInId) return;
+      try {
+          const newTs = new Date(editingLeaveDate.date).setHours(12, 0, 0, 0);
+          
+          // We also need to update the content text because it contains the date string
+          const currentLeave = userLeaveMap[userId].find(l => l.id === checkInId);
+          let newContent = currentLeave?.content || '';
+          
+          // Replace date string in content: "**开始日期**: YYYY-MM-DD"
+          newContent = newContent.replace(/\*\*开始日期\*\*: \d{4}-\d{2}-\d{2}/, `**开始日期**: ${editingLeaveDate.date}`);
+
+          await storage.updateCheckInTimestamp(checkInId, newTs, newContent);
+          
+          onShowToast("日期已修改", 'success');
+          setEditingLeaveDate(null);
+          
+          // Update local state
+          const updatedLeaves = userLeaveMap[userId].map(l => l.id === checkInId ? { ...l, timestamp: newTs, content: newContent } : l);
+          setUserLeaveMap(prev => ({ ...prev, [userId]: updatedLeaves }));
+          setLocalCheckIns(prev => prev.map(c => c.id === checkInId ? { ...c, timestamp: newTs, content: newContent } : c));
+
+      } catch(e) {
+          onShowToast("修改失败", 'error');
       }
   }
 
@@ -838,13 +916,40 @@ export const AdminDashboard: React.FC<Props> = ({ checkIns, currentUser, allUser
                                                    </div>
                                                    {/* Leaves Section */}
                                                    <div className="space-y-2">
-                                                       <h4 className="text-xs font-bold text-yellow-700 uppercase tracking-wider flex items-center gap-2"><Coffee className="w-3 h-3 text-yellow-600" /> 请假管理</h4>
+                                                       <div className="flex justify-between items-center">
+                                                           <h4 className="text-xs font-bold text-yellow-700 uppercase tracking-wider flex items-center gap-2"><Coffee className="w-3 h-3 text-yellow-600" /> 请假管理</h4>
+                                                           <button onClick={() => setCreatingLeaveForUser(creatingLeaveForUser === u.id ? null : u.id)} className="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded font-bold hover:bg-yellow-200 transition-colors flex items-center gap-1"><PlusCircle className="w-3 h-3"/> 代为请假</button>
+                                                       </div>
+                                                       
+                                                       {/* Creating Leave Form */}
+                                                       {creatingLeaveForUser === u.id && (
+                                                           <div className="bg-yellow-50 p-2 rounded-lg border border-yellow-200 space-y-2 animate-fade-in">
+                                                               <div className="flex gap-2">
+                                                                   <input type="date" value={newLeaveDate} onChange={e => setNewLeaveDate(e.target.value)} className="w-24 text-xs p-1 rounded border border-yellow-300" />
+                                                                   <input type="number" min="1" max="7" value={newLeaveDays} onChange={e => setNewLeaveDays(parseInt(e.target.value))} className="w-12 text-xs p-1 rounded border border-yellow-300" placeholder="天" />
+                                                                   <button onClick={() => handleAdminCreateLeave(u.id)} className="bg-yellow-600 text-white text-xs px-2 rounded font-bold hover:bg-yellow-700 flex-1">提交</button>
+                                                               </div>
+                                                               <input placeholder="请假理由..." value={newLeaveReason} onChange={e => setNewLeaveReason(e.target.value)} className="w-full text-xs p-1 rounded border border-yellow-300" />
+                                                           </div>
+                                                       )}
+
                                                        <div className="bg-gray-50 rounded-lg p-2 max-h-40 overflow-y-auto custom-scrollbar border border-gray-100">
                                                            {userLeaveMap[u.id] && userLeaveMap[u.id].length > 0 ? (
                                                                userLeaveMap[u.id].map(l => (
                                                                    <div key={l.id} className="flex flex-col p-2 mb-1 bg-white rounded border border-gray-100 last:mb-0 gap-1.5">
                                                                        <div className="flex justify-between items-center">
-                                                                           <div className="text-[10px] text-gray-400 font-mono">{new Date(l.timestamp).toLocaleDateString()} ({l.leaveDays}天)</div>
+                                                                           {editingLeaveDate?.id === l.id ? (
+                                                                               <div className="flex items-center gap-1">
+                                                                                   <input type="date" value={editingLeaveDate.date} onChange={e => setEditingLeaveDate({...editingLeaveDate, date: e.target.value})} className="text-[10px] border rounded px-1 py-0.5" />
+                                                                                   <button onClick={() => handleEditLeaveDate(l.id, u.id)} className="text-green-600 bg-green-50 p-0.5 rounded"><Check className="w-3 h-3"/></button>
+                                                                                   <button onClick={() => setEditingLeaveDate(null)} className="text-gray-400 bg-gray-50 p-0.5 rounded"><X className="w-3 h-3"/></button>
+                                                                               </div>
+                                                                           ) : (
+                                                                               <div className="text-[10px] text-gray-400 font-mono flex items-center gap-1 group/date">
+                                                                                   {new Date(l.timestamp).toLocaleDateString()} ({l.leaveDays}天)
+                                                                                   <Edit3 className="w-3 h-3 text-gray-300 opacity-0 group-hover/date:opacity-100 cursor-pointer hover:text-indigo-500" onClick={() => setEditingLeaveDate({id: l.id, date: formatDateKey(l.timestamp)})} />
+                                                                               </div>
+                                                                           )}
                                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
                                                                                l.leaveStatus === 'approved' ? 'bg-green-50 text-green-600' : 
                                                                                l.leaveStatus === 'rejected' ? 'bg-red-50 text-red-600' : 'bg-yellow-50 text-yellow-600'
