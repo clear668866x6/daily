@@ -1,9 +1,8 @@
 
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { User, CheckIn, SubjectCategory, getUserStyle, getTitleName, RatingHistory } from '../types';
 import { MarkdownText } from './MarkdownText';
-import { Calendar, Filter, Clock, MapPin, X, Search, User as UserIcon, TrendingUp, ChevronLeft, ArrowLeft, History, Trash2, Edit2, Sparkles, ChevronRight, ChevronDown, Save, ShieldCheck, BarChart3, Download } from 'lucide-react';
+import { Calendar, Filter, Clock, MapPin, X, Search, User as UserIcon, TrendingUp, ChevronLeft, ArrowLeft, History, Trash2, Edit2, Sparkles, ChevronRight, ChevronDown, Save, ShieldCheck, BarChart3, Download, FileText } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import * as storage from '../services/storageService';
 import { FullScreenEditor } from './FullScreenEditor';
@@ -124,6 +123,15 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
   const [isEditingGoal, setIsEditingGoal] = useState(false);
   const [newGoal, setNewGoal] = useState(user.dailyGoal || 90);
 
+  // Export State
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportStartDate, setExportStartDate] = useState(() => {
+      const d = new Date();
+      d.setMonth(d.getMonth() - 1);
+      return d.toISOString().split('T')[0];
+  });
+  const [exportEndDate, setExportEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+
   const subjectButtonRef = useRef<HTMLButtonElement>(null);
   const calendarButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -192,32 +200,92 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
           await storage.adminUpdateUser(user.id, { dailyGoal: newGoal });
           user.dailyGoal = newGoal; // Local optimistic update
           setIsEditingGoal(false);
-          // Ideally trigger a global refresh via callback, but this is okay for now
       } catch (e) {
           console.error("Failed to update goal");
       }
   }
 
-  const handleDownloadData = () => {
-      const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + 
-          "Date,Subject,Duration(min),Rating Impact,Content\n" +
-          myCheckIns.map(c => {
-              const date = new Date(c.timestamp).toLocaleString();
-              const subject = c.subject;
-              const duration = c.duration || 0;
-              const ratingImpact = c.isPenalty ? 'Penalty' : (c.userRating ? `~${c.userRating}` : 'N/A');
-              const content = `"${c.content.replace(/"/g, '""').replace(/\n/g, ' ')}"`;
-              return `${date},${subject},${duration},${ratingImpact},${content}`;
-          }).join("\n");
+  const handleExportMarkdown = () => {
+      if (!exportStartDate || !exportEndDate) return;
 
-      const encodedUri = encodeURI(csvContent);
+      const start = new Date(exportStartDate).getTime();
+      // Set end date to end of day
+      const end = new Date(exportEndDate).setHours(23, 59, 59, 999);
+
+      // Filter Data
+      const logs = myCheckIns.filter(c => c.timestamp >= start && c.timestamp <= end);
+      
+      // Calculate Stats
+      let totalDuration = 0;
+      const subjectStats: Record<string, number> = {};
+      
+      logs.forEach(c => {
+          if (c.isPenalty) return;
+          const dur = c.duration || 0;
+          totalDuration += dur;
+          subjectStats[c.subject] = (subjectStats[c.subject] || 0) + dur;
+      });
+
+      // Build Markdown
+      let md = `# 📅 考研复习日志归档 - ${user.name}\n\n`;
+      md += `> **导出时间**: ${new Date().toLocaleString()}\n`;
+      md += `> **统计范围**: ${exportStartDate} 至 ${exportEndDate}\n\n`;
+      
+      md += `## 📊 阶段总结\n\n`;
+      md += `- **总投入时长**: **${Math.floor(totalDuration / 60)}** 小时 **${totalDuration % 60}** 分钟\n`;
+      md += `- **总打卡记录**: **${logs.length}** 条\n`;
+      md += `- **当前 Rating**: ${user.rating || 1200}\n\n`;
+
+      md += `### 🍰 科目时间分布\n\n`;
+      md += `| 科目 | 总时长 (min) | 占比 |\n`;
+      md += `| :--- | :--- | :--- |\n`;
+      
+      const sortedSubjects = Object.entries(subjectStats).sort((a, b) => b[1] - a[1]);
+      
+      if (sortedSubjects.length > 0) {
+          sortedSubjects.forEach(([sub, dur]) => {
+              const percentage = totalDuration > 0 ? ((dur / totalDuration) * 100).toFixed(1) : '0.0';
+              md += `| **${sub}** | ${dur} | ${percentage}% |\n`;
+          });
+      } else {
+          md += `| 暂无数据 | - | - |\n`;
+      }
+      
+      md += `\n---\n\n`;
+      md += `## 📝 详细记录\n\n`;
+
+      if (logs.length === 0) {
+          md += `*该时间段内暂无打卡记录。*\n`;
+      } else {
+          logs.forEach(c => {
+              const dateStr = new Date(c.timestamp).toLocaleString('zh-CN', { 
+                  year: 'numeric', month: '2-digit', day: '2-digit', 
+                  hour: '2-digit', minute: '2-digit' 
+              });
+              
+              const titlePrefix = c.isPenalty ? '⚠️ [惩罚]' : c.isLeave ? '☕ [请假]' : `✅ [${c.subject}]`;
+              const durationText = !c.isPenalty && !c.isLeave ? `(${c.duration} min)` : '';
+              
+              md += `### ${dateStr} ${titlePrefix} ${durationText}\n\n`;
+              if (c.userRating) md += `> **Rating**: ${c.userRating}\n\n`;
+              md += `${c.content}\n\n`;
+              if (c.imageUrl) md += `![Image](${c.imageUrl})\n\n`;
+              md += `---\n\n`;
+          });
+      }
+
+      // Create Download
+      const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.setAttribute("href", encodedUri);
-      link.setAttribute("download", `kaoyan_logs_${user.name}_${new Date().toISOString().split('T')[0]}.csv`);
+      link.setAttribute("href", url);
+      link.setAttribute("download", `KyTracker_${user.name}_${exportStartDate}_${exportEndDate}.md`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-  }
+      
+      setShowExportModal(false);
+  };
 
   const myCheckIns = useMemo(() => {
     return checkIns.filter(c => c.userId === user.id).sort((a, b) => b.timestamp - a.timestamp);
@@ -337,6 +405,49 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
   return (
     <div className="min-h-full bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden animate-slide-up relative">
         
+        {/* Export Modal */}
+        {showExportModal && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in" onClick={() => setShowExportModal(false)}>
+                <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+                    <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                        <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                            <FileText className="w-5 h-5 text-brand-600" /> 导出学习日志
+                        </h3>
+                        <button onClick={() => setShowExportModal(false)}><X className="w-5 h-5 text-gray-400"/></button>
+                    </div>
+                    <div className="p-6 space-y-4">
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">开始日期</label>
+                            <input 
+                                type="date" 
+                                value={exportStartDate}
+                                onChange={e => setExportStartDate(e.target.value)}
+                                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-brand-500"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">结束日期</label>
+                            <input 
+                                type="date" 
+                                value={exportEndDate}
+                                onChange={e => setExportEndDate(e.target.value)}
+                                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-brand-500"
+                            />
+                        </div>
+                        <p className="text-xs text-gray-400 leading-relaxed pt-2">
+                            * 将导出 Markdown 格式文件，包含所选时间段内的统计摘要、科目占比分析以及详细的打卡内容。
+                        </p>
+                    </div>
+                    <div className="p-4 border-t border-gray-100 flex gap-3">
+                        <button onClick={() => setShowExportModal(false)} className="flex-1 py-2.5 rounded-xl text-gray-500 font-bold hover:bg-gray-100 transition-colors">取消</button>
+                        <button onClick={handleExportMarkdown} className="flex-1 py-2.5 bg-brand-600 text-white rounded-xl font-bold hover:bg-brand-700 shadow-lg shadow-brand-200 flex items-center justify-center gap-2 transition-transform active:scale-95">
+                            <Download className="w-4 h-4" /> 确认导出
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
         {/* Editor Modal */}
         <FullScreenEditor 
             isOpen={!!editingCheckIn}
@@ -436,7 +547,7 @@ export const Profile: React.FC<Props> = ({ user, currentUser, checkIns, onSearch
             <div className="absolute top-6 right-6 z-10 flex gap-2">
                 {user.id === currentUser.id && (
                     <button 
-                        onClick={handleDownloadData}
+                        onClick={() => setShowExportModal(true)}
                         className="bg-white/20 backdrop-blur-md p-2.5 rounded-xl text-white hover:bg-white/30 transition-colors border border-white/20 shadow-lg"
                         title="下载数据"
                     >
