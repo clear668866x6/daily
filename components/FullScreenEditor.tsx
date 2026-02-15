@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Columns, Send, Edit3, Clock, Eye, EyeOff, Bold, Italic, List, ListOrdered, Heading1, Heading2, Quote, Code, CheckSquare, Link as LinkIcon, Image as ImageIcon } from 'lucide-react';
+import { X, Columns, Send, Edit3, Clock, Eye, EyeOff, Bold, Italic, List, ListOrdered, Heading1, Heading2, Quote, Code, CheckSquare, Link as LinkIcon, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { MarkdownText } from './MarkdownText';
 import { SubjectCategory } from '../types';
 
@@ -12,7 +12,7 @@ interface Props {
   initialSubject?: SubjectCategory;
   initialDuration?: number;
   allowDurationEdit?: boolean; // If false, duration is hidden or read-only
-  onSave: (content: string, subject: SubjectCategory, duration: number) => void;
+  onSave: (content: string, subject: SubjectCategory, duration: number) => Promise<void> | void;
   onChange?: (data: { content: string; subject: SubjectCategory; duration: number }) => void;
   title?: string;
   submitLabel?: string;
@@ -38,9 +38,6 @@ export const FullScreenEditor: React.FC<Props> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Initialize state when opening. 
-  // IMPORTANT: We only depend on `isOpen` changing to true to load initials.
-  // We DO NOT depend on `initialContent` changing, because if we sync back to parent, 
-  // `initialContent` will update, and re-setting state here would cause cursor jumps.
   useEffect(() => {
     if (isOpen) {
       setContent(initialContent);
@@ -60,14 +57,21 @@ export const FullScreenEditor: React.FC<Props> = ({
 
   if (!isOpen) return null;
 
-  const handleSave = () => {
+  const handleSave = async () => {
+      if (isSaving) return;
       setIsSaving(true);
-      // Simulate small delay for UX
-      setTimeout(() => {
-          onSave(content, subject, duration);
+      
+      try {
+          // Await the parent's save operation (DB call)
+          await onSave(content, subject, duration);
+          // Only close if successful (parent usually handles errors, but we assume success if no error thrown)
+          onClose(); 
+      } catch (e) {
+          console.error("Save failed inside editor", e);
+          // If error, stop saving state so user can try again
+      } finally {
           setIsSaving(false);
-          onClose();
-      }, 500);
+      }
   };
 
   const insertFormat = (prefix: string, suffix: string = '') => {
@@ -141,7 +145,8 @@ export const FullScreenEditor: React.FC<Props> = ({
           </div>
           <button 
             onClick={onClose} 
-            className="p-2 hover:bg-gray-200 rounded-full transition-colors group"
+            disabled={isSaving}
+            className="p-2 hover:bg-gray-200 rounded-full transition-colors group disabled:opacity-50"
             title="关闭 (ESC)"
           >
             <X className="w-6 h-6 text-gray-400 group-hover:text-gray-600" />
@@ -177,7 +182,8 @@ export const FullScreenEditor: React.FC<Props> = ({
             ref={textareaRef}
             value={content}
             onChange={e => setContent(e.target.value)}
-            className="flex-1 w-full p-8 resize-none outline-none text-gray-800 text-base md:text-lg leading-relaxed font-mono selection:bg-brand-100"
+            disabled={isSaving}
+            className="flex-1 w-full p-8 resize-none outline-none text-gray-800 text-base md:text-lg leading-relaxed font-mono selection:bg-brand-100 disabled:opacity-50 disabled:bg-gray-50"
             placeholder="# 今日学习笔记...\n\n支持 Markdown 语法，也可点击上方工具栏排版"
             autoFocus
           />
@@ -207,9 +213,19 @@ export const FullScreenEditor: React.FC<Props> = ({
           <button
             onClick={handleSave}
             disabled={isSaving || !content.trim()}
-            className="bg-brand-600 text-white px-8 py-2.5 rounded-xl font-bold hover:bg-brand-700 disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-brand-200 transition-all active:scale-95"
+            className="bg-brand-600 text-white px-8 py-2.5 rounded-xl font-bold hover:bg-brand-700 disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-brand-200 transition-all active:scale-95"
           >
-            {isSaving ? '提交中...' : <><Send className="w-4 h-4" /> {submitLabel}</>}
+            {isSaving ? (
+                <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    正在提交...
+                </>
+            ) : (
+                <>
+                    <Send className="w-4 h-4" /> 
+                    {submitLabel}
+                </>
+            )}
           </button>
       </div>
     </div>,

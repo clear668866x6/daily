@@ -178,6 +178,9 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   const [logMode, setLogMode] = useState<'study' | 'penalty'>('study');
   const [isFullScreen, setIsFullScreen] = useState(false);
 
+  // Success Modal State
+  const [successModalData, setSuccessModalData] = useState<{ title: string, message: string, type: 'success' | 'info' | 'danger' } | null>(null);
+
   // Calendar State
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -280,6 +283,16 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Auto Close Success Modal
+  useEffect(() => {
+      if (successModalData) {
+          const timer = setTimeout(() => {
+              setSuccessModalData(null);
+          }, 3000); // Close after 3 seconds
+          return () => clearTimeout(timer);
+      }
+  }, [successModalData]);
 
   // Load Data
   useEffect(() => {
@@ -588,11 +601,13 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
       localStorage.removeItem('ky_draft_subject');
       localStorage.removeItem('ky_draft_duration');
 
-      if (logMode === 'study') {
-          onShowToast(`✅ 学习记录已提交！Rating +${ratingChange}`, 'success');
-      } else {
-          onShowToast(`⚠️ 摸鱼记录已提交！Rating ${ratingChange}`, 'error');
-      }
+      // Replaced Toast with Modal logic
+      const scoreChangeText = logMode === 'study' ? `+${ratingChange}` : `${ratingChange}`;
+      setSuccessModalData({
+          title: logMode === 'study' ? '✅ 打卡成功' : '⚠️ 摸鱼记录已提交',
+          message: `本次 ${logMode === 'study' ? '专注学习' : '摸鱼'} ${durationVal} 分钟\n\n**Rating ${scoreChangeText}**\n\n${logMode === 'study' ? '离上岸又近了一步，继续保持！🔥' : '适当休息是为了更好出发，但不要贪杯哦~'}`,
+          type: logMode === 'study' ? 'success' : 'danger'
+      });
       
       if (isViewingSelf) {
          const rHist = await storage.getRatingHistory(currentUser.id);
@@ -780,6 +795,20 @@ export const Dashboard: React.FC<Props> = ({ checkIns, currentUser, onUpdateUser
   return (
     <div className="space-y-6 pb-24 animate-fade-in relative">
       
+      {/* Success Modal */}
+      {successModalData && (
+          <Modal 
+              isOpen={!!successModalData}
+              onClose={() => setSuccessModalData(null)}
+              onConfirm={() => setSuccessModalData(null)}
+              title={successModalData.title}
+              message={successModalData.message}
+              confirmText="关闭"
+              cancelText="关闭"
+              type={successModalData.type}
+          />
+      )}
+
       <FullScreenEditor 
           isOpen={isFullScreen}
           onClose={() => setIsFullScreen(false)}
